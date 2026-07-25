@@ -28,6 +28,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 .devserver.*.log
+.dev-server*.log
 .localgame.*.log
 .tunnel.*.log
 .ssh-tunnel.*.log
@@ -45,3 +46,5 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/.tunnel/
+public-game-link.txt
