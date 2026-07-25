@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { joinRoom } from "trystero";
 
 type View = "menu" | "game" | "coop";
 type Upgrade = { id: string; title: string; desc: string; icon: string };
@@ -8,6 +9,18 @@ type Actor = { x: number; y: number; r: number; hp: number; maxHp: number; color
 type Enemy = Actor & { speed: number; hit: number };
 type Shot = { x: number; y: number; vx: number; vy: number; r: number; damage: number; life: number };
 type Gem = { x: number; y: number; value: number };
+type NetPayload =
+  | { t: "hello" }
+  | { t: "start" }
+  | { t: "player"; x: number; y: number; hp: number; maxHp: number };
+type NetBridge = {
+  roomId: string;
+  role: "host" | "join";
+  room: ReturnType<typeof joinRoom>;
+  send: (data: NetPayload) => Promise<void>;
+  subscribe: (handler: (data: NetPayload) => void) => () => void;
+  connected: () => boolean;
+};
 
 const UPGRADES: Upgrade[] = [
   { id: "rapid", title: "余烬弹匣", desc: "射击间隔 -18%", icon: "✦" },
@@ -20,6 +33,39 @@ const UPGRADES: Upgrade[] = [
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+const normalizeRoomCode = (value: string) => value.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 24);
+const newRoomCode = () => `EMBER-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36).toUpperCase().slice(0, 7)}`;
+
+async function getRelayServers(): Promise<RTCIceServer[]> {
+  try {
+    const username = `${Math.floor(Date.now() / 1000) + 86400}:ember-protocol`;
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode("openrelayprojectsecret"),
+      { name: "HMAC", hash: "SHA-1" },
+      false,
+      ["sign"],
+    );
+    const signature = new Uint8Array(
+      await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(username)),
+    );
+    const credential = btoa(String.fromCharCode(...signature));
+    return [
+      {
+        urls: [
+          "turn:staticauth.openrelay.metered.ca:80?transport=udp",
+          "turn:staticauth.openrelay.metered.ca:80?transport=tcp",
+          "turn:staticauth.openrelay.metered.ca:443?transport=tcp",
+          "turns:staticauth.openrelay.metered.ca:443?transport=tcp",
+        ],
+        username,
+        credential,
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
 
 export default function Home() {
   const [view, setView] = useState<View>("menu");
@@ -32,12 +78,19 @@ export default function Home() {
   const [choices, setChoices] = useState<Upgrade[] | null>(null);
   const [sound, setSound] = useState(true);
   const [signalMode, setSignalMode] = useState<"host" | "join" | null>(null);
-  const [signalIn, setSignalIn] = useState("");
-  const [signalOut, setSignalOut] = useState("");
+  const [roomCode, setRoomCode] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [shareLink, setShareLink] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState<"idle" | "connecting" | "waiting" | "connected" | "error">("idle");
+  const [connectionMessage, setConnectionMessage] = useState("");
+  const [peerCount, setPeerCount] = useState(0);
+  const [latency, setLatency] = useState<number | null>(null);
+  const [copied, setCopied] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pausedRef = useRef(false);
   const resetRef = useRef<() => void>(() => {});
   const applyUpgradeRef = useRef<(id: string) => void>(() => {});
+  const netRef = useRef<NetBridge | null>(null);
 
   const startGame = useCallback(() => {
     setLevel(1); setXp(0); setHp(100); setKills(0); setSeconds(0);
@@ -46,6 +99,95 @@ export default function Home() {
   }, []);
 
   useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  const leaveRoom = useCallback(async () => {
+    const activeRoom = netRef.current;
+    netRef.current = null;
+    if (activeRoom) await activeRoom.room.leave();
+    setPeerCount(0);
+    setLatency(null);
+    setConnectionStatus("idle");
+    setSignalMode(null);
+    setRoomCode("");
+    setShareLink("");
+  }, []);
+
+  const connectToRoom = useCallback(async (rawCode: string, role: "host" | "join") => {
+    const code = normalizeRoomCode(rawCode);
+    if (!code) return;
+    if (netRef.current) await netRef.current.room.leave();
+    setView("coop");
+    setSignalMode(role);
+    setRoomCode(code);
+    setPeerCount(0);
+    setLatency(null);
+    setConnectionStatus("connecting");
+    setConnectionMessage(role === "host" ? "正在建立房间…" : "正在寻找队长…");
+    setShareLink(role === "host" ? `${location.origin}${location.pathname}?room=${encodeURIComponent(code)}` : "");
+
+    try {
+      const turnConfig = await getRelayServers();
+      const room = joinRoom(
+        {
+          appId: "ember-protocol-v2",
+          password: `ember-link-${code}`,
+          relayConfig: { redundancy: 5, warnOnRelayFailure: false },
+          turnConfig,
+        },
+        code,
+        {
+          onJoinError: ({ error }) => {
+            setConnectionStatus("error");
+            setConnectionMessage(error || "当前网络无法建立联机，请稍后重试。");
+          },
+        },
+      );
+      const gameplay = room.makeAction<NetPayload>("ember-game-v2");
+      const listeners = new Set<(data: NetPayload) => void>();
+      const bridge: NetBridge = {
+        roomId: code,
+        role,
+        room,
+        send: (data) => gameplay.send(data),
+        subscribe: (handler) => {
+          listeners.add(handler);
+          return () => listeners.delete(handler);
+        },
+        connected: () => Object.keys(room.getPeers()).length > 0,
+      };
+      netRef.current = bridge;
+      gameplay.onMessage = (data) => {
+        listeners.forEach((listener) => listener(data));
+        if (data.t === "start" && role === "join") startGame();
+      };
+      room.onPeerJoin = (peerId) => {
+        setPeerCount(Object.keys(room.getPeers()).length);
+        setConnectionStatus("connected");
+        setConnectionMessage("伙伴已连接，可以一起出发。");
+        void gameplay.send({ t: "hello" }, { target: peerId });
+        void room.ping(peerId).then((ms) => setLatency(Math.round(ms))).catch(() => setLatency(null));
+      };
+      room.onPeerLeave = () => {
+        const count = Object.keys(room.getPeers()).length;
+        setPeerCount(count);
+        setLatency(null);
+        setConnectionStatus(count ? "connected" : "waiting");
+        setConnectionMessage(count ? "伙伴已连接。" : "伙伴暂时离线，正在等待重连…");
+      };
+      setConnectionStatus("waiting");
+      setConnectionMessage(role === "host" ? "房间已创建，等待伙伴点击链接…" : "已进入房间，正在与队长建立连接…");
+    } catch (error) {
+      setConnectionStatus("error");
+      setConnectionMessage(error instanceof Error ? error.message : "联机初始化失败，请重试。");
+    }
+  }, [startGame]);
+
+  useEffect(() => {
+    const incoming = normalizeRoomCode(new URLSearchParams(location.search).get("room") || "");
+    if (!incoming) return;
+    const timer = window.setTimeout(() => void connectToRoom(incoming, "join"), 0);
+    return () => window.clearTimeout(timer);
+  }, [connectToRoom]);
 
   useEffect(() => {
     if (view !== "game") return;
@@ -64,16 +206,13 @@ export default function Home() {
     let stats = { speed: 245, damage: 24, interval: .42, multi: 1, magnet: 78 };
     const keys = new Set<string>();
     const pointer = { x: W / 2, y: H / 2, down: false };
-    const channel = (window as typeof window & { emberChannel?: RTCDataChannel }).emberChannel;
-    if (channel) channel.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.t === "player") {
-          remote = { x: data.x, y: data.y, r: 17, hp: data.hp, maxHp: data.maxHp, color: "#78a99d", name: "伙伴" };
-          remoteSeen = performance.now();
-        }
-      } catch { /* ignore malformed peer packets */ }
-    };
+    const network = netRef.current;
+    const unsubscribeNetwork = network?.subscribe((data) => {
+      if (data.t === "player") {
+        remote = { x: data.x, y: data.y, r: 17, hp: data.hp, maxHp: data.maxHp, color: "#78a99d", name: "伙伴" };
+        remoteSeen = performance.now();
+      }
+    });
 
     const reset = () => {
       elapsed = 0; spawnClock = 0; fireClock = 0; currentXp = 0; currentLevel = 1;
@@ -137,9 +276,9 @@ export default function Home() {
       player.y = clamp(player.y + dy * stats.speed * dt, 30, H - 30);
       if (remote && performance.now() - remoteSeen > 3500) remote = null;
       netClock -= dt;
-      if (channel?.readyState === "open" && netClock <= 0) {
+      if (network?.connected() && netClock <= 0) {
         netClock = .05;
-        channel.send(JSON.stringify({ t:"player", x:player.x, y:player.y, hp:player.hp, maxHp:player.maxHp }));
+        void network.send({ t:"player", x:player.x, y:player.y, hp:player.hp, maxHp:player.maxHp });
       }
 
       spawnClock -= dt;
@@ -208,7 +347,7 @@ export default function Home() {
       draw(); raf=requestAnimationFrame(loop);
     };
     raf=requestAnimationFrame(loop);
-    return()=>{active=false;cancelAnimationFrame(raf);window.removeEventListener("keydown",down);window.removeEventListener("keyup",up);window.removeEventListener("pointerup",pointerUp);canvas.removeEventListener("pointermove",movePointer);canvas.removeEventListener("pointerdown",movePointer);};
+    return()=>{active=false;unsubscribeNetwork?.();cancelAnimationFrame(raf);window.removeEventListener("keydown",down);window.removeEventListener("keyup",up);window.removeEventListener("pointerup",pointerUp);canvas.removeEventListener("pointermove",movePointer);canvas.removeEventListener("pointerdown",movePointer);};
   }, [view]);
 
   const chooseUpgrade = (u: Upgrade) => {
@@ -216,39 +355,53 @@ export default function Home() {
   };
   const formatTime = (s:number) => `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 
-  const createOffer = async () => {
-    setSignalMode("host"); setSignalOut("正在生成邀请…");
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-    const dc = pc.createDataChannel("ember");
-    (window as typeof window & { emberChannel?: RTCDataChannel; emberRole?: string }).emberChannel = dc;
-    (window as typeof window & { emberRole?: string }).emberRole = "host";
-    const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
-    await new Promise<void>(r=>{ if(pc.iceGatheringState==="complete")r(); else pc.onicegatheringstatechange=()=>pc.iceGatheringState==="complete"&&r(); });
-    setSignalOut(btoa(JSON.stringify(pc.localDescription)));
-    (window as typeof window & { emberPeer?: RTCPeerConnection }).emberPeer = pc;
+  const createOnlineRoom = () => void connectToRoom(newRoomCode(), "host");
+  const joinOnlineRoom = () => {
+    const code = normalizeRoomCode(joinCode);
+    if (code) void connectToRoom(code, "join");
   };
-  const acceptSignal = async () => {
+  const copyInvite = async () => {
+    if (!shareLink) return;
     try {
-      if(signalMode==="host"){
-        const pc=(window as typeof window & { emberPeer?: RTCPeerConnection }).emberPeer;
-        if(!pc) return; await pc.setRemoteDescription(JSON.parse(atob(signalIn))); setSignalOut("连接完成！首版联机通道已建立。");
-      } else {
-        const pc=new RTCPeerConnection({ iceServers:[{urls:"stun:stun.l.google.com:19302"}] });
-        pc.ondatachannel = (event) => {
-          (window as typeof window & { emberChannel?: RTCDataChannel }).emberChannel = event.channel;
-        };
-        (window as typeof window & { emberRole?: string }).emberRole = "join";
-        await pc.setRemoteDescription(JSON.parse(atob(signalIn))); const ans=await pc.createAnswer();await pc.setLocalDescription(ans);
-        await new Promise<void>(r=>{if(pc.iceGatheringState==="complete")r();else pc.onicegatheringstatechange=()=>pc.iceGatheringState==="complete"&&r();});
-        setSignalOut(btoa(JSON.stringify(pc.localDescription))); (window as typeof window & { emberPeer?: RTCPeerConnection }).emberPeer=pc;
-      }
-    } catch { setSignalOut("邀请码无效，请检查是否完整复制。"); }
+      await navigator.clipboard.writeText(shareLink);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = shareLink;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
+  const startCoopGame = async () => {
+    if (!netRef.current?.connected()) return;
+    await netRef.current.send({ t: "start" });
+    startGame();
+  };
+  const returnToMenu = async () => {
+    await leaveRoom();
+    history.replaceState(null, "", location.pathname);
+    setView("menu");
+  };
+  const resetCoop = async () => {
+    await leaveRoom();
+    setJoinCode("");
+    setConnectionMessage("");
+    setView("coop");
+  };
+  const startSoloFromCoop = async () => {
+    await leaveRoom();
+    startGame();
   };
 
   return (
     <main className="shell">
       <header className="topbar">
-        <button className="brand" onClick={()=>setView("menu")} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
+        <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
         <div className="status"><i /> 测试版本 0.1</div>
         <button className="iconBtn" onClick={()=>setSound(s=>!s)} aria-label="切换声音">{sound?"◖))":"◖×"}</button>
       </header>
@@ -260,30 +413,47 @@ export default function Home() {
         <p className="lede">踏入不断收缩的荒原，和伙伴一起把每次失败<br className="desktop"/>炼成下一局的武器。</p>
         <div className="actions">
           <button className="primary" onClick={startGame}><span>开始远征</span><small>单人 · 立即进入</small></button>
-          <button className="secondary" onClick={()=>setView("coop")}><span>双人联机</span><small>WebRTC 点对点</small></button>
+          <button className="secondary" onClick={()=>setView("coop")}><span>双人联机</span><small>房间链接 · 自动中继</small></button>
         </div>
         <div className="controls"><span><kbd>WASD</kbd> 移动</span><span><kbd>自动</kbd> 瞄准射击</span><span><kbd>ESC</kbd> 暂停</span></div>
       </section>}
 
       {view==="coop" && <section className="coop">
-        <button className="back" onClick={()=>{setView("menu");setSignalMode(null);setSignalOut("");}}>← 返回营地</button>
+        <button className="back" onClick={()=>void returnToMenu()}>← 返回营地</button>
         <div className="coopCard">
-          <div className="eyebrow">EMBER LINK · 实验性联机</div>
-          <h2>点燃同一簇火</h2>
-          <p>无需账号。邀请好友交换一次连接码，即可建立加密的点对点通道。</p>
+          <div className="eyebrow">EMBER LINK · 快速联机</div>
+          <h2>一个链接，直接会合</h2>
+          <p>无需账号，也不用复制连接文本。创建房间后把链接发给朋友，对方打开即可自动加入。</p>
           {!signalMode ? <div className="modeGrid">
-            <button onClick={createOffer}><b>创建队伍</b><span>生成邀请码，等待伙伴</span></button>
-            <button onClick={()=>setSignalMode("join")}><b>加入队伍</b><span>粘贴队长的邀请码</span></button>
+            <button onClick={createOnlineRoom}><b>创建队伍</b><span>生成可分享的房间链接</span></button>
+            <div className="joinBox">
+              <b>加入队伍</b>
+              <span>输入朋友发来的房间码</span>
+              <div className="joinLine">
+                <input value={joinCode} onChange={e=>setJoinCode(normalizeRoomCode(e.target.value))} onKeyDown={e=>{if(e.key==="Enter")joinOnlineRoom();}} placeholder="EMBER-AB12CD" aria-label="房间码"/>
+                <button onClick={joinOnlineRoom} disabled={!normalizeRoomCode(joinCode)}>加入</button>
+              </div>
+            </div>
           </div> : <>
-            <label>{signalMode==="host"?"将下方邀请码发给伙伴":"粘贴队长发来的邀请码"}</label>
-            {signalMode==="join" && <textarea value={signalIn} onChange={e=>setSignalIn(e.target.value)} placeholder="在此粘贴邀请码…" />}
-            {signalMode==="host" && signalOut && <textarea readOnly value={signalOut} onFocus={e=>e.currentTarget.select()} />}
-            {signalMode==="host" && <><label>伙伴返回连接码后，粘贴到这里</label><textarea value={signalIn} onChange={e=>setSignalIn(e.target.value)} placeholder="粘贴伙伴返回的连接码…" /></>}
-            <button className="connect" onClick={acceptSignal}>{signalMode==="host"?"完成连接":"生成返回码"}</button>
-            {signalMode==="join" && signalOut && <><label>把返回码发给队长</label><textarea readOnly value={signalOut} onFocus={e=>e.currentTarget.select()} /></>}
+            <div className={`networkStatus ${connectionStatus}`}>
+              <i className="statusDot"/>
+              <div><b>{connectionStatus==="connected"?"联机已就绪":connectionStatus==="error"?"连接遇到问题":"正在建立联机"}</b><span>{connectionMessage}</span></div>
+              <div className="networkMeta">{peerCount>0&&<span>{peerCount} 位伙伴</span>}{latency!==null&&<span>{latency} ms</span>}</div>
+            </div>
+            {signalMode==="host" ? <>
+              <label>把这个链接发给你的朋友</label>
+              <div className="inviteLine">
+                <input readOnly value={shareLink} onFocus={e=>e.currentTarget.select()} aria-label="好友邀请链接"/>
+                <button onClick={copyInvite}>{copied?"已复制":"复制链接"}</button>
+              </div>
+              <div className="roomCode">房间码 <b>{roomCode}</b></div>
+            </> : <div className="roomCode joinState">正在加入房间 <b>{roomCode}</b>{connectionStatus==="connected"&&<span>等待队长开始游戏…</span>}</div>}
+            {connectionStatus==="connected" && signalMode==="host" && <button className="primary compact startTogether" onClick={()=>void startCoopGame()}><span>两人一起出发</span></button>}
+            {connectionStatus==="error" && <button className="connect" onClick={()=>void connectToRoom(roomCode, signalMode)}>重新连接</button>}
+            <button className="textBtn" onClick={()=>void resetCoop()}>更换房间</button>
           </>}
-          <div className="labNote"><span>实验室提示</span> 联机通道建立后，双方进入远征即可看见彼此并获得队友火力支援。首版采用轻量同步，两端的敌群规模会略有不同。</div>
-          <button className="primary compact" onClick={startGame}><span>先独自出发</span></button>
+          <div className="labNote"><span>连接说明</span> 系统会通过多条线路寻找伙伴；点对点直连失败时，会自动尝试 TURN 中继。双方进入远征后可看见彼此，并获得队友火力支援。</div>
+          {!signalMode&&<button className="primary compact" onClick={()=>void startSoloFromCoop()}><span>先独自出发</span></button>}
         </div>
       </section>}
 
@@ -299,7 +469,7 @@ export default function Home() {
           <div className="xp"><i style={{width:`${xp}%`}}/></div>
           <div className="mobileHint">按住并拖动来移动</div>
         </div>
-        <button className="quit" onClick={()=>setView("menu")}>结束远征</button>
+        <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
           <div className="upgradePanel"><div className="eyebrow">火种共鸣</div><h2>选择一项遗物</h2><p>每次选择，都将改变这趟远征。</p>
             <div className="upgradeGrid">{choices.map((u,i)=><button key={u.id} onClick={()=>chooseUpgrade(u)}><small>0{i+1}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
@@ -308,7 +478,7 @@ export default function Home() {
         {paused && !choices && <div className="overlay"><div className="pausePanel"><div className="eyebrow">{hp<=0?"远征终止":"火焰暂歇"}</div><h2>{hp<=0?"火种熄灭了":"游戏已暂停"}</h2><p>{hp<=0?`你坚持了 ${formatTime(seconds)}，净化了 ${kills} 只荒兽。`:"休息一下，荒原会等你。"}</p>
           {hp>0&&<button className="primary compact" onClick={()=>setPaused(false)}><span>继续远征</span></button>}
           {hp<=0&&<button className="primary compact" onClick={startGame}><span>再次点火</span></button>}
-          <button className="textBtn" onClick={()=>setView("menu")}>返回主菜单</button></div></div>}
+          <button className="textBtn" onClick={()=>void returnToMenu()}>返回主菜单</button></div></div>}
       </section>}
       <footer><span>EMBER PROTOCOL</span><span>失败不是终点，是配方。</span></footer>
     </main>
