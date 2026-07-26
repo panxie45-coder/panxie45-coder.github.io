@@ -8,7 +8,9 @@ import { EmberAudioEngine, type SoundCue } from "./audio";
 type View = "menu" | "loadout" | "game" | "coop";
 type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost";
 type EnemyKind = "runner" | "crawler" | "artillery" | "assassin" | "brute" | "commander";
-type Upgrade = { id: string; title: string; desc: string; icon: string };
+type PlayerSide = "host" | "guest";
+type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId };
+type ShopItem = { id: string; title: string; desc: string; icon: string; cost: number };
 type CombatStats = {
   speed: number;
   damage: number;
@@ -21,6 +23,15 @@ type CombatStats = {
   critChance: number;
   skillHaste: number;
   drones: number;
+  missileWaves: number;
+  missileCount: number;
+  shieldDuration: number;
+  repairPower: number;
+  dashDistance: number;
+  laserPower: number;
+  frostPower: number;
+  dronePower: number;
+  ultimatePower: number;
 };
 type BuildFrame = CombatStats & { classId: ClassId; maxHp: number };
 type ClassSpec = {
@@ -37,7 +48,7 @@ type ClassSpec = {
   renderSize: number;
 };
 type Actor = { x: number; y: number; r: number; hp: number; maxHp: number; color: string; name?: string; classId?: ClassId };
-type Enemy = Actor & { id: number; speed: number; hit: number; kind: EnemyKind; elite: boolean; cooldown: number; slow: number };
+type Enemy = Actor & { id: number; speed: number; hit: number; kind: EnemyKind; elite: boolean; cooldown: number; slow: number; lastHitBy?: PlayerSide };
 type Shot = {
   x: number;
   y: number;
@@ -47,6 +58,7 @@ type Shot = {
   damage: number;
   life: number;
   hostile?: boolean;
+  owner?: PlayerSide;
   classId?: ClassId;
   enemyKind?: EnemyKind;
   pierce?: number;
@@ -57,7 +69,7 @@ type Shot = {
 };
 type Beam = { x1: number; y1: number; x2: number; y2: number; life: number; width: number; color: string };
 type CombatEffect = {
-  kind: "skill" | "impact" | "dash" | "revive";
+  kind: "skill" | "impact" | "dash" | "revive" | "ultimate";
   classId?: ClassId;
   x: number;
   y: number;
@@ -84,6 +96,9 @@ type WorldFrame = {
   beams: Beam[];
   effects: CombatEffect[];
   revive: { host: number; guest: number };
+  wallet: { host: number; guest: number };
+  ultimate: { host: number; guest: number };
+  wave: number;
 };
 type NetPayload =
   | { t: "hello" }
@@ -92,8 +107,12 @@ type NetPayload =
   | { t: "build"; build: BuildFrame }
   | { t: "upgrade-done"; build: BuildFrame; hp: number }
   | { t: "skill"; classId: ClassId; x: number; y: number }
+  | { t: "ultimate"; classId: ClassId; x: number; y: number }
   | { t: "world"; frame: WorldFrame }
   | { t: "levelup"; level: number }
+  | { t: "shop-open"; wave: number; reward: number; coins: number }
+  | { t: "shop-done"; build: BuildFrame; hp: number; coins: number; ultimate: number }
+  | { t: "shop-resume" }
   | { t: "pause"; paused: boolean }
   | { t: "gameover" };
 type NetBridge = {
@@ -133,6 +152,66 @@ const UPGRADES: Upgrade[] = [
   { id: "repair", title: "纳米修复", desc: "立即回复 35 点生命", icon: "✚" },
 ];
 
+const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
+  assault: [
+    { id: "assault-double-storm", classId: "assault", title: "双重风暴", desc: "导弹风暴追加一轮齐射", icon: "✹" },
+    { id: "assault-saturation", classId: "assault", title: "饱和弹舱", desc: "每轮导弹数量 +4", icon: "✦" },
+    { id: "assault-warhead", classId: "assault", title: "炽核战斗部", desc: "火力 +18%，爆炸范围扩大", icon: "◆" },
+  ],
+  guardian: [
+    { id: "guardian-fortress", classId: "guardian", title: "永固壁垒", desc: "绝对屏障持续时间 +1.5 秒", icon: "⬢" },
+    { id: "guardian-rail", classId: "guardian", title: "震荡轨炮", desc: "重炮伤害 +24%，弹体更大", icon: "▰" },
+    { id: "guardian-plating", classId: "guardian", title: "泰坦覆甲", desc: "生命上限 +28，额外减伤 5%", icon: "▣" },
+  ],
+  engineer: [
+    { id: "engineer-swarm", classId: "engineer", title: "蜂群扩编", desc: "增加 1 架专属无人机", icon: "✣" },
+    { id: "engineer-link", classId: "engineer", title: "高压链路", desc: "无人机伤害 +35%", icon: "⌁" },
+    { id: "engineer-repair", classId: "engineer", title: "战地工坊", desc: "修复脉冲治疗量 +40%", icon: "✚" },
+  ],
+  phantom: [
+    { id: "phantom-fold", classId: "phantom", title: "折跃增程", desc: "相位突进距离 +70", icon: "➟" },
+    { id: "phantom-needle", classId: "phantom", title: "虚空针簇", desc: "暴击率 +12%，伤害 +12%", icon: "✧" },
+    { id: "phantom-cycle", classId: "phantom", title: "相位回路", desc: "主动技能冷却 -22%", icon: "◌" },
+  ],
+  laser: [
+    { id: "laser-overfocus", classId: "laser", title: "超焦透镜", desc: "聚焦光束伤害与宽度 +30%", icon: "┃" },
+    { id: "laser-prism", classId: "laser", title: "分光棱镜", desc: "弹丸伤害 +16%，额外一发弹丸", icon: "◇" },
+    { id: "laser-capacitor", classId: "laser", title: "赤曜电容", desc: "主动技能冷却 -20%", icon: "◎" },
+  ],
+  frost: [
+    { id: "frost-zero", classId: "frost", title: "绝对零芯", desc: "冻结范围、伤害和减速时长 +28%", icon: "❄" },
+    { id: "frost-shatter", classId: "frost", title: "冰晶爆裂", desc: "炮弹伤害 +20%，弹体更大", icon: "✣" },
+    { id: "frost-armor", classId: "frost", title: "低温装甲", desc: "生命上限 +24，额外减伤 5%", icon: "⬡" },
+  ],
+};
+
+const SHOP_ITEMS: ShopItem[] = [
+  { id: "medkit", title: "战地医疗包", desc: "回复 55 点机体完整度", icon: "✚", cost: 10 },
+  { id: "overhaul", title: "装甲大修", desc: "生命上限 +18，并完全修复新增部分", icon: "▣", cost: 18 },
+  { id: "ammo", title: "高能弹药", desc: "本局伤害永久 +12%", icon: "◆", cost: 16 },
+  { id: "coolant", title: "冷却液", desc: "射击间隔永久 -9%", icon: "❉", cost: 15 },
+  { id: "collector", title: "磁力扩展器", desc: "拾取范围永久 +22%", icon: "◉", cost: 11 },
+  { id: "drone-kit", title: "无人机组装包", desc: "增加 1 架本职业无人机", icon: "✣", cost: 24 },
+  { id: "reactor-cell", title: "反应堆电池", desc: "主动技能冷却永久 -10%", icon: "◌", cost: 18 },
+  { id: "ult-battery", title: "终极电容", desc: "立即补充 35% 终极能量", icon: "✦", cost: 13 },
+];
+
+const ULTIMATE_NAMES: Record<ClassId, string> = {
+  assault: "天穹火雨",
+  guardian: "不灭要塞",
+  engineer: "蜂群超载",
+  phantom: "虚空猎杀",
+  laser: "赤曜审判",
+  frost: "永冻纪元",
+};
+
+const shuffled = <T,>(items: T[]) => [...items].sort(() => Math.random() - .5);
+const rollUpgradeChoices = (classId: ClassId) => {
+  const signature = shuffled(CLASS_UPGRADES[classId])[0];
+  return shuffled([signature, ...shuffled(UPGRADES).slice(0, 2)]);
+};
+const rollShopItems = () => shuffled(SHOP_ITEMS).slice(0, 4);
+
 const CLASSES: ClassSpec[] = [
   { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "爆破弹：命中产生范围爆炸", cooldown: 10, color: "#f4c95d", sprite: 0, sheet: "core", radius: 18, renderSize: 78 },
   { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：3 秒内免疫伤害", passive: "穿甲重炮：可连续贯穿多个敌人", cooldown: 14, color: "#58c7c0", sprite: 1, sheet: "core", radius: 24, renderSize: 88 },
@@ -143,12 +222,12 @@ const CLASSES: ClassSpec[] = [
 ];
 
 const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; radius: number; color: string; cooldown: number }> = {
-  runner: { hp: 24, speed: 108, hit: 7, radius: 13, color: "#e65d43", cooldown: 0 },
-  crawler: { hp: 48, speed: 58, hit: 10, radius: 17, color: "#75a94c", cooldown: 0 },
-  artillery: { hp: 58, speed: 42, hit: 8, radius: 18, color: "#de8b34", cooldown: 2.4 },
-  assassin: { hp: 68, speed: 82, hit: 10, radius: 18, color: "#865bc7", cooldown: 1.75 },
-  brute: { hp: 185, speed: 36, hit: 21, radius: 27, color: "#a7542a", cooldown: 0 },
-  commander: { hp: 320, speed: 48, hit: 18, radius: 30, color: "#d9b24b", cooldown: 1.5 },
+  runner: { hp: 24, speed: 105, hit: 6, radius: 13, color: "#e65d43", cooldown: 0 },
+  crawler: { hp: 48, speed: 56, hit: 8, radius: 17, color: "#75a94c", cooldown: 0 },
+  artillery: { hp: 58, speed: 40, hit: 7, radius: 18, color: "#de8b34", cooldown: 2.55 },
+  assassin: { hp: 68, speed: 78, hit: 8, radius: 18, color: "#865bc7", cooldown: 1.9 },
+  brute: { hp: 185, speed: 34, hit: 16, radius: 27, color: "#a7542a", cooldown: 0 },
+  commander: { hp: 320, speed: 46, hit: 15, radius: 30, color: "#d9b24b", cooldown: 1.65 },
 };
 const ENEMY_XP: Record<EnemyKind, number> = {
   runner: 1,
@@ -170,10 +249,10 @@ const ENEMY_ATTACK_MODE: Record<EnemyKind, "melee" | "ranged"> = {
 const makeBuild = (classId: ClassId): BuildFrame => {
   const base: BuildFrame = {
     classId,
-    maxHp: 100,
-    speed: 240,
-    damage: 28,
-    interval: .46,
+    maxHp: 108,
+    speed: 250,
+    damage: 31,
+    interval: .43,
     multi: 1,
     magnet: 84,
     projectileSpeed: 560,
@@ -182,13 +261,22 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     critChance: .05,
     skillHaste: 1,
     drones: 0,
+    missileWaves: 1,
+    missileCount: 12,
+    shieldDuration: 3,
+    repairPower: 1,
+    dashDistance: 190,
+    laserPower: 1,
+    frostPower: 1,
+    dronePower: 1,
+    ultimatePower: 1,
   };
-  if (classId === "assault") return { ...base, damage: 40, interval: .65, projectileSpeed: 510, projectileSize: 7 };
-  if (classId === "guardian") return { ...base, maxHp: 135, speed: 216, damage: 68, interval: 1.15, projectileSpeed: 430, projectileSize: 9.5, damageReduction: .22 };
-  if (classId === "engineer") return { ...base, damage: 24, interval: .56, magnet: 110, projectileSpeed: 520, projectileSize: 6, drones: 1 };
-  if (classId === "phantom") return { ...base, maxHp: 90, speed: 286, damage: 15, interval: .27, projectileSpeed: 820, projectileSize: 4, critChance: .25 };
-  if (classId === "laser") return { ...base, maxHp: 92, speed: 268, damage: 17, interval: .29, projectileSpeed: 900, projectileSize: 4.5, critChance: .12 };
-  return { ...base, maxHp: 118, speed: 205, damage: 38, interval: .82, projectileSpeed: 470, projectileSize: 8, damageReduction: .08 };
+  if (classId === "assault") return { ...base, maxHp: 116, damage: 46, interval: .6, projectileSpeed: 535, projectileSize: 7.5 };
+  if (classId === "guardian") return { ...base, maxHp: 155, speed: 224, damage: 78, interval: 1.05, projectileSpeed: 455, projectileSize: 10, damageReduction: .25, ultimatePower: 1.12 };
+  if (classId === "engineer") return { ...base, maxHp: 116, damage: 29, interval: .5, magnet: 118, projectileSpeed: 545, projectileSize: 6, drones: 1, repairPower: 1.15, dronePower: 1.12 };
+  if (classId === "phantom") return { ...base, maxHp: 100, speed: 302, damage: 19, interval: .24, projectileSpeed: 850, projectileSize: 4.5, critChance: .28, dashDistance: 215 };
+  if (classId === "laser") return { ...base, maxHp: 106, speed: 280, damage: 22, interval: .26, projectileSpeed: 930, projectileSize: 5, critChance: .15, laserPower: 1.12 };
+  return { ...base, maxHp: 138, speed: 218, damage: 47, interval: .72, projectileSpeed: 500, projectileSize: 8.5, damageReduction: .12, frostPower: 1.12 };
 };
 
 const projectileTraits = (classId: ClassId): Partial<Shot> => {
@@ -275,7 +363,13 @@ export default function Home() {
   const [rescueProgress, setRescueProgress] = useState(0);
   const [kills, setKills] = useState(0);
   const [seconds, setSeconds] = useState(0);
+  const [wave, setWave] = useState(1);
+  const [coins, setCoins] = useState(0);
+  const [ultimateEnergy, setUltimateEnergy] = useState(0);
   const [choices, setChoices] = useState<Upgrade[] | null>(null);
+  const [shopItems, setShopItems] = useState<ShopItem[] | null>(null);
+  const [supplyReward, setSupplyReward] = useState(0);
+  const [waitingSupply, setWaitingSupply] = useState(false);
   const [selectedClass, setSelectedClass] = useState<ClassId>("assault");
   const [skillCooldown, setSkillCooldown] = useState(0);
   const [waitingPeerUpgrade, setWaitingPeerUpgrade] = useState(false);
@@ -297,6 +391,11 @@ export default function Home() {
   const resetRef = useRef<() => void>(() => {});
   const applyUpgradeRef = useRef<(id: string) => void>(() => {});
   const activeSkillRef = useRef<() => void>(() => {});
+  const activeUltimateRef = useRef<() => void>(() => {});
+  const buyShopItemRef = useRef<(id: string) => void>(() => {});
+  const finishShopRef = useRef<() => void>(() => {});
+  const rerollShopRef = useRef<() => void>(() => {});
+  const rerollUpgradeRef = useRef<() => void>(() => {});
   const selectedClassRef = useRef<ClassId>("assault");
   const ownBuildRef = useRef<BuildFrame>(makeBuild("assault"));
   const remoteBuildRef = useRef<BuildFrame | null>(null);
@@ -330,6 +429,7 @@ export default function Home() {
   const startGame = useCallback(() => {
     wakeAudio("start");
     setLevel(1); setXp(0); setHp(ownBuildRef.current.maxHp); setMaxHp(ownBuildRef.current.maxHp); setTeammateHp(null); setRescueProgress(0); setKills(0); setSeconds(0); setSkillCooldown(0);
+    setWave(1); setCoins(0); setUltimateEnergy(0); setShopItems(null); setSupplyReward(0); setWaitingSupply(false);
     setChoices(null); setPaused(false); setView("game");
     setTimeout(() => resetRef.current(), 0);
   }, [wakeAudio]);
@@ -367,8 +467,8 @@ export default function Home() {
   }, [musicVolume, sfxVolume, sound]);
 
   useEffect(() => {
-    audioRef.current?.setScene(view === "game" ? (paused || choices ? "pause" : "game") : "menu");
-  }, [choices, paused, view]);
+    audioRef.current?.setScene(view === "game" ? (paused || choices || shopItems || waitingSupply ? "pause" : "game") : "menu");
+  }, [choices, paused, shopItems, view, waitingSupply]);
 
   useEffect(() => () => audioRef.current?.destroy(), []);
 
@@ -386,6 +486,8 @@ export default function Home() {
     remoteBuildRef.current = null;
     setTeammateHp(null);
     setRescueProgress(0);
+    setShopItems(null);
+    setWaitingSupply(false);
   }, [clearConnectionTimers]);
 
   const connectToRoom = useCallback(async (rawCode: string, role: "host" | "join") => {
@@ -406,8 +508,8 @@ export default function Home() {
       const turnConfig = await getRelayServers();
       const room = joinRoom(
         {
-          appId: "ember-protocol-v8",
-          password: `ember-sync-v8-${code}`,
+          appId: "ember-protocol-v9",
+          password: `ember-sync-v9-${code}`,
           relayConfig: { urls: SIGNAL_RELAY_URLS, warnOnRelayFailure: false },
           turnConfig,
         },
@@ -420,7 +522,7 @@ export default function Home() {
           },
         },
       );
-      const gameplay = room.makeAction<NetPayload>("ember-game-v8");
+      const gameplay = room.makeAction<NetPayload>("ember-game-v9");
       const listeners = new Set<(data: NetPayload) => void>();
       const bridge: NetBridge = {
         roomId: code,
@@ -515,8 +617,13 @@ export default function Home() {
     let selfShieldUntil = 0, remoteShieldUntil = 0, skillReadyAt = 0, shownCooldown = -1;
     let hostReviveProgress = 0, guestReviveProgress = 0;
     let localUpgradeDone = false, waitingForRemoteUpgrade = false;
-    const REVIVE_SECONDS = 4;
+    let hostCoins = 0, guestCoins = 0, hostUltimate = 0, guestUltimate = 0;
+    let currentWave = 1, waveKills = 0, nextSupplyAt = 45;
+    let localShopDone = false, remoteShopDone = false;
+    let pendingMissileWaves: { actor: Actor; combatStats: BuildFrame | CombatStats; owner: PlayerSide; delay: number }[] = [];
+    const REVIVE_SECONDS = 2;
     const REVIVE_RANGE = 88;
+    const ULTIMATE_MAX = 100;
     const network = netRef.current;
     const isAuthority = network?.role !== "join";
     let build = { ...ownBuildRef.current };
@@ -595,16 +702,12 @@ export default function Home() {
       if (data.t === "skill" && isAuthority && remote) {
         const remoteBuild = remoteBuildRef.current || makeBuild(data.classId);
         const skillStart = { x: remote.x, y: remote.y };
-        if (data.classId === "assault") {
-          for (let i = 0; i < 12; i++) {
-            const angle = i / 12 * Math.PI * 2;
-            shots.push({ x: remote.x, y: remote.y, vx: Math.cos(angle) * 520, vy: Math.sin(angle) * 520, r: 7, damage: remoteBuild.damage * 1.65, life: 1.4, classId: "assault", ...projectileTraits("assault") });
-          }
-        }
-        if (data.classId === "guardian") remoteShieldUntil = performance.now() + 3000;
+        if (data.classId === "assault") queueMissileStorm(remote, remoteBuild, "guest");
+        if (data.classId === "guardian") remoteShieldUntil = performance.now() + remoteBuild.shieldDuration * 1000;
         if (data.classId === "engineer") {
-          if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 28);
-          if (remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + 28);
+          const repair = 34 * remoteBuild.repairPower;
+          if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + repair);
+          if (remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + repair);
           setHp(Math.ceil(player.hp));
         }
         if (data.classId === "phantom") {
@@ -612,10 +715,15 @@ export default function Home() {
           remote.y = clamp(data.y, 30, H - 30);
           remoteShieldUntil = performance.now() + 1200;
         }
-        if (data.classId === "laser") fireLaser(remote, remoteBuild);
-        if (data.classId === "frost") freezeArea(remote, remoteBuild);
+        if (data.classId === "laser") fireLaser(remote, remoteBuild, "guest");
+        if (data.classId === "frost") freezeArea(remote, remoteBuild, "guest");
         triggerSkillEffect(remote, data.classId, skillStart);
-        audio?.play("upgrade");
+        audio?.play("skill");
+      }
+      if (data.t === "ultimate" && isAuthority && remote) {
+        const remoteStats = remoteBuildRef.current || makeBuild(data.classId);
+        guestUltimate = 0;
+        executeUltimate(remote, remoteStats, data.classId, "guest");
       }
       if (data.t === "world" && !isAuthority) {
         const frame = data.frame;
@@ -631,6 +739,11 @@ export default function Home() {
         effects = frame.effects;
         hostReviveProgress = frame.revive.host;
         guestReviveProgress = frame.revive.guest;
+        hostCoins = frame.wallet.host;
+        guestCoins = frame.wallet.guest;
+        hostUltimate = frame.ultimate.host;
+        guestUltimate = frame.ultimate.guest;
+        currentWave = frame.wave;
         remote = {
           ...frame.host,
           r: (CLASSES.find((item) => item.id === frame.host.classId) || CLASSES[0]).radius,
@@ -651,13 +764,46 @@ export default function Home() {
         setTeammateHp(Math.max(0, Math.ceil(frame.host.hp)));
         setTeammateMaxHp(frame.host.maxHp);
         setRescueProgress(clamp(frame.revive.guest / REVIVE_SECONDS, 0, 1));
+        setCoins(frame.wallet.guest);
+        setUltimateEnergy(frame.ultimate.guest);
+        setWave(frame.wave);
       }
       if (data.t === "levelup" && !isAuthority) {
         currentLevel = data.level;
         localUpgradeDone = false;
         localPaused = true;
         setLevel(data.level);
-        setChoices([...UPGRADES].sort(() => Math.random() - .5).slice(0, 3));
+        setChoices(rollUpgradeChoices(build.classId));
+      }
+      if (data.t === "shop-open" && !isAuthority) {
+        guestCoins = data.coins;
+        currentWave = data.wave;
+        localShopDone = false;
+        localPaused = true;
+        setCoins(guestCoins);
+        setWave(currentWave);
+        setSupplyReward(data.reward);
+        setWaitingSupply(false);
+        setShopItems(rollShopItems());
+      }
+      if (data.t === "shop-done" && isAuthority) {
+        guestCoins = data.coins;
+        guestUltimate = data.ultimate;
+        remoteBuildRef.current = data.build;
+        remoteShopDone = true;
+        if (remote) {
+          remote.maxHp = data.build.maxHp;
+          remote.hp = clamp(data.hp, 0, data.build.maxHp);
+        }
+        if (localShopDone) {
+          localPaused = false;
+          setWaitingSupply(false);
+          void network?.send({ t: "shop-resume" });
+        }
+      }
+      if (data.t === "shop-resume" && !isAuthority) {
+        localPaused = false;
+        setWaitingSupply(false);
       }
       if (data.t === "pause" && !isAuthority) {
         setPaused(data.paused);
@@ -677,6 +823,9 @@ export default function Home() {
       nextEnemyId = 1;
       selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; shownCooldown = -1;
       hostReviveProgress = 0; guestReviveProgress = 0;
+      hostCoins = 0; guestCoins = 0; hostUltimate = 0; guestUltimate = 0;
+      currentWave = 1; waveKills = 0; nextSupplyAt = 45;
+      localShopDone = false; remoteShopDone = false; pendingMissileWaves = [];
       localUpgradeDone = false; waitingForRemoteUpgrade = false;
       setWaitingPeerUpgrade(false);
       build = { ...ownBuildRef.current };
@@ -697,6 +846,12 @@ export default function Home() {
       setTeammateHp(null);
       setRescueProgress(0);
       setSkillCooldown(0);
+      setWave(1);
+      setCoins(0);
+      setUltimateEnergy(0);
+      setShopItems(null);
+      setSupplyReward(0);
+      setWaitingSupply(false);
     };
     resetRef.current = reset;
     applyUpgradeRef.current = (id) => {
@@ -715,6 +870,33 @@ export default function Home() {
         player.maxHp += 20;
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 30);
       }
+      if (id === "assault-double-storm") stats.missileWaves += 1;
+      if (id === "assault-saturation") stats.missileCount += 4;
+      if (id === "assault-warhead") { stats.damage *= 1.18; stats.projectileSize += 1.1; }
+      if (id === "guardian-fortress") stats.shieldDuration += 1.5;
+      if (id === "guardian-rail") { stats.damage *= 1.24; stats.projectileSize += 1.4; }
+      if (id === "guardian-plating") {
+        player.maxHp += 28;
+        player.hp = Math.min(player.maxHp, player.hp + 28);
+        stats.damageReduction = Math.min(.6, stats.damageReduction + .05);
+      }
+      if (id === "engineer-swarm") stats.drones += 1;
+      if (id === "engineer-link") stats.dronePower *= 1.35;
+      if (id === "engineer-repair") stats.repairPower *= 1.4;
+      if (id === "phantom-fold") stats.dashDistance += 70;
+      if (id === "phantom-needle") { stats.critChance = Math.min(.72, stats.critChance + .12); stats.damage *= 1.12; }
+      if (id === "phantom-cycle") stats.skillHaste *= .78;
+      if (id === "laser-overfocus") stats.laserPower *= 1.3;
+      if (id === "laser-prism") { stats.damage *= 1.16; stats.multi += 1; }
+      if (id === "laser-capacitor") stats.skillHaste *= .8;
+      if (id === "frost-zero") stats.frostPower *= 1.28;
+      if (id === "frost-shatter") { stats.damage *= 1.2; stats.projectileSize += 1.3; }
+      if (id === "frost-armor") {
+        player.maxHp += 24;
+        player.hp = Math.min(player.maxHp, player.hp + 24);
+        stats.damageReduction = Math.min(.6, stats.damageReduction + .05);
+      }
+      if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .18);
       build = { ...build, ...stats, maxHp: player.maxHp };
       ownBuildRef.current = { ...build };
       setHp(Math.ceil(player.hp));
@@ -731,6 +913,79 @@ export default function Home() {
       if (network?.role === "join" || !waitingForRemoteUpgrade) localPaused = false;
     };
 
+    const localWallet = () => network?.role === "join" ? guestCoins : hostCoins;
+    const setLocalWallet = (value: number) => {
+      if (network?.role === "join") guestCoins = value;
+      else hostCoins = value;
+      setCoins(value);
+    };
+    const localUltimate = () => network?.role === "join" ? guestUltimate : hostUltimate;
+    const setLocalUltimate = (value: number) => {
+      const next = clamp(value, 0, ULTIMATE_MAX);
+      if (network?.role === "join") guestUltimate = next;
+      else hostUltimate = next;
+      setUltimateEnergy(next);
+    };
+    buyShopItemRef.current = (id) => {
+      const item = SHOP_ITEMS.find((entry) => entry.id === id);
+      if (!item || localWallet() < item.cost) return;
+      setLocalWallet(localWallet() - item.cost);
+      if (id === "medkit" && player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 55);
+      if (id === "overhaul") {
+        player.maxHp += 18;
+        player.hp = Math.min(player.maxHp, player.hp + 18);
+      }
+      if (id === "ammo") stats.damage *= 1.12;
+      if (id === "coolant") stats.interval *= .91;
+      if (id === "collector") stats.magnet *= 1.22;
+      if (id === "drone-kit") stats.drones += 1;
+      if (id === "reactor-cell") stats.skillHaste *= .9;
+      if (id === "ult-battery") setLocalUltimate(localUltimate() + 35);
+      build = { ...build, ...stats, maxHp: player.maxHp };
+      ownBuildRef.current = { ...build };
+      setHp(Math.ceil(player.hp));
+      setMaxHp(player.maxHp);
+      setShopItems((items) => items?.filter((entry) => entry.id !== id) || null);
+      audio?.play("upgrade");
+    };
+    rerollShopRef.current = () => {
+      if (localWallet() < 8) return;
+      setLocalWallet(localWallet() - 8);
+      setShopItems(rollShopItems());
+      audio?.play("ui");
+    };
+    rerollUpgradeRef.current = () => {
+      if (localWallet() < 10) return;
+      setLocalWallet(localWallet() - 10);
+      setChoices(rollUpgradeChoices(build.classId));
+      audio?.play("ui");
+    };
+    finishShopRef.current = () => {
+      localShopDone = true;
+      setShopItems(null);
+      if (network?.role === "join") {
+        setWaitingSupply(true);
+        if (network.connected()) {
+          void network.send({
+            t: "shop-done",
+            build: ownBuildRef.current,
+            hp: player.hp,
+            coins: guestCoins,
+            ultimate: guestUltimate,
+          });
+        }
+        return;
+      }
+      if (network?.connected()) void network.send({ t: "build", build: ownBuildRef.current });
+      if (remote && network?.connected() && !remoteShopDone) {
+        setWaitingSupply(true);
+        return;
+      }
+      localPaused = false;
+      setWaitingSupply(false);
+      if (network?.connected()) void network.send({ t: "shop-resume" });
+    };
+
     activeSkillRef.current = () => {
       const now = performance.now();
       if (player.hp <= 0 || now < skillReadyAt || localPaused || pausedRef.current) return;
@@ -739,31 +994,27 @@ export default function Home() {
       skillReadyAt = now + spec.cooldown * stats.skillHaste * 1000;
       setSkillCooldown(Math.ceil((skillReadyAt - now) / 1000));
       if (network?.role === "join") {
-        if (build.classId === "guardian") selfShieldUntil = now + 3000;
+        if (build.classId === "guardian") selfShieldUntil = now + stats.shieldDuration * 1000;
         if (build.classId === "phantom") {
           const dashX = (keys.has("d") ? 1 : 0) - (keys.has("a") ? 1 : 0);
           let dashY = (keys.has("s") ? 1 : 0) - (keys.has("w") ? 1 : 0);
           const dashLength = Math.hypot(dashX, dashY) || 1;
           if (!dashX && !dashY) dashY = -1;
-          player.x = clamp(player.x + dashX / dashLength * 190, 30, W - 30);
-          player.y = clamp(player.y + dashY / dashLength * 190, 30, H - 30);
+          player.x = clamp(player.x + dashX / dashLength * stats.dashDistance, 30, W - 30);
+          player.y = clamp(player.y + dashY / dashLength * stats.dashDistance, 30, H - 30);
           selfShieldUntil = now + 1200;
         }
         triggerSkillEffect(player, build.classId, skillStart);
         if (network.connected()) void network.send({ t: "skill", classId: build.classId, x: player.x, y: player.y });
-        audio?.play("upgrade");
+        audio?.play("skill");
         return;
       }
-      if (build.classId === "assault") {
-        for (let i = 0; i < 12; i++) {
-          const angle = i / 12 * Math.PI * 2;
-          shots.push({ x: player.x, y: player.y, vx: Math.cos(angle) * 540, vy: Math.sin(angle) * 540, r: 7, damage: stats.damage * 1.75, life: 1.45, classId: "assault", ...projectileTraits("assault") });
-        }
-      }
-      if (build.classId === "guardian") selfShieldUntil = now + 3000;
+      if (build.classId === "assault") queueMissileStorm(player, stats, "host");
+      if (build.classId === "guardian") selfShieldUntil = now + stats.shieldDuration * 1000;
       if (build.classId === "engineer") {
-        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 28);
-        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + 28);
+        const repair = 34 * stats.repairPower;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + repair);
+        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + repair);
         setHp(Math.ceil(player.hp));
       }
       if (build.classId === "phantom") {
@@ -771,14 +1022,14 @@ export default function Home() {
         let dashY = (keys.has("s") ? 1 : 0) - (keys.has("w") ? 1 : 0);
         const dashLength = Math.hypot(dashX, dashY) || 1;
         if (!dashX && !dashY) dashY = -1;
-        player.x = clamp(player.x + dashX / dashLength * 190, 30, W - 30);
-        player.y = clamp(player.y + dashY / dashLength * 190, 30, H - 30);
+        player.x = clamp(player.x + dashX / dashLength * stats.dashDistance, 30, W - 30);
+        player.y = clamp(player.y + dashY / dashLength * stats.dashDistance, 30, H - 30);
         selfShieldUntil = now + 1200;
       }
-      if (build.classId === "laser") fireLaser(player, stats);
-      if (build.classId === "frost") freezeArea(player, stats);
+      if (build.classId === "laser") fireLaser(player, stats, "host");
+      if (build.classId === "frost") freezeArea(player, stats, "host");
       triggerSkillEffect(player, build.classId, skillStart);
-      audio?.play("upgrade");
+      audio?.play("skill");
     };
 
     const down = (e: KeyboardEvent) => {
@@ -786,6 +1037,10 @@ export default function Home() {
       if (e.key.toLowerCase() === "q" || e.code === "Space") {
         e.preventDefault();
         activeSkillRef.current();
+      }
+      if (e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        activeUltimateRef.current();
       }
       if (e.key === "Escape" && network?.role !== "join") {
         setPaused((wasPaused) => {
@@ -821,10 +1076,10 @@ export default function Home() {
       let kind = pool[Math.floor(Math.random() * pool.length)];
       if (elapsed > 115 && Math.random() < Math.min(.12, .035 + elapsed / 2400)) kind = "commander";
       const config = ENEMY_DATA[kind];
-      const coOpScale = remote ? 1.28 : 1;
-      const eliteChance = clamp((elapsed - 38) / 420, 0, .22);
+      const coOpScale = remote ? 1.2 : 1;
+      const eliteChance = clamp((elapsed - 48) / 620, 0, .16);
       const elite = kind === "commander" || Math.random() < eliteChance;
-      const lateScale = 1 + elapsed / 150 + Math.pow(elapsed / 360, 2);
+      const lateScale = 1 + elapsed / 220 + Math.pow(elapsed / 650, 2);
       const maxHp = config.hp * lateScale * coOpScale * (elite ? 1.75 : 1);
       enemies.push({
         id: nextEnemyId++,
@@ -833,7 +1088,7 @@ export default function Home() {
         r: config.radius * (elite ? 1.16 : 1),
         hp: maxHp,
         maxHp,
-        speed: config.speed + Math.min(26, elapsed * .065),
+        speed: config.speed + Math.min(16, elapsed * .035),
         hit: config.hit * (elite ? 1.28 : 1),
         color: config.color,
         kind,
@@ -844,10 +1099,11 @@ export default function Home() {
     };
     const burst = (x:number,y:number,color:string,n=8) => {
       for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2,s=40+Math.random()*120; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.35+Math.random()*.35,color}); }
+      if (particles.length > 360) particles.splice(0, particles.length - 360);
     };
     const addEffect = (effect: Omit<CombatEffect, "life" | "duration">, duration: number) => {
       effects.push({ ...effect, life: duration, duration });
-      if (effects.length > 180) effects.splice(0, effects.length - 180);
+      if (effects.length > 120) effects.splice(0, effects.length - 120);
     };
     const impactEffect = (x: number, y: number, color: string, radius = 24) => {
       addEffect({ kind: "impact", x, y, color, radius }, .28);
@@ -881,7 +1137,32 @@ export default function Home() {
       const orbit = actor.r + 25 + (index % 2) * 7;
       return { x: actor.x + Math.cos(angle) * orbit, y: actor.y + Math.sin(angle) * orbit, angle };
     };
-    const fireLaser = (actor: Actor, combatStats: BuildFrame | CombatStats) => {
+    const fireMissileWave = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      const count = Math.max(8, Math.round(combatStats.missileCount));
+      for (let index = 0; index < count; index++) {
+        const angle = index / count * Math.PI * 2;
+        shots.push({
+          x: actor.x,
+          y: actor.y,
+          vx: Math.cos(angle) * 550,
+          vy: Math.sin(angle) * 550,
+          r: 7 + Math.max(0, combatStats.projectileSize - 7) * .35,
+          damage: combatStats.damage * 1.78,
+          life: 1.5,
+          owner,
+          classId: "assault",
+          ...projectileTraits("assault"),
+        });
+      }
+      burst(actor.x, actor.y, "#f4c95d", 18);
+    };
+    const queueMissileStorm = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      fireMissileWave(actor, combatStats, owner);
+      for (let waveIndex = 1; waveIndex < combatStats.missileWaves; waveIndex++) {
+        pendingMissileWaves.push({ actor, combatStats: { ...combatStats }, owner, delay: waveIndex * .28 });
+      }
+    };
+    const fireLaser = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
       const target = enemies.length
         ? enemies.reduce((nearest, enemy) => dist(actor, enemy) < dist(actor, nearest) ? enemy : nearest)
         : null;
@@ -889,21 +1170,24 @@ export default function Home() {
       const length = 1550;
       const x2 = actor.x + Math.cos(angle) * length;
       const y2 = actor.y + Math.sin(angle) * length;
-      beams.push({ x1: actor.x, y1: actor.y, x2, y2, life: .36, width: 16, color: "#ff4f50" });
+      beams.push({ x1: actor.x, y1: actor.y, x2, y2, life: .36, width: 16 * combatStats.laserPower, color: "#ff4f50" });
       for (const enemy of enemies) {
         const along = (enemy.x - actor.x) * Math.cos(angle) + (enemy.y - actor.y) * Math.sin(angle);
         const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(angle) - (enemy.y - actor.y) * Math.cos(angle));
-        if (along > 0 && along < length && perpendicular < enemy.r + 19) {
-          enemy.hp -= combatStats.damage * 9;
+        if (along > 0 && along < length && perpendicular < enemy.r + 19 * combatStats.laserPower) {
+          enemy.hp -= combatStats.damage * 9 * combatStats.laserPower;
+          enemy.lastHitBy = owner;
           burst(enemy.x, enemy.y, "#ff5b58", 9);
         }
       }
     };
-    const freezeArea = (actor: Actor, combatStats: BuildFrame | CombatStats) => {
+    const freezeArea = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      const radius = 410 * combatStats.frostPower;
       for (const enemy of enemies) {
-        if (dist(actor, enemy) > 410) continue;
-        enemy.slow = Math.max(enemy.slow, 5);
-        enemy.hp -= combatStats.damage * 2.4;
+        if (dist(actor, enemy) > radius) continue;
+        enemy.slow = Math.max(enemy.slow, 5 * combatStats.frostPower);
+        enemy.hp -= combatStats.damage * 2.4 * combatStats.frostPower;
+        enemy.lastHitBy = owner;
         burst(enemy.x, enemy.y, "#8bdcff", 7);
       }
       for (let index = 0; index < 30; index++) {
@@ -912,10 +1196,81 @@ export default function Home() {
         particles.push({ x: actor.x, y: actor.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: .7, color: "#b9efff" });
       }
     };
+    const executeUltimate = (actor: Actor, combatStats: BuildFrame | CombatStats, classId: ClassId, owner: PlayerSide) => {
+      const power = combatStats.ultimatePower;
+      const color = CLASSES.find((entry) => entry.id === classId)?.color || "#f4c95d";
+      addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: classId === "laser" ? 640 : 520 }, 1.45);
+      burst(actor.x, actor.y, color, 40);
+      if (classId === "assault") {
+        queueMissileStorm(actor, { ...combatStats, missileWaves: Math.max(3, combatStats.missileWaves + 2), missileCount: combatStats.missileCount + 6, damage: combatStats.damage * 1.35 * power }, owner);
+      }
+      if (classId === "guardian") {
+        const shieldUntil = performance.now() + 8000 * power;
+        if (actor === player) selfShieldUntil = shieldUntil;
+        else remoteShieldUntil = shieldUntil;
+        actor.hp = Math.min(actor.maxHp, actor.hp + actor.maxHp * .45);
+        for (const enemy of enemies) {
+          if (dist(actor, enemy) > 560) continue;
+          enemy.hp -= combatStats.damage * 5.5 * power;
+          enemy.lastHitBy = owner;
+        }
+      }
+      if (classId === "engineer") {
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 60 * power);
+        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + 60 * power);
+        for (let index = 0; index < 20; index++) {
+          const angle = index / 20 * Math.PI * 2;
+          shots.push({ x: actor.x, y: actor.y, vx: Math.cos(angle) * 720, vy: Math.sin(angle) * 720, r: 5, damage: combatStats.damage * 2.4 * combatStats.dronePower * power, life: 1.7, owner, classId: "engineer", chain: true, pierce: 1 });
+        }
+      }
+      if (classId === "phantom") {
+        for (const enemy of [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, 16)) {
+          beams.push({ x1: actor.x, y1: actor.y, x2: enemy.x, y2: enemy.y, life: .34, width: 7, color: "#a78cff" });
+          enemy.hp -= combatStats.damage * 8 * power;
+          enemy.lastHitBy = owner;
+        }
+        if (actor === player) selfShieldUntil = performance.now() + 2600;
+        else remoteShieldUntil = performance.now() + 2600;
+      }
+      if (classId === "laser") {
+        for (let beamIndex = 0; beamIndex < 6; beamIndex++) {
+          const angle = beamIndex / 6 * Math.PI * 2;
+          const length = 1500;
+          beams.push({ x1: actor.x, y1: actor.y, x2: actor.x + Math.cos(angle) * length, y2: actor.y + Math.sin(angle) * length, life: .7, width: 24 * combatStats.laserPower, color: "#ff4f50" });
+          for (const enemy of enemies) {
+            const along = (enemy.x - actor.x) * Math.cos(angle) + (enemy.y - actor.y) * Math.sin(angle);
+            const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(angle) - (enemy.y - actor.y) * Math.cos(angle));
+            if (along <= 0 || along >= length || perpendicular >= enemy.r + 25 * combatStats.laserPower) continue;
+            enemy.hp -= combatStats.damage * 7 * combatStats.laserPower * power;
+            enemy.lastHitBy = owner;
+          }
+        }
+      }
+      if (classId === "frost") {
+        for (const enemy of enemies) {
+          enemy.slow = Math.max(enemy.slow, 9 * combatStats.frostPower);
+          enemy.hp -= combatStats.damage * 4.6 * combatStats.frostPower * power;
+          enemy.lastHitBy = owner;
+        }
+      }
+      setHp(Math.ceil(player.hp));
+      audio?.play("ultimate");
+    };
+    activeUltimateRef.current = () => {
+      if (player.hp <= 0 || localPaused || pausedRef.current || localUltimate() < ULTIMATE_MAX) return;
+      setLocalUltimate(0);
+      if (network?.role === "join") {
+        if (network.connected()) void network.send({ t: "ultimate", classId: build.classId, x: player.x, y: player.y });
+        addEffect({ kind: "ultimate", classId: build.classId, x: player.x, y: player.y, color: classSpec().color, radius: 420 }, 1.2);
+        audio?.play("ultimate");
+        return;
+      }
+      executeUltimate(player, stats, build.classId, "host");
+    };
     const levelUp = () => {
       audio?.play("level");
       currentLevel++; setLevel(currentLevel);
-      const pool = [...UPGRADES].sort(() => Math.random() - .5).slice(0, 3);
+      const pool = rollUpgradeChoices(build.classId);
       localUpgradeDone = false;
       waitingForRemoteUpgrade = Boolean(remote && network?.connected());
       setWaitingPeerUpgrade(false);
@@ -944,6 +1299,9 @@ export default function Home() {
           beams,
           effects,
           revive: { host: hostReviveProgress, guest: guestReviveProgress },
+          wallet: { host: hostCoins, guest: guestCoins },
+          ultimate: { host: hostUltimate, guest: guestUltimate },
+          wave: currentWave,
         },
       });
     };
@@ -960,7 +1318,7 @@ export default function Home() {
       if (remote && performance.now() - remoteSeen > 3500) remote = null;
       netClock -= dt;
       if (network?.connected() && network.role === "join" && netClock <= 0) {
-        netClock = .05;
+        netClock = .033;
         void network.send({ t: "player", x: player.x, y: player.y });
       }
 
@@ -981,10 +1339,23 @@ export default function Home() {
 
       elapsed += dt;
       setSeconds(Math.floor(elapsed));
+      for (const pending of pendingMissileWaves) pending.delay -= dt;
+      for (const pending of pendingMissileWaves.filter((entry) => entry.delay <= 0)) {
+        fireMissileWave(pending.actor, pending.combatStats, pending.owner);
+      }
+      pendingMissileWaves = pendingMissileWaves.filter((entry) => entry.delay > 0);
       if (remote && network?.connected()) {
         const inReviveRange = dist(player, remote) <= REVIVE_RANGE;
-        hostReviveProgress = player.hp <= 0 && remote.hp > 0 && inReviveRange ? hostReviveProgress + dt : 0;
-        guestReviveProgress = remote.hp <= 0 && player.hp > 0 && inReviveRange ? guestReviveProgress + dt : 0;
+        if (player.hp <= 0 && remote.hp > 0) {
+          if (inReviveRange) hostReviveProgress = Math.min(REVIVE_SECONDS, hostReviveProgress + dt);
+        } else {
+          hostReviveProgress = 0;
+        }
+        if (remote.hp <= 0 && player.hp > 0) {
+          if (inReviveRange) guestReviveProgress = Math.min(REVIVE_SECONDS, guestReviveProgress + dt);
+        } else {
+          guestReviveProgress = 0;
+        }
         if (hostReviveProgress >= REVIVE_SECONDS) {
           player.hp = Math.max(1, Math.round(player.maxHp * .45));
           hostReviveProgress = 0;
@@ -1012,12 +1383,30 @@ export default function Home() {
         setRescueProgress(0);
       }
       const coOpActive = Boolean(remote && network?.connected());
-      const enemyCap = Math.min(coOpActive ? 180 : 150, (coOpActive ? 72 : 56) + Math.floor(elapsed / 30) * 9);
+      if (elapsed >= nextSupplyAt) {
+        const reward = waveKills * 2 + currentWave * 6;
+        hostCoins += reward;
+        if (coOpActive) guestCoins += reward;
+        currentWave += 1;
+        waveKills = 0;
+        nextSupplyAt += 45;
+        localShopDone = false;
+        remoteShopDone = false;
+        localPaused = true;
+        setWave(currentWave);
+        setCoins(hostCoins);
+        setSupplyReward(reward);
+        setWaitingSupply(false);
+        setShopItems(rollShopItems());
+        if (network?.connected()) void network.send({ t: "shop-open", wave: currentWave, reward, coins: guestCoins });
+        return;
+      }
+      const enemyCap = Math.min(coOpActive ? 150 : 120, (coOpActive ? 64 : 50) + Math.floor(elapsed / 40) * 6);
       spawnClock -= dt;
       if (spawnClock <= 0) {
         spawnClock = coOpActive
-          ? Math.max(.14, .82 - elapsed * .0037)
-          : Math.max(.18, 1.02 - elapsed * .004);
+          ? Math.max(.2, .93 - elapsed * .0024)
+          : Math.max(.25, 1.1 - elapsed * .0025);
         if (enemies.length < enemyCap) spawnEnemy();
       }
 
@@ -1030,12 +1419,12 @@ export default function Home() {
           const spread=(i-(stats.multi-1)/2)*.14;
           const angle=a0+spread;
           const damage = Math.random() < stats.critChance ? stats.damage * 2 : stats.damage;
-          shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5,classId:build.classId,...projectileTraits(build.classId)});
+          shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5,owner:"host",classId:build.classId,...projectileTraits(build.classId)});
         }
         for (let i = 0; i < stats.drones; i++) {
           const droneAngle = a0 + (i % 2 ? .22 : -.22);
           const origin = dronePosition(player, i, stats.drones);
-          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*.42,life:1.6,classId:"engineer",chain:true});
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*.42*stats.dronePower,life:1.6,owner:"host",classId:"engineer",chain:true});
         }
         audio?.play("shot");
         burst(player.x+Math.cos(a0)*18,player.y+Math.sin(a0)*18,"#f4c95d",3);
@@ -1050,12 +1439,12 @@ export default function Home() {
           const spread=(i-(remoteStats.multi-1)/2)*.14;
           const shotAngle=a+spread;
           const damage = Math.random() < remoteStats.critChance ? remoteStats.damage * 2 : remoteStats.damage;
-          shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5,classId:remoteStats.classId,...projectileTraits(remoteStats.classId)});
+          shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId)});
         }
         for (let i = 0; i < remoteStats.drones; i++) {
           const droneAngle = a + (i % 2 ? .22 : -.22);
           const origin = dronePosition(remote, i, remoteStats.drones);
-          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*.42,life:1.6,classId:"engineer",chain:true});
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*.42*remoteStats.dronePower,life:1.6,owner:"guest",classId:"engineer",chain:true});
         }
         audio?.play("ally-shot");
       }
@@ -1110,7 +1499,7 @@ export default function Home() {
               vx: Math.cos(shotAngle) * projectileSpeed,
               vy: Math.sin(shotAngle) * projectileSpeed,
               r: enemy.kind === "commander" ? 7 : enemy.kind === "assassin" ? 4 : 6,
-              damage: enemy.hit * (enemy.kind === "assassin" ? .62 : 1) * (1 + elapsed / 420),
+              damage: enemy.hit * (enemy.kind === "assassin" ? .62 : 1) * (1 + elapsed / 650),
               life: enemy.kind === "assassin" ? 1.7 : 2.4,
               hostile: true,
               enemyKind: enemy.kind,
@@ -1135,6 +1524,26 @@ export default function Home() {
           }
         }
       }
+      const gridSize = 112;
+      const enemyGrid = new Map<string, Enemy[]>();
+      for (const enemy of enemies) {
+        const key = `${Math.floor(enemy.x / gridSize)},${Math.floor(enemy.y / gridSize)}`;
+        const bucket = enemyGrid.get(key);
+        if (bucket) bucket.push(enemy);
+        else enemyGrid.set(key, [enemy]);
+      }
+      const nearbyEnemies = (x: number, y: number, radius: number) => {
+        const result: Enemy[] = [];
+        const minX = Math.floor((x - radius) / gridSize), maxX = Math.floor((x + radius) / gridSize);
+        const minY = Math.floor((y - radius) / gridSize), maxY = Math.floor((y + radius) / gridSize);
+        for (let gridX = minX; gridX <= maxX; gridX++) {
+          for (let gridY = minY; gridY <= maxY; gridY++) {
+            const bucket = enemyGrid.get(`${gridX},${gridY}`);
+            if (bucket) result.push(...bucket);
+          }
+        }
+        return result;
+      };
       for (const shot of shots) {
         if (shot.hostile) {
           const possibleTargets: Actor[] = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
@@ -1167,26 +1576,29 @@ export default function Home() {
           }
           continue;
         }
-        for (const enemy of enemies) {
+        for (const enemy of nearbyEnemies(shot.x, shot.y, shot.r + 46)) {
           if (shot.life <= 0 || enemy.hp <= 0 || shot.hitIds?.includes(enemy.id) || dist(shot,enemy) >= shot.r + enemy.r) continue;
           enemy.hp -= shot.damage;
+          enemy.lastHitBy = shot.owner || "host";
           shot.hitIds = [...(shot.hitIds || []), enemy.id];
           if (shot.slow) enemy.slow = Math.max(enemy.slow, shot.slow);
           if (shot.splash) {
-            for (const nearby of enemies) {
+            for (const nearby of nearbyEnemies(enemy.x, enemy.y, shot.splash)) {
               if (nearby === enemy || nearby.hp <= 0 || dist(enemy, nearby) > shot.splash) continue;
               nearby.hp -= shot.damage * .38;
+              nearby.lastHitBy = shot.owner || "host";
             }
             burst(enemy.x, enemy.y, "#f4c95d", 12);
           }
           const impactColor = shot.slow ? "#8bdcff" : (CLASSES.find((item) => item.id === shot.classId)?.color || "#fff2ba");
           impactEffect(shot.x, shot.y, impactColor, shot.splash ? 54 : Math.min(38, 18 + shot.damage * .16));
           if (shot.chain) {
-            const next = enemies
+            const next = nearbyEnemies(enemy.x, enemy.y, 145)
               .filter((candidate) => candidate !== enemy && candidate.hp > 0 && !shot.hitIds?.includes(candidate.id) && dist(enemy, candidate) < 145)
               .sort((a, b) => dist(enemy, a) - dist(enemy, b))[0];
             if (next) {
               next.hp -= shot.damage * .48;
+              next.lastHitBy = shot.owner || "host";
               beams.push({ x1: enemy.x, y1: enemy.y, x2: next.x, y2: next.y, life: .16, width: 4, color: "#a9ef84" });
               burst(next.x, next.y, "#a9ef84", 5);
             }
@@ -1206,6 +1618,15 @@ export default function Home() {
           burst(enemy.x,enemy.y,enemy.color,10);
           impactEffect(enemy.x, enemy.y, enemy.elite ? "#f4c95d" : enemy.color, enemy.elite ? 72 : 42);
           currentKills++;
+          waveKills++;
+          const killer = enemy.lastHitBy || "host";
+          const energyGain = enemy.kind === "commander" ? 16 : enemy.elite ? 10 : 6;
+          if (killer === "guest") {
+            guestUltimate = clamp(guestUltimate + energyGain, 0, ULTIMATE_MAX);
+          } else {
+            hostUltimate = clamp(hostUltimate + energyGain, 0, ULTIMATE_MAX);
+            setUltimateEnergy(hostUltimate);
+          }
           setKills(currentKills);
         }
       }
@@ -1246,7 +1667,7 @@ export default function Home() {
 
       worldClock -= dt;
       if (worldClock <= 0) {
-        worldClock = .08;
+        worldClock = .06;
         sendWorld();
       }
       const hasConnectedTeammate = Boolean(remote && network?.connected());
@@ -1314,6 +1735,17 @@ export default function Home() {
           for(let index=0;index<6;index++){
             const angle=index/6*Math.PI*2+progress;
             ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*18,effect.y+Math.sin(angle)*18);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();
+          }
+        }
+        if(effect.kind==="ultimate"){
+          const radius=36+effect.radius*Math.sin(progress*Math.PI/2);
+          ctx.lineWidth=10*(1-progress)+3;
+          ctx.beginPath();ctx.arc(effect.x,effect.y,radius,0,Math.PI*2);ctx.stroke();
+          ctx.globalAlpha=alpha*.62;
+          ctx.beginPath();ctx.arc(effect.x,effect.y,radius*.72,0,Math.PI*2);ctx.stroke();
+          for(let index=0;index<12;index++){
+            const angle=index/12*Math.PI*2+progress*.8;
+            ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*radius*.3,effect.y+Math.sin(angle)*radius*.3);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();
           }
         }
         if(effect.kind==="skill"){
@@ -1599,7 +2031,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.8 · 战地救援</div>
+        <div className="status"><i /> 版本 0.9 · 终极补给</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -1629,7 +2061,7 @@ export default function Home() {
           <button className="primary" onClick={()=>setView("loadout")}><span>开始远征</span><small>单人 · 选择机体</small></button>
           <button className="secondary" onClick={()=>setView("coop")}><span>双人联机</span><small>房间链接 · 自动中继</small></button>
         </div>
-        <div className="controls"><span><kbd>WASD</kbd> 移动</span><span><kbd>Q / 空格</kbd> 主动技能</span><span><kbd>ESC</kbd> 暂停</span></div>
+        <div className="controls"><span><kbd>WASD</kbd> 移动</span><span><kbd>Q / 空格</kbd> 主动技能</span><span><kbd>R</kbd> 终极大招</span><span><kbd>ESC</kbd> 暂停</span></div>
       </section>}
 
       {view==="loadout" && <section className="loadout">
@@ -1690,7 +2122,7 @@ export default function Home() {
       {view==="game" && <section className="gameWrap">
         <div className="hud">
           <div className="stat"><span>存活时间</span><b>{formatTime(seconds)}</b></div>
-          <div className="levelBadge"><small>LEVEL</small><b>{level}</b></div>
+          <div className="levelBadge"><small>WAVE {wave} · ◈ {coins}</small><b>LV.{level}</b></div>
           <div className="stat right"><span>已净化</span><b>{kills}<small> 只</small></b></div>
         </div>
         <div className="canvasFrame">
@@ -1705,21 +2137,44 @@ export default function Home() {
             <div><small>{selectedClassSpec.role}</small><b>{selectedClassSpec.active}</b></div>
             <button onClick={()=>activeSkillRef.current()} disabled={skillCooldown>0||hp<=0}>{hp<=0?"倒地":skillCooldown>0?`${skillCooldown}s`:"Q · 释放"}</button>
           </div>
-          {hp<=0&&!paused&&<div className="downedSpectator"><b>机体倒地 · 正在观战</b><span>{rescueProgress>0?`队友施救中 ${Math.round(rescueProgress*100)}%`:"队友靠近并停留 4 秒即可复活你"}</span></div>}
+          <div className={`ultimateDock ${ultimateEnergy>=100?"ready":""}`}>
+            <span><small>终极大招</small><b>{ULTIMATE_NAMES[selectedClass]}</b></span>
+            <i><em style={{width:`${clamp(ultimateEnergy,0,100)}%`}}/></i>
+            <button onClick={()=>activeUltimateRef.current()} disabled={ultimateEnergy<100||hp<=0}>{ultimateEnergy>=100?"R · 释放":`${Math.floor(ultimateEnergy)}%`}</button>
+          </div>
+          {hp<=0&&!paused&&<div className="downedSpectator"><b>机体倒地 · 正在观战</b><span>{rescueProgress>0?`累计施救进度 ${Math.round(rescueProgress*100)}%`:"队友靠近累计施救 2 秒即可复活你"}</span></div>}
           <div className="health"><span>{selectedClassSpec.name} · 机体完整度</span><div><i style={{width:`${clamp(hp / Math.max(1, maxHp) * 100, 0, 100)}%`}}/></div><b>{hp}/{maxHp}</b></div>
           <div className="xp"><i style={{width:`${xp}%`}}/></div>
           <div className="mobileHint">按住并拖动来移动</div>
         </div>
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
-          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>关卡和经验仍与伙伴同步，但本次强化只改变你自己的机体流派。</p>
+          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>至少包含一个职业专属强化；装配完成后恢复 18% 最大生命值。</p>
             <div className="upgradeGrid">{choices.map((u,i)=><button key={u.id} onClick={()=>chooseUpgrade(u)}><small>0{i+1}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
+            <button className="rerollBtn" onClick={()=>rerollUpgradeRef.current()} disabled={coins<10}>◈ 10 刷新本次升级选项</button>
           </div>
+        </div>}
+        {shopItems && !choices && <div className="overlay">
+          <div className="shopPanel">
+            <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波结算</div>
+            <h2>战场补给站</h2>
+            <p>本波共享结算 <b>◈ {supplyReward}</b>，当前个人钱包 <b>◈ {coins}</b>。联机时双方获得相同金币，但购买各自结算。</p>
+            <div className="shopGrid">{shopItems.map((item)=><button key={item.id} onClick={()=>buyShopItemRef.current(item.id)} disabled={coins<item.cost}>
+              <i>{item.icon}</i><b>{item.title}</b><span>{item.desc}</span><small>◈ {item.cost}</small>
+            </button>)}</div>
+            <div className="shopActions">
+              <button className="rerollBtn" onClick={()=>rerollShopRef.current()} disabled={coins<8}>◈ 8 刷新商品</button>
+              <button className="primary compact" onClick={()=>finishShopRef.current()}><span>整备完成 · 继续战斗</span></button>
+            </div>
+          </div>
+        </div>}
+        {waitingSupply && !shopItems && <div className="overlay">
+          <div className="pausePanel waitingUpgrade"><div className="eyebrow">补给同步</div><h2>等待伙伴完成采购</h2><p>金币只会扣除各自的钱包。双方确认后，共享战场自动继续。</p><i className="waitingPulse"/></div>
         </div>}
         {waitingPeerUpgrade && !choices && <div className="overlay">
           <div className="pausePanel waitingUpgrade"><div className="eyebrow">同步升级阶段</div><h2>等待伙伴完成选择</h2><p>你的遗物已经装配完成。伙伴选好自己的强化后，共享战场会自动继续。</p><i className="waitingPulse"/></div>
         </div>}
-        {paused && !choices && <div className="overlay"><div className="pausePanel"><div className="eyebrow">{hp<=0?"远征终止":"火焰暂歇"}</div><h2>{hp<=0?"火种熄灭了":"游戏已暂停"}</h2><p>{hp<=0?`队伍坚持了 ${formatTime(seconds)}，共同净化了 ${kills} 只荒兽。`:signalMode==="join"?"等待队长继续远征。":"休息一下，荒原会等你。"}</p>
+        {paused && !choices && !shopItems && !waitingSupply && <div className="overlay"><div className="pausePanel"><div className="eyebrow">{hp<=0?"远征终止":"火焰暂歇"}</div><h2>{hp<=0?"火种熄灭了":"游戏已暂停"}</h2><p>{hp<=0?`队伍坚持了 ${formatTime(seconds)}，共同净化了 ${kills} 只荒兽。`:signalMode==="join"?"等待队长继续远征。":"休息一下，荒原会等你。"}</p>
           {hp>0&&signalMode!=="join"&&<button className="primary compact" onClick={resumeRun}><span>全队继续</span></button>}
           {hp<=0&&signalMode!=="join"&&<button className="primary compact" onClick={restartRun}><span>全队再次点火</span></button>}
           <button className="textBtn" onClick={()=>void returnToMenu()}>返回主菜单</button></div></div>}

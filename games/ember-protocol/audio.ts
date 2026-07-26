@@ -10,6 +10,8 @@ export type SoundCue =
   | "pickup"
   | "level"
   | "upgrade"
+  | "skill"
+  | "ultimate"
   | "connected"
   | "game-over";
 
@@ -128,6 +130,17 @@ export class EmberAudioEngine {
       case "upgrade":
         this.tone(330, now, 0.22, "sine", 0.06, 660);
         this.tone(495, now + 0.06, 0.25, "triangle", 0.045, 740);
+        break;
+      case "skill":
+        this.tone(240, now, 0.24, "sawtooth", 0.06, 880);
+        this.tone(720, now + 0.035, 0.18, "triangle", 0.045, 360);
+        this.noise(now, 0.13, 0.035, 1800, "bandpass");
+        break;
+      case "ultimate":
+        [0, .055, .11, .19].forEach((delay, index) => {
+          this.tone(note(110, [0, 7, 12, 19][index]), now + delay, .45, index % 2 ? "triangle" : "sawtooth", .07);
+        });
+        this.noise(now + .08, .42, .055, 720, "lowpass");
         break;
       case "connected":
         this.tone(392, now, 0.2, "sine", 0.06, 523.25);

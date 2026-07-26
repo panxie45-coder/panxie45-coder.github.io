@@ -30,20 +30,22 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.8 · 战地救援/);
+  assert.match(html, /版本 0\.9 · 终极补给/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
+  assert.match(html, /终极大招/);
 });
 
 test("ships six independent classes, drones, effects, and generated sprites", async () => {
   const page = await readFile(new URL("../Game.tsx", import.meta.url), "utf8");
+  const audio = await readFile(new URL("../audio.ts", import.meta.url), "utf8");
   const css = await readFile(new URL("../game.css", import.meta.url), "utf8");
   const rootEntry = await readFile(new URL("../../../app/page.tsx", import.meta.url), "utf8");
 
   assert.match(rootEntry, /games\/ember-protocol\/Game/);
-  assert.doesNotMatch(rootEntry, /ember-protocol-v8/);
-  assert.match(page, /ember-protocol-v8/);
+  assert.doesNotMatch(rootEntry, /ember-protocol-v9/);
+  assert.match(page, /ember-protocol-v9/);
   assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost"/);
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
   assert.match(page, /个人机体强化 · 独立选择/);
@@ -64,19 +66,35 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   assert.match(page, /assassin: "ranged"/);
   assert.match(page, /commander: "ranged"/);
   assert.match(page, /const moveDirection = !ranged/);
-  assert.match(page, /const REVIVE_SECONDS = 4/);
+  assert.match(page, /const REVIVE_SECONDS = 2/);
   assert.match(page, /const REVIVE_RANGE = 88/);
+  assert.match(page, /hostReviveProgress = Math\.min\(REVIVE_SECONDS, hostReviveProgress \+ dt\)/);
   assert.match(page, /const teamDefeated = player\.hp <= 0 &&/);
   assert.match(page, /drawDowned/);
   assert.match(page, /正在观战/);
   assert.match(page, /队友机体/);
   assert.match(page, /entry\.distance < entry\.magnet/);
-  assert.match(page, /kind: "skill" \| "impact" \| "dash" \| "revive"/);
+  assert.match(page, /kind: "skill" \| "impact" \| "dash" \| "revive" \| "ultimate"/);
   assert.match(page, /effect\.classId==="assault"/);
   assert.match(page, /effect\.classId==="frost"/);
   assert.match(page, /const fireLaser/);
   assert.match(page, /const freezeArea/);
   assert.match(page, /const dronePosition/);
+  assert.match(page, /const CLASS_UPGRADES/);
+  assert.match(page, /assault-double-storm/);
+  assert.match(page, /const SHOP_ITEMS/);
+  assert.match(page, /t: "shop-open"/);
+  assert.match(page, /wallet: \{ host: number; guest: number \}/);
+  assert.match(page, /ultimate: \{ host: number; guest: number \}/);
+  assert.match(page, /const executeUltimate/);
+  assert.match(page, /ULTIMATE_NAMES/);
+  assert.match(page, /player\.maxHp \* \.18/);
+  assert.match(page, /const nearbyEnemies/);
+  assert.match(page, /worldClock = \.06/);
+  assert.match(audio, /\| "skill"/);
+  assert.match(audio, /\| "ultimate"/);
+  assert.match(page, /audio\?\.play\("skill"\)/);
+  assert.match(page, /audio\?\.play\("ultimate"\)/);
   assert.match(page, /enemy\.slow = Math\.max/);
   assert.doesNotMatch(page, /ctx\.arc\(player\.x/);
   assert.doesNotMatch(page, /ctx\.arc\(remote\.x/);
