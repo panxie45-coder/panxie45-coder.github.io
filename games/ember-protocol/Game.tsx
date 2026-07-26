@@ -56,6 +56,18 @@ type Shot = {
   hitIds?: number[];
 };
 type Beam = { x1: number; y1: number; x2: number; y2: number; life: number; width: number; color: string };
+type CombatEffect = {
+  kind: "skill" | "impact" | "dash" | "revive";
+  classId?: ClassId;
+  x: number;
+  y: number;
+  x2?: number;
+  y2?: number;
+  life: number;
+  duration: number;
+  color: string;
+  radius: number;
+};
 type Gem = { x: number; y: number; value: number };
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
@@ -70,6 +82,8 @@ type WorldFrame = {
   shots: Shot[];
   gems: Gem[];
   beams: Beam[];
+  effects: CombatEffect[];
+  revive: { host: number; guest: number };
 };
 type NetPayload =
   | { t: "hello" }
@@ -256,6 +270,9 @@ export default function Home() {
   const [xp, setXp] = useState(0);
   const [hp, setHp] = useState(100);
   const [maxHp, setMaxHp] = useState(100);
+  const [teammateHp, setTeammateHp] = useState<number | null>(null);
+  const [teammateMaxHp, setTeammateMaxHp] = useState(100);
+  const [rescueProgress, setRescueProgress] = useState(0);
   const [kills, setKills] = useState(0);
   const [seconds, setSeconds] = useState(0);
   const [choices, setChoices] = useState<Upgrade[] | null>(null);
@@ -312,7 +329,7 @@ export default function Home() {
 
   const startGame = useCallback(() => {
     wakeAudio("start");
-    setLevel(1); setXp(0); setHp(ownBuildRef.current.maxHp); setMaxHp(ownBuildRef.current.maxHp); setKills(0); setSeconds(0); setSkillCooldown(0);
+    setLevel(1); setXp(0); setHp(ownBuildRef.current.maxHp); setMaxHp(ownBuildRef.current.maxHp); setTeammateHp(null); setRescueProgress(0); setKills(0); setSeconds(0); setSkillCooldown(0);
     setChoices(null); setPaused(false); setView("game");
     setTimeout(() => resetRef.current(), 0);
   }, [wakeAudio]);
@@ -367,6 +384,8 @@ export default function Home() {
     setRoomCode("");
     setShareLink("");
     remoteBuildRef.current = null;
+    setTeammateHp(null);
+    setRescueProgress(0);
   }, [clearConnectionTimers]);
 
   const connectToRoom = useCallback(async (rawCode: string, role: "host" | "join") => {
@@ -387,8 +406,8 @@ export default function Home() {
       const turnConfig = await getRelayServers();
       const room = joinRoom(
         {
-          appId: "ember-protocol-v7",
-          password: `ember-sync-v7-${code}`,
+          appId: "ember-protocol-v8",
+          password: `ember-sync-v8-${code}`,
           relayConfig: { urls: SIGNAL_RELAY_URLS, warnOnRelayFailure: false },
           turnConfig,
         },
@@ -401,7 +420,7 @@ export default function Home() {
           },
         },
       );
-      const gameplay = room.makeAction<NetPayload>("ember-game-v7");
+      const gameplay = room.makeAction<NetPayload>("ember-game-v8");
       const listeners = new Set<(data: NetPayload) => void>();
       const bridge: NetBridge = {
         roomId: code,
@@ -494,7 +513,10 @@ export default function Home() {
     let active = true, localPaused = false, currentXp = 0, currentLevel = 1, currentKills = 0;
     let netClock = 0, worldClock = 0, remoteFireClock = 0, remoteSeen = 0, gameOverSent = false, nextEnemyId = 1;
     let selfShieldUntil = 0, remoteShieldUntil = 0, skillReadyAt = 0, shownCooldown = -1;
+    let hostReviveProgress = 0, guestReviveProgress = 0;
     let localUpgradeDone = false, waitingForRemoteUpgrade = false;
+    const REVIVE_SECONDS = 4;
+    const REVIVE_RANGE = 88;
     const network = netRef.current;
     const isAuthority = network?.role !== "join";
     let build = { ...ownBuildRef.current };
@@ -510,7 +532,7 @@ export default function Home() {
       classId: build.classId,
     };
     let remote: Actor | null = null;
-    let enemies: Enemy[] = [], shots: Shot[] = [], gems: Gem[] = [], beams: Beam[] = [], particles: {x:number;y:number;vx:number;vy:number;life:number;color:string}[] = [];
+    let enemies: Enemy[] = [], shots: Shot[] = [], gems: Gem[] = [], beams: Beam[] = [], effects: CombatEffect[] = [], particles: {x:number;y:number;vx:number;vy:number;life:number;color:string}[] = [];
     const keys = new Set<string>();
     const pointer = { x: W / 2, y: H / 2, down: false };
     const audio = audioRef.current;
@@ -572,6 +594,7 @@ export default function Home() {
       }
       if (data.t === "skill" && isAuthority && remote) {
         const remoteBuild = remoteBuildRef.current || makeBuild(data.classId);
+        const skillStart = { x: remote.x, y: remote.y };
         if (data.classId === "assault") {
           for (let i = 0; i < 12; i++) {
             const angle = i / 12 * Math.PI * 2;
@@ -580,8 +603,8 @@ export default function Home() {
         }
         if (data.classId === "guardian") remoteShieldUntil = performance.now() + 3000;
         if (data.classId === "engineer") {
-          player.hp = Math.min(player.maxHp, player.hp + 28);
-          remote.hp = Math.min(remote.maxHp, remote.hp + 28);
+          if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 28);
+          if (remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + 28);
           setHp(Math.ceil(player.hp));
         }
         if (data.classId === "phantom") {
@@ -591,6 +614,7 @@ export default function Home() {
         }
         if (data.classId === "laser") fireLaser(remote, remoteBuild);
         if (data.classId === "frost") freezeArea(remote, remoteBuild);
+        triggerSkillEffect(remote, data.classId, skillStart);
         audio?.play("upgrade");
       }
       if (data.t === "world" && !isAuthority) {
@@ -604,6 +628,9 @@ export default function Home() {
         shots = frame.shots;
         gems = frame.gems;
         beams = frame.beams;
+        effects = frame.effects;
+        hostReviveProgress = frame.revive.host;
+        guestReviveProgress = frame.revive.guest;
         remote = {
           ...frame.host,
           r: (CLASSES.find((item) => item.id === frame.host.classId) || CLASSES[0]).radius,
@@ -621,6 +648,9 @@ export default function Home() {
         setXp(clamp(frame.xp / frame.xpNeed * 100, 0, 100));
         setHp(Math.max(0, Math.ceil(player.hp)));
         setMaxHp(player.maxHp);
+        setTeammateHp(Math.max(0, Math.ceil(frame.host.hp)));
+        setTeammateMaxHp(frame.host.maxHp);
+        setRescueProgress(clamp(frame.revive.guest / REVIVE_SECONDS, 0, 1));
       }
       if (data.t === "levelup" && !isAuthority) {
         currentLevel = data.level;
@@ -646,6 +676,7 @@ export default function Home() {
       netClock = 0; worldClock = 0; remoteFireClock = 0; gameOverSent = false;
       nextEnemyId = 1;
       selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; shownCooldown = -1;
+      hostReviveProgress = 0; guestReviveProgress = 0;
       localUpgradeDone = false; waitingForRemoteUpgrade = false;
       setWaitingPeerUpgrade(false);
       build = { ...ownBuildRef.current };
@@ -660,9 +691,11 @@ export default function Home() {
         classId: build.classId,
       };
       remote = null;
-      enemies = []; shots = []; gems = []; beams = []; particles = [];
+      enemies = []; shots = []; gems = []; beams = []; effects = []; particles = [];
       setHp(build.maxHp);
       setMaxHp(build.maxHp);
+      setTeammateHp(null);
+      setRescueProgress(0);
       setSkillCooldown(0);
     };
     resetRef.current = reset;
@@ -677,10 +710,10 @@ export default function Home() {
       if (id === "velocity") { stats.projectileSpeed *= 1.18; stats.projectileSize += .7; }
       if (id === "reactor") stats.skillHaste *= .85;
       if (id === "drone") stats.drones += 1;
-      if (id === "repair") player.hp = Math.min(player.maxHp, player.hp + 35);
+      if (id === "repair" && player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 35);
       if (id === "vitality") {
         player.maxHp += 20;
-        player.hp = Math.min(player.maxHp, player.hp + 30);
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 30);
       }
       build = { ...build, ...stats, maxHp: player.maxHp };
       ownBuildRef.current = { ...build };
@@ -700,8 +733,9 @@ export default function Home() {
 
     activeSkillRef.current = () => {
       const now = performance.now();
-      if (now < skillReadyAt || localPaused || pausedRef.current) return;
+      if (player.hp <= 0 || now < skillReadyAt || localPaused || pausedRef.current) return;
       const spec = classSpec();
+      const skillStart = { x: player.x, y: player.y };
       skillReadyAt = now + spec.cooldown * stats.skillHaste * 1000;
       setSkillCooldown(Math.ceil((skillReadyAt - now) / 1000));
       if (network?.role === "join") {
@@ -715,6 +749,7 @@ export default function Home() {
           player.y = clamp(player.y + dashY / dashLength * 190, 30, H - 30);
           selfShieldUntil = now + 1200;
         }
+        triggerSkillEffect(player, build.classId, skillStart);
         if (network.connected()) void network.send({ t: "skill", classId: build.classId, x: player.x, y: player.y });
         audio?.play("upgrade");
         return;
@@ -727,8 +762,8 @@ export default function Home() {
       }
       if (build.classId === "guardian") selfShieldUntil = now + 3000;
       if (build.classId === "engineer") {
-        player.hp = Math.min(player.maxHp, player.hp + 28);
-        if (remote) remote.hp = Math.min(remote.maxHp, remote.hp + 28);
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 28);
+        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + 28);
         setHp(Math.ceil(player.hp));
       }
       if (build.classId === "phantom") {
@@ -742,6 +777,7 @@ export default function Home() {
       }
       if (build.classId === "laser") fireLaser(player, stats);
       if (build.classId === "frost") freezeArea(player, stats);
+      triggerSkillEffect(player, build.classId, skillStart);
       audio?.play("upgrade");
     };
 
@@ -809,6 +845,37 @@ export default function Home() {
     const burst = (x:number,y:number,color:string,n=8) => {
       for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2,s=40+Math.random()*120; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.35+Math.random()*.35,color}); }
     };
+    const addEffect = (effect: Omit<CombatEffect, "life" | "duration">, duration: number) => {
+      effects.push({ ...effect, life: duration, duration });
+      if (effects.length > 180) effects.splice(0, effects.length - 180);
+    };
+    const impactEffect = (x: number, y: number, color: string, radius = 24) => {
+      addEffect({ kind: "impact", x, y, color, radius }, .28);
+    };
+    const triggerSkillEffect = (actor: Actor, classId: ClassId, start: Pick<Actor, "x" | "y"> = actor) => {
+      const colors: Record<ClassId, string> = {
+        assault: "#f4c95d",
+        guardian: "#75e6da",
+        engineer: "#a9ef84",
+        phantom: "#a78cff",
+        laser: "#ff5b58",
+        frost: "#8bdcff",
+      };
+      const radii: Record<ClassId, number> = {
+        assault: 190,
+        guardian: 118,
+        engineer: 165,
+        phantom: 92,
+        laser: 108,
+        frost: 410,
+      };
+      const color = colors[classId];
+      addEffect({ kind: "skill", classId, x: actor.x, y: actor.y, color, radius: radii[classId] }, classId === "frost" ? 1 : .72);
+      if (classId === "phantom") {
+        addEffect({ kind: "dash", classId, x: start.x, y: start.y, x2: actor.x, y2: actor.y, color, radius: 34 }, .48);
+      }
+      burst(actor.x, actor.y, color, classId === "frost" ? 24 : 14);
+    };
     const dronePosition = (actor: Actor, index: number, count: number, now = performance.now()) => {
       const angle = now / 1300 + index / Math.max(1, count) * Math.PI * 2;
       const orbit = actor.r + 25 + (index % 2) * 7;
@@ -875,6 +942,8 @@ export default function Home() {
           shots,
           gems,
           beams,
+          effects,
+          revive: { host: hostReviveProgress, guest: guestReviveProgress },
         },
       });
     };
@@ -883,8 +952,10 @@ export default function Home() {
       let dx = (keys.has("d") || keys.has("arrowright") ? 1 : 0) - (keys.has("a") || keys.has("arrowleft") ? 1 : 0);
       let dy = (keys.has("s") || keys.has("arrowdown") ? 1 : 0) - (keys.has("w") || keys.has("arrowup") ? 1 : 0);
       const dm = Math.hypot(dx, dy) || 1; dx /= dm; dy /= dm;
-      player.x = clamp(player.x + dx * stats.speed * dt, 30, W - 30);
-      player.y = clamp(player.y + dy * stats.speed * dt, 30, H - 30);
+      if (player.hp > 0) {
+        player.x = clamp(player.x + dx * stats.speed * dt, 30, W - 30);
+        player.y = clamp(player.y + dy * stats.speed * dt, 30, H - 30);
+      }
 
       if (remote && performance.now() - remoteSeen > 3500) remote = null;
       netClock -= dt;
@@ -899,6 +970,8 @@ export default function Home() {
       particles = particles.filter((particle) => particle.life > 0);
       for (const beam of beams) beam.life -= dt;
       beams = beams.filter((beam) => beam.life > 0);
+      for (const effect of effects) effect.life -= dt;
+      effects = effects.filter((effect) => effect.life > 0);
       const cooldownRemaining = Math.max(0, Math.ceil((skillReadyAt - performance.now()) / 1000));
       if (cooldownRemaining !== shownCooldown) {
         shownCooldown = cooldownRemaining;
@@ -908,6 +981,36 @@ export default function Home() {
 
       elapsed += dt;
       setSeconds(Math.floor(elapsed));
+      if (remote && network?.connected()) {
+        const inReviveRange = dist(player, remote) <= REVIVE_RANGE;
+        hostReviveProgress = player.hp <= 0 && remote.hp > 0 && inReviveRange ? hostReviveProgress + dt : 0;
+        guestReviveProgress = remote.hp <= 0 && player.hp > 0 && inReviveRange ? guestReviveProgress + dt : 0;
+        if (hostReviveProgress >= REVIVE_SECONDS) {
+          player.hp = Math.max(1, Math.round(player.maxHp * .45));
+          hostReviveProgress = 0;
+          selfShieldUntil = performance.now() + 2200;
+          setHp(Math.ceil(player.hp));
+          addEffect({ kind: "revive", x: player.x, y: player.y, color: "#76f0ae", radius: 150 }, 1.1);
+          burst(player.x, player.y, "#76f0ae", 28);
+          audio?.play("upgrade");
+        }
+        if (guestReviveProgress >= REVIVE_SECONDS) {
+          remote.hp = Math.max(1, Math.round(remote.maxHp * .45));
+          guestReviveProgress = 0;
+          remoteShieldUntil = performance.now() + 2200;
+          addEffect({ kind: "revive", x: remote.x, y: remote.y, color: "#76f0ae", radius: 150 }, 1.1);
+          burst(remote.x, remote.y, "#76f0ae", 28);
+          audio?.play("upgrade");
+        }
+        setTeammateHp(Math.max(0, Math.ceil(remote.hp)));
+        setTeammateMaxHp(remote.maxHp);
+        setRescueProgress(clamp(hostReviveProgress / REVIVE_SECONDS, 0, 1));
+      } else {
+        hostReviveProgress = 0;
+        guestReviveProgress = 0;
+        setTeammateHp(null);
+        setRescueProgress(0);
+      }
       const coOpActive = Boolean(remote && network?.connected());
       const enemyCap = Math.min(coOpActive ? 180 : 150, (coOpActive ? 72 : 56) + Math.floor(elapsed / 30) * 9);
       spawnClock -= dt;
@@ -959,7 +1062,8 @@ export default function Home() {
 
       for (const shot of shots) {
         if (shot.hostile && shot.enemyKind === "commander") {
-          const targets: Actor[] = remote && remote.hp > 0 ? [player, remote] : [player];
+          const targets: Actor[] = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
+          if (!targets.length) continue;
           const target = targets.reduce((nearest, actor) => dist(shot, actor) < dist(shot, nearest) ? actor : nearest);
           const speed = Math.hypot(shot.vx, shot.vy);
           const desired = Math.atan2(target.y - shot.y, target.x - shot.x);
@@ -972,8 +1076,10 @@ export default function Home() {
       }
       shots = shots.filter((shot) => shot.life > 0);
       const now = performance.now();
+      const livingActors: Actor[] = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
       for (const enemy of enemies) {
-        const target = remote && remote.hp > 0 && dist(enemy,remote) < dist(enemy,player) ? remote : player;
+        if (!livingActors.length) continue;
+        const target = livingActors.reduce((nearest, actor) => dist(enemy, actor) < dist(enemy, nearest) ? actor : nearest);
         const targetDistance = dist(enemy, target);
         const angle = Math.atan2(target.y-enemy.y,target.x-enemy.x);
         enemy.cooldown -= dt;
@@ -1031,7 +1137,7 @@ export default function Home() {
       }
       for (const shot of shots) {
         if (shot.hostile) {
-          const possibleTargets: Actor[] = remote && remote.hp > 0 ? [player, remote] : [player];
+          const possibleTargets: Actor[] = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
           for (const target of possibleTargets) {
             if (shot.life <= 0 || dist(shot, target) >= shot.r + target.r) continue;
             const targetShield = target === player ? selfShieldUntil : remoteShieldUntil;
@@ -1051,6 +1157,7 @@ export default function Home() {
             } else if (shot.enemyKind === "commander") {
               burst(target.x, target.y, "#d99aff", 10);
             }
+            impactEffect(target.x, target.y, shot.enemyKind === "assassin" ? "#a36cff" : shot.enemyKind === "commander" ? "#d99aff" : "#ff9a4d", shot.splash ? 58 : 28);
             if (target === player) {
               setHp(Math.ceil(player.hp));
               audio?.play("hurt");
@@ -1072,6 +1179,8 @@ export default function Home() {
             }
             burst(enemy.x, enemy.y, "#f4c95d", 12);
           }
+          const impactColor = shot.slow ? "#8bdcff" : (CLASSES.find((item) => item.id === shot.classId)?.color || "#fff2ba");
+          impactEffect(shot.x, shot.y, impactColor, shot.splash ? 54 : Math.min(38, 18 + shot.damage * .16));
           if (shot.chain) {
             const next = enemies
               .filter((candidate) => candidate !== enemy && candidate.hp > 0 && !shot.hitIds?.includes(candidate.id) && dist(enemy, candidate) < 145)
@@ -1095,21 +1204,31 @@ export default function Home() {
           gems.push({x:enemy.x,y:enemy.y,value});
           audio?.play("kill");
           burst(enemy.x,enemy.y,enemy.color,10);
+          impactEffect(enemy.x, enemy.y, enemy.elite ? "#f4c95d" : enemy.color, enemy.elite ? 72 : 42);
           currentKills++;
           setKills(currentKills);
         }
       }
       enemies = enemies.filter((enemy) => enemy.hp > 0);
       for (const gem of gems) {
-        const collector = remote && remote.hp > 0 && dist(gem,remote) < dist(gem,player) ? remote : player;
-        const pickupDistance = dist(gem,collector);
-        const collectorMagnet = collector === player ? stats.magnet : (remoteBuildRef.current?.magnet || 84);
-        if (pickupDistance < collectorMagnet) {
-          const angle = Math.atan2(collector.y-gem.y,collector.x-gem.x);
+        const collectors = [
+          ...(player.hp > 0 ? [{ actor: player, magnet: stats.magnet }] : []),
+          ...(remote && remote.hp > 0 ? [{ actor: remote, magnet: remoteBuildRef.current?.magnet || 84 }] : []),
+        ];
+        const attractor = collectors
+          .map((entry) => ({ ...entry, distance: dist(gem, entry.actor) }))
+          .filter((entry) => entry.distance < entry.magnet)
+          .sort((a, b) => a.distance / a.magnet - b.distance / b.magnet)[0];
+        if (attractor) {
+          const angle = Math.atan2(attractor.actor.y-gem.y,attractor.actor.x-gem.x);
           gem.x += Math.cos(angle) * 340 * dt;
           gem.y += Math.sin(angle) * 340 * dt;
         }
-        if (pickupDistance < collector.r + 8) {
+        const collector = collectors
+          .map((entry) => ({ ...entry, distance: dist(gem, entry.actor) }))
+          .filter((entry) => entry.distance < entry.actor.r + 8)
+          .sort((a, b) => a.distance - b.distance)[0];
+        if (collector) {
           const earnedXp = gem.value;
           gem.value = 0;
           audio?.play("pickup");
@@ -1130,7 +1249,8 @@ export default function Home() {
         worldClock = .08;
         sendWorld();
       }
-      const teamDefeated = player.hp <= 0 || Boolean(remote && remote.hp <= 0);
+      const hasConnectedTeammate = Boolean(remote && network?.connected());
+      const teamDefeated = player.hp <= 0 && (!hasConnectedTeammate || Boolean(remote && remote.hp <= 0));
       if (teamDefeated && !gameOverSent) {
         gameOverSent = true;
         sendWorld();
@@ -1170,6 +1290,68 @@ export default function Home() {
         ctx.beginPath();ctx.moveTo(beam.x1,beam.y1);ctx.lineTo(beam.x2,beam.y2);ctx.stroke();
         ctx.strokeStyle="rgba(255,255,255,.9)";ctx.shadowBlur=4;ctx.lineWidth=Math.max(2,beam.width*.24);
         ctx.beginPath();ctx.moveTo(beam.x1,beam.y1);ctx.lineTo(beam.x2,beam.y2);ctx.stroke();ctx.restore();
+      }
+      for(const effect of effects){
+        const progress=clamp(1-effect.life/effect.duration,0,1);
+        const alpha=clamp(effect.life/effect.duration,0,1);
+        ctx.save();ctx.globalAlpha=alpha;ctx.strokeStyle=effect.color;ctx.fillStyle=effect.color;ctx.shadowColor=effect.color;ctx.shadowBlur=16;ctx.lineCap="round";
+        if(effect.kind==="impact"){
+          const radius=6+effect.radius*progress;
+          ctx.lineWidth=Math.max(2,7*(1-progress));
+          ctx.beginPath();ctx.arc(effect.x,effect.y,radius,0,Math.PI*2);ctx.stroke();
+          ctx.globalAlpha=alpha*.7;ctx.beginPath();ctx.arc(effect.x,effect.y,Math.max(2,radius*.2),0,Math.PI*2);ctx.fill();
+        }
+        if(effect.kind==="dash"){
+          ctx.lineWidth=18*(1-progress)+3;
+          ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(effect.x2??effect.x,effect.y2??effect.y);ctx.stroke();
+          ctx.globalAlpha=alpha*.85;ctx.strokeStyle="#ffffff";ctx.lineWidth=3;
+          ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(effect.x2??effect.x,effect.y2??effect.y);ctx.stroke();
+        }
+        if(effect.kind==="revive"){
+          const radius=24+effect.radius*progress;
+          ctx.lineWidth=7*(1-progress)+2;
+          ctx.beginPath();ctx.arc(effect.x,effect.y,radius,0,Math.PI*2);ctx.stroke();
+          for(let index=0;index<6;index++){
+            const angle=index/6*Math.PI*2+progress;
+            ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*18,effect.y+Math.sin(angle)*18);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();
+          }
+        }
+        if(effect.kind==="skill"){
+          const radius=18+effect.radius*progress;
+          ctx.lineWidth=5*(1-progress)+2;
+          ctx.beginPath();ctx.arc(effect.x,effect.y,radius,0,Math.PI*2);ctx.stroke();
+          if(effect.classId==="assault"){
+            for(let index=0;index<12;index++){
+              const angle=index/12*Math.PI*2;
+              ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*radius*.58,effect.y+Math.sin(angle)*radius*.58);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();
+            }
+          }
+          if(effect.classId==="guardian"){
+            ctx.translate(effect.x,effect.y);ctx.rotate(progress*Math.PI);
+            ctx.beginPath();
+            for(let index=0;index<6;index++){const angle=index/6*Math.PI*2;const px=Math.cos(angle)*radius,py=Math.sin(angle)*radius;if(index)ctx.lineTo(px,py);else ctx.moveTo(px,py);}
+            ctx.closePath();ctx.stroke();
+          }
+          if(effect.classId==="engineer"){
+            ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(effect.x-radius*.35,effect.y);ctx.lineTo(effect.x+radius*.35,effect.y);ctx.moveTo(effect.x,effect.y-radius*.35);ctx.lineTo(effect.x,effect.y+radius*.35);ctx.stroke();
+            ctx.globalAlpha=alpha*.55;ctx.beginPath();ctx.arc(effect.x,effect.y,radius*.72,0,Math.PI*2);ctx.stroke();
+          }
+          if(effect.classId==="phantom"){
+            ctx.translate(effect.x,effect.y);ctx.rotate(progress*Math.PI*2);
+            for(let index=0;index<4;index++){ctx.rotate(Math.PI/2);ctx.strokeRect(radius*.35,-5,radius*.35,10);}
+          }
+          if(effect.classId==="laser"){
+            ctx.globalAlpha=alpha*.72;ctx.beginPath();ctx.arc(effect.x,effect.y,Math.max(8,radius*.55),0,Math.PI*2);ctx.stroke();
+            ctx.fillStyle="rgba(255,255,255,.85)";ctx.beginPath();ctx.arc(effect.x,effect.y,5+10*(1-progress),0,Math.PI*2);ctx.fill();
+          }
+          if(effect.classId==="frost"){
+            for(let index=0;index<8;index++){
+              const angle=index/8*Math.PI*2;
+              ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();
+            }
+          }
+        }
+        ctx.restore();
       }
       const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1 };
       const projectileDimensions: Record<ClassId, [number, number]> = {
@@ -1220,9 +1402,11 @@ export default function Home() {
         const sprite = enemySpriteIndex[e.kind];
         const cellW = enemySprites.naturalWidth / 3, cellH = enemySprites.naturalHeight / 2;
         const size = e.r * 4.25;
+        const visualTargets = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
+        const visualTarget = visualTargets.length ? visualTargets.reduce((nearest, actor) => dist(e, actor) < dist(e, nearest) ? actor : nearest) : player;
         ctx.save();
         ctx.translate(e.x,e.y);
-        ctx.rotate(Math.atan2(player.y-e.y,player.x-e.x)-Math.PI/2);
+        ctx.rotate(Math.atan2(visualTarget.y-e.y,visualTarget.x-e.x)-Math.PI/2);
         if(e.elite){ctx.shadowColor="#f4c95d";ctx.shadowBlur=18;}
         if(enemySprites.complete&&enemySprites.naturalWidth){
           ctx.drawImage(enemySprites,(sprite%3)*cellW,Math.floor(sprite/3)*cellH,cellW,cellH,-size/2,-size/2,size,size);
@@ -1242,6 +1426,7 @@ export default function Home() {
         const cellH = independentSprite ? mechImage.naturalHeight : mechImage.naturalHeight / 2;
         const size = classInfo.renderSize;
         ctx.save();
+        if(actor.hp<=0){ctx.globalAlpha=.34;ctx.filter="grayscale(1) brightness(.72)";}
         ctx.shadowColor=ally?"#78a99d":actor.color;
         ctx.shadowBlur=20;
         if(mechImage.complete&&mechImage.naturalWidth){
@@ -1249,6 +1434,17 @@ export default function Home() {
         }else{
           ctx.fillStyle=actor.color;ctx.beginPath();ctx.arc(actor.x,actor.y,actor.r,0,Math.PI*2);ctx.fill();
         }
+        ctx.restore();
+      };
+      const drawDowned = (actor: Actor, progressSeconds: number) => {
+        const progress=clamp(progressSeconds/REVIVE_SECONDS,0,1);
+        const radius=actor.r+22;
+        ctx.save();ctx.translate(actor.x,actor.y);ctx.lineWidth=5;ctx.strokeStyle="rgba(207,105,78,.35)";
+        ctx.beginPath();ctx.arc(0,0,radius,0,Math.PI*2);ctx.stroke();
+        ctx.strokeStyle="#76f0ae";ctx.shadowColor="#76f0ae";ctx.shadowBlur=12;
+        ctx.beginPath();ctx.arc(0,0,radius,-Math.PI/2,-Math.PI/2+Math.PI*2*progress);ctx.stroke();
+        ctx.fillStyle="#f1d8cf";ctx.shadowBlur=0;ctx.font="800 11px monospace";ctx.textAlign="center";
+        ctx.fillText(progress>0?`施救 ${Math.ceil((1-progress)*REVIVE_SECONDS)}s`:"倒地 · 靠近施救",0,-radius-12);
         ctx.restore();
       };
       const drawDrones = (actor: Actor, count: number) => {
@@ -1278,14 +1474,16 @@ export default function Home() {
         ctx.moveTo(edge-corner,edge);ctx.lineTo(edge,edge);ctx.lineTo(edge,edge-corner);
         ctx.stroke();ctx.restore();
       };
-      drawDrones(player,stats.drones);
+      if(player.hp>0)drawDrones(player,stats.drones);
       drawMech(player,false);
+      if(player.hp<=0)drawDowned(player,network?.role==="join"?guestReviveProgress:hostReviveProgress);
       if(performance.now()<selfShieldUntil)drawShieldCorners(player);
       if(remote){
-        drawDrones(remote,(remoteBuildRef.current||makeBuild(remote.classId||"assault")).drones);
+        if(remote.hp>0)drawDrones(remote,(remoteBuildRef.current||makeBuild(remote.classId||"assault")).drones);
         drawMech(remote,true);
+        if(remote.hp<=0)drawDowned(remote,network?.role==="join"?hostReviveProgress:guestReviveProgress);
         if(performance.now()<remoteShieldUntil)drawShieldCorners(remote);
-        ctx.fillStyle="#c7d8d0";ctx.font="700 11px monospace";ctx.textAlign="center";ctx.fillText("伙伴",remote.x,remote.y-27);
+        ctx.fillStyle="#c7d8d0";ctx.font="700 11px monospace";ctx.textAlign="center";ctx.fillText("队友",remote.x,remote.y-27);
       }
     };
 
@@ -1401,7 +1599,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.7 · 远程火力</div>
+        <div className="status"><i /> 版本 0.8 · 战地救援</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -1498,11 +1696,16 @@ export default function Home() {
         <div className="canvasFrame">
           <canvas ref={canvasRef} aria-label="余烬协议游戏画面"/>
           {signalMode && <div className="syncBadge"><i /> 共享战场 · {signalMode==="host"?"队长同步":"伙伴同步"}</div>}
+          {signalMode && teammateHp!==null && <div className={`teammateHealth ${teammateHp<=0?"down":""}`}>
+            <span><b>队友机体</b><small>{teammateHp<=0?"已倒地":`${teammateHp}/${teammateMaxHp}`}</small></span>
+            <i><em style={{width:`${clamp(teammateHp/Math.max(1,teammateMaxHp)*100,0,100)}%`}}/></i>
+          </div>}
           <div className="skillDock">
             <span className={mechPreviewClass(selectedClassSpec)} style={mechPreviewStyle(selectedClassSpec)} aria-hidden="true"/>
             <div><small>{selectedClassSpec.role}</small><b>{selectedClassSpec.active}</b></div>
-            <button onClick={()=>activeSkillRef.current()} disabled={skillCooldown>0}>{skillCooldown>0?`${skillCooldown}s`:"Q · 释放"}</button>
+            <button onClick={()=>activeSkillRef.current()} disabled={skillCooldown>0||hp<=0}>{hp<=0?"倒地":skillCooldown>0?`${skillCooldown}s`:"Q · 释放"}</button>
           </div>
+          {hp<=0&&!paused&&<div className="downedSpectator"><b>机体倒地 · 正在观战</b><span>{rescueProgress>0?`队友施救中 ${Math.round(rescueProgress*100)}%`:"队友靠近并停留 4 秒即可复活你"}</span></div>}
           <div className="health"><span>{selectedClassSpec.name} · 机体完整度</span><div><i style={{width:`${clamp(hp / Math.max(1, maxHp) * 100, 0, 100)}%`}}/></div><b>{hp}/{maxHp}</b></div>
           <div className="xp"><i style={{width:`${xp}%`}}/></div>
           <div className="mobileHint">按住并拖动来移动</div>

@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.7 · 远程火力/);
+  assert.match(html, /版本 0\.8 · 战地救援/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -42,8 +42,8 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   const rootEntry = await readFile(new URL("../../../app/page.tsx", import.meta.url), "utf8");
 
   assert.match(rootEntry, /games\/ember-protocol\/Game/);
-  assert.doesNotMatch(rootEntry, /ember-protocol-v7/);
-  assert.match(page, /ember-protocol-v7/);
+  assert.doesNotMatch(rootEntry, /ember-protocol-v8/);
+  assert.match(page, /ember-protocol-v8/);
   assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost"/);
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
   assert.match(page, /个人机体强化 · 独立选择/);
@@ -64,6 +64,16 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   assert.match(page, /assassin: "ranged"/);
   assert.match(page, /commander: "ranged"/);
   assert.match(page, /const moveDirection = !ranged/);
+  assert.match(page, /const REVIVE_SECONDS = 4/);
+  assert.match(page, /const REVIVE_RANGE = 88/);
+  assert.match(page, /const teamDefeated = player\.hp <= 0 &&/);
+  assert.match(page, /drawDowned/);
+  assert.match(page, /正在观战/);
+  assert.match(page, /队友机体/);
+  assert.match(page, /entry\.distance < entry\.magnet/);
+  assert.match(page, /kind: "skill" \| "impact" \| "dash" \| "revive"/);
+  assert.match(page, /effect\.classId==="assault"/);
+  assert.match(page, /effect\.classId==="frost"/);
   assert.match(page, /const fireLaser/);
   assert.match(page, /const freezeArea/);
   assert.match(page, /const dronePosition/);
