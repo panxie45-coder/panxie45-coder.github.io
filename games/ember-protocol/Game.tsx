@@ -40,6 +40,7 @@ type ClassSpec = {
   role: string;
   active: string;
   passive: string;
+  ultimate: string;
   cooldown: number;
   color: string;
   sprite: number;
@@ -58,6 +59,7 @@ type Shot = {
   damage: number;
   life: number;
   hostile?: boolean;
+  homing?: number;
   owner?: PlayerSide;
   classId?: ClassId;
   enemyKind?: EnemyKind;
@@ -213,12 +215,12 @@ const rollUpgradeChoices = (classId: ClassId) => {
 const rollShopItems = () => shuffled(SHOP_ITEMS).slice(0, 4);
 
 const CLASSES: ClassSpec[] = [
-  { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "爆破弹：命中产生范围爆炸", cooldown: 10, color: "#f4c95d", sprite: 0, sheet: "core", radius: 18, renderSize: 78 },
-  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：3 秒内免疫伤害", passive: "穿甲重炮：可连续贯穿多个敌人", cooldown: 14, color: "#58c7c0", sprite: 1, sheet: "core", radius: 24, renderSize: 88 },
-  { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", passive: "链式脉冲：无人机弹丸会跳跃攻击", cooldown: 16, color: "#92a35c", sprite: 2, sheet: "core", radius: 20, renderSize: 82 },
-  { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", passive: "相位针刺：高射速、高暴击并可贯穿", cooldown: 9, color: "#9ec9ff", sprite: 3, sheet: "core", radius: 14, renderSize: 72 },
-  { id: "laser", name: "赤曜型", role: "贯穿激光猎手", active: "聚焦光束：发射横贯战场的高能激光", passive: "热能射线：高速弹丸可贯穿多名敌人", cooldown: 12, color: "#ff5b58", sprite: 0, sheet: "specialist", radius: 15, renderSize: 82 },
-  { id: "frost", name: "霜垒型", role: "冰冻攻城炮", active: "绝对零域：冻结附近敌人并造成伤害", passive: "低温弹头：命中后显著降低敌人速度", cooldown: 15, color: "#8bdcff", sprite: 1, sheet: "specialist", radius: 25, renderSize: 94 },
+  { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "爆破弹：命中产生范围爆炸", ultimate: "天穹火雨：连续释放多轮强化饱和导弹", cooldown: 10, color: "#f4c95d", sprite: 0, sheet: "core", radius: 18, renderSize: 78 },
+  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：3 秒内免疫伤害", passive: "穿甲重炮：可连续贯穿多个敌人", ultimate: "不灭要塞：修复机体、长时间无敌并震荡全场", cooldown: 14, color: "#58c7c0", sprite: 1, sheet: "core", radius: 24, renderSize: 88 },
+  { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", passive: "链式脉冲：无人机弹丸会跳跃攻击", ultimate: "蜂群超载：全队修复并发射高压链式弹幕", cooldown: 16, color: "#92a35c", sprite: 2, sheet: "core", radius: 20, renderSize: 82 },
+  { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", passive: "相位针刺：高射速、高暴击并可贯穿", ultimate: "虚空猎杀：瞬间锁定并斩击最多 16 名敌人", cooldown: 9, color: "#9ec9ff", sprite: 3, sheet: "core", radius: 14, renderSize: 72 },
+  { id: "laser", name: "赤曜型", role: "贯穿激光猎手", active: "聚焦光束：发射横贯战场的高能激光", passive: "热能射线：高速弹丸可贯穿多名敌人", ultimate: "赤曜审判：向六个方向释放超宽贯穿光束", cooldown: 12, color: "#ff5b58", sprite: 0, sheet: "specialist", radius: 15, renderSize: 82 },
+  { id: "frost", name: "霜垒型", role: "冰冻攻城炮", active: "绝对零域：冻结附近敌人并造成伤害", passive: "低温弹头：命中后显著降低敌人速度", ultimate: "永冻纪元：冰封全场并对所有敌人造成重创", cooldown: 15, color: "#8bdcff", sprite: 1, sheet: "specialist", radius: 25, renderSize: 94 },
 ];
 
 const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; radius: number; color: string; cooldown: number }> = {
@@ -227,7 +229,7 @@ const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; ra
   artillery: { hp: 58, speed: 40, hit: 7, radius: 18, color: "#de8b34", cooldown: 2.55 },
   assassin: { hp: 68, speed: 78, hit: 8, radius: 18, color: "#865bc7", cooldown: 1.9 },
   brute: { hp: 185, speed: 34, hit: 16, radius: 27, color: "#a7542a", cooldown: 0 },
-  commander: { hp: 320, speed: 46, hit: 15, radius: 30, color: "#d9b24b", cooldown: 1.65 },
+  commander: { hp: 320, speed: 46, hit: 12, radius: 30, color: "#d9b24b", cooldown: 1.75 },
 };
 const ENEMY_XP: Record<EnemyKind, number> = {
   runner: 1,
@@ -428,6 +430,7 @@ export default function Home() {
 
   const startGame = useCallback(() => {
     wakeAudio("start");
+    pausedRef.current = false;
     setLevel(1); setXp(0); setHp(ownBuildRef.current.maxHp); setMaxHp(ownBuildRef.current.maxHp); setTeammateHp(null); setRescueProgress(0); setKills(0); setSeconds(0); setSkillCooldown(0);
     setWave(1); setCoins(0); setUltimateEnergy(0); setShopItems(null); setSupplyReward(0); setWaitingSupply(false);
     setChoices(null); setPaused(false); setView("game");
@@ -818,6 +821,7 @@ export default function Home() {
     });
 
     const reset = () => {
+      localPaused = false;
       elapsed = 0; spawnClock = 0; fireClock = 0; currentXp = 0; currentLevel = 1; currentKills = 0;
       netClock = 0; worldClock = 0; remoteFireClock = 0; gameOverSent = false;
       nextEnemyId = 1;
@@ -827,6 +831,7 @@ export default function Home() {
       currentWave = 1; waveKills = 0; nextSupplyAt = 45;
       localShopDone = false; remoteShopDone = false; pendingMissileWaves = [];
       localUpgradeDone = false; waitingForRemoteUpgrade = false;
+      keys.clear();
       setWaitingPeerUpgrade(false);
       build = { ...ownBuildRef.current };
       stats = { ...build };
@@ -1450,16 +1455,17 @@ export default function Home() {
       }
 
       for (const shot of shots) {
-        if (shot.hostile && shot.enemyKind === "commander") {
+        if (shot.hostile && shot.enemyKind === "commander" && (shot.homing || 0) > 0) {
           const targets: Actor[] = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
           if (!targets.length) continue;
           const target = targets.reduce((nearest, actor) => dist(shot, actor) < dist(shot, nearest) ? actor : nearest);
           const speed = Math.hypot(shot.vx, shot.vy);
           const desired = Math.atan2(target.y - shot.y, target.x - shot.x);
           const current = Math.atan2(shot.vy, shot.vx);
-          const turn = Math.atan2(Math.sin(desired - current), Math.cos(desired - current)) * .045;
+          const turn = Math.atan2(Math.sin(desired - current), Math.cos(desired - current)) * .035;
           shot.vx = Math.cos(current + turn) * speed;
           shot.vy = Math.sin(current + turn) * speed;
+          shot.homing = Math.max(0, (shot.homing || 0) - dt);
         }
         shot.x += shot.vx * dt; shot.y += shot.vy * dt; shot.life -= dt;
       }
@@ -1492,17 +1498,19 @@ export default function Home() {
           for (let index = 0; index < spreadCount; index++) {
             const spread = (index - (spreadCount - 1) / 2) * (enemy.kind === "assassin" ? .075 : .18);
             const shotAngle = angle + spread;
-            const projectileSpeed = enemy.kind === "assassin" ? 510 : enemy.kind === "commander" ? 330 : 285;
+            const projectileSpeed = enemy.kind === "assassin" ? 490 : enemy.kind === "commander" ? 290 : 280;
+            const lateRangedDamage = 1 + Math.min(.55, elapsed / 900);
             shots.push({
               x: enemy.x + Math.cos(angle) * (enemy.r + 8),
               y: enemy.y + Math.sin(angle) * (enemy.r + 8),
               vx: Math.cos(shotAngle) * projectileSpeed,
               vy: Math.sin(shotAngle) * projectileSpeed,
               r: enemy.kind === "commander" ? 7 : enemy.kind === "assassin" ? 4 : 6,
-              damage: enemy.hit * (enemy.kind === "assassin" ? .62 : 1) * (1 + elapsed / 650),
+              damage: enemy.hit * (enemy.kind === "assassin" ? .58 : 1) * lateRangedDamage,
               life: enemy.kind === "assassin" ? 1.7 : 2.4,
               hostile: true,
               enemyKind: enemy.kind,
+              homing: enemy.kind === "commander" ? .75 : undefined,
               splash: enemy.kind === "artillery" ? 68 : undefined,
             });
           }
@@ -2024,6 +2032,7 @@ export default function Home() {
       <b>{item.name}</b>
       <span><em>主动</em>{item.active}</span>
       <span><em>被动</em>{item.passive}</span>
+      <span><em>终极</em>{item.ultimate}</span>
     </button>)}
   </div>;
 
@@ -2031,7 +2040,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.9 · 终极补给</div>
+        <div className="status"><i /> 版本 0.9.1 · 远征修复</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -2138,7 +2147,7 @@ export default function Home() {
             <button onClick={()=>activeSkillRef.current()} disabled={skillCooldown>0||hp<=0}>{hp<=0?"倒地":skillCooldown>0?`${skillCooldown}s`:"Q · 释放"}</button>
           </div>
           <div className={`ultimateDock ${ultimateEnergy>=100?"ready":""}`}>
-            <span><small>终极大招</small><b>{ULTIMATE_NAMES[selectedClass]}</b></span>
+            <span className="ultimateCopy"><small>终极大招</small><b>{ULTIMATE_NAMES[selectedClass]}</b><em>{selectedClassSpec.ultimate.split("：")[1]}</em></span>
             <i><em style={{width:`${clamp(ultimateEnergy,0,100)}%`}}/></i>
             <button onClick={()=>activeUltimateRef.current()} disabled={ultimateEnergy<100||hp<=0}>{ultimateEnergy>=100?"R · 释放":`${Math.floor(ultimateEnergy)}%`}</button>
           </div>
@@ -2150,6 +2159,7 @@ export default function Home() {
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
           <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>至少包含一个职业专属强化；装配完成后恢复 18% 最大生命值。</p>
+            <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="upgradeGrid">{choices.map((u,i)=><button key={u.id} onClick={()=>chooseUpgrade(u)}><small>0{i+1}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
             <button className="rerollBtn" onClick={()=>rerollUpgradeRef.current()} disabled={coins<10}>◈ 10 刷新本次升级选项</button>
           </div>
@@ -2158,7 +2168,9 @@ export default function Home() {
           <div className="shopPanel">
             <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波结算</div>
             <h2>战场补给站</h2>
-            <p>本波共享结算 <b>◈ {supplyReward}</b>，当前个人钱包 <b>◈ {coins}</b>。联机时双方获得相同金币，但购买各自结算。</p>
+            <p>本波共享结算 <b>◈ {supplyReward}</b>。联机时双方获得相同金币，但购买各自结算。</p>
+            <div className="shopWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
+            <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="shopGrid">{shopItems.map((item)=><button key={item.id} onClick={()=>buyShopItemRef.current(item.id)} disabled={coins<item.cost}>
               <i>{item.icon}</i><b>{item.title}</b><span>{item.desc}</span><small>◈ {item.cost}</small>
             </button>)}</div>

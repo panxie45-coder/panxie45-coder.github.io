@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.9 · 终极补给/);
+  assert.match(html, /版本 0\.9\.1 · 远征修复/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -66,6 +66,10 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   assert.match(page, /assassin: "ranged"/);
   assert.match(page, /commander: "ranged"/);
   assert.match(page, /const moveDirection = !ranged/);
+  assert.match(page, /homing\?: number/);
+  assert.match(page, /shot\.homing = Math\.max\(0/);
+  assert.match(page, /homing: enemy\.kind === "commander" \? \.75/);
+  assert.match(page, /Math\.min\(\.55, elapsed \/ 900\)/);
   assert.match(page, /const REVIVE_SECONDS = 2/);
   assert.match(page, /const REVIVE_RANGE = 88/);
   assert.match(page, /hostReviveProgress = Math\.min\(REVIVE_SECONDS, hostReviveProgress \+ dt\)/);
@@ -88,6 +92,13 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   assert.match(page, /ultimate: \{ host: number; guest: number \}/);
   assert.match(page, /const executeUltimate/);
   assert.match(page, /ULTIMATE_NAMES/);
+  assert.match(page, /ultimate: "天穹火雨：/);
+  assert.match(page, /selectedClassSpec\.ultimate\.split/);
+  assert.match(page, /localPaused = false;\s+elapsed = 0/);
+  assert.match(page, /pausedRef\.current = false/);
+  assert.match(page, /keys\.clear\(\)/);
+  assert.match(page, /className="shopWallet"/);
+  assert.match(page, /当前机体完整度/);
   assert.match(page, /player\.maxHp \* \.18/);
   assert.match(page, /const nearbyEnemies/);
   assert.match(page, /worldClock = \.06/);
@@ -100,6 +111,10 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   assert.doesNotMatch(page, /ctx\.arc\(remote\.x/);
   assert.match(page, /player-mechs\.png/);
   assert.match(css, /background-size:200% 200%/);
+  assert.match(css, /\.levelBadge small\{font:800 14px/);
+  assert.match(css, /\.shopWallet/);
+  assert.match(css, /\.panelVitals/);
+  assert.match(css, /\.ultimateCopy em/);
 
   await Promise.all([
     access(new URL("../public/game/player-mechs.png", import.meta.url)),
