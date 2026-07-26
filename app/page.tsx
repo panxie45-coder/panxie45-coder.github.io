@@ -10,10 +10,28 @@ type Actor = { x: number; y: number; r: number; hp: number; maxHp: number; color
 type Enemy = Actor & { speed: number; hit: number };
 type Shot = { x: number; y: number; vx: number; vy: number; r: number; damage: number; life: number };
 type Gem = { x: number; y: number; value: number };
+type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp">;
+type WorldFrame = {
+  elapsed: number;
+  level: number;
+  xp: number;
+  xpNeed: number;
+  kills: number;
+  host: PlayerFrame;
+  guest?: PlayerFrame;
+  enemies: Enemy[];
+  shots: Shot[];
+  gems: Gem[];
+};
 type NetPayload =
   | { t: "hello" }
   | { t: "start" }
-  | { t: "player"; x: number; y: number; hp: number; maxHp: number };
+  | { t: "player"; x: number; y: number }
+  | { t: "world"; frame: WorldFrame }
+  | { t: "levelup"; level: number; choices: string[] }
+  | { t: "upgrade"; id: string }
+  | { t: "pause"; paused: boolean }
+  | { t: "gameover" };
 type NetBridge = {
   roomId: string;
   role: "host" | "join";
@@ -24,12 +42,12 @@ type NetBridge = {
 };
 
 const UPGRADES: Upgrade[] = [
-  { id: "rapid", title: "余烬弹匣", desc: "射击间隔 -18%", icon: "✦" },
-  { id: "damage", title: "淬火弹头", desc: "伤害 +30%", icon: "◆" },
-  { id: "multi", title: "双生火舌", desc: "额外发射 1 枚弹丸", icon: "⌁" },
-  { id: "speed", title: "轻盈步伐", desc: "移动速度 +15%", icon: "➜" },
-  { id: "vitality", title: "不灭心火", desc: "最大生命 +25，并回复", icon: "♥" },
-  { id: "magnet", title: "拾荒直觉", desc: "拾取范围 +45%", icon: "◎" },
+  { id: "rapid", title: "余烬弹匣", desc: "射击间隔 -14%", icon: "✦" },
+  { id: "damage", title: "淬火弹头", desc: "团队伤害 +22%", icon: "◆" },
+  { id: "multi", title: "双生火舌", desc: "额外弹丸 +1，射速略降", icon: "⌁" },
+  { id: "speed", title: "轻盈步伐", desc: "移动速度 +12%", icon: "➜" },
+  { id: "vitality", title: "不灭心火", desc: "全队生命 +20，并回复 30", icon: "♥" },
+  { id: "magnet", title: "拾荒直觉", desc: "拾取范围 +35%", icon: "◎" },
 ];
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -314,43 +332,125 @@ export default function Home() {
     const W = 1280, H = 720;
     canvas.width = W; canvas.height = H;
     let raf = 0, last = performance.now(), elapsed = 0, spawnClock = 0, fireClock = 0;
-    let active = true, localPaused = false, currentXp = 0, currentLevel = 1, netClock = 0, remoteFireClock = 0, remoteSeen = 0;
-    let player: Actor = { x: W / 2, y: H / 2, r: 17, hp: 100, maxHp: 100, color: "#f4c95d" };
+    let active = true, localPaused = false, currentXp = 0, currentLevel = 1, currentKills = 0;
+    let netClock = 0, worldClock = 0, remoteFireClock = 0, remoteSeen = 0, gameOverSent = false;
+    const network = netRef.current;
+    const isAuthority = network?.role !== "join";
+    let player: Actor = {
+      x: network?.role === "join" ? W / 2 + 52 : W / 2 - 52,
+      y: H / 2,
+      r: 17,
+      hp: 100,
+      maxHp: 100,
+      color: "#f4c95d",
+    };
     let remote: Actor | null = null;
     let enemies: Enemy[] = [], shots: Shot[] = [], gems: Gem[] = [], particles: {x:number;y:number;vx:number;vy:number;life:number;color:string}[] = [];
-    let stats = { speed: 245, damage: 24, interval: .42, multi: 1, magnet: 78 };
+    let stats = { speed: 240, damage: 28, interval: .46, multi: 1, magnet: 84 };
     const keys = new Set<string>();
     const pointer = { x: W / 2, y: H / 2, down: false };
-    const network = netRef.current;
     const audio = audioRef.current;
     const unsubscribeNetwork = network?.subscribe((data) => {
-      if (data.t === "player") {
-        remote = { x: data.x, y: data.y, r: 17, hp: data.hp, maxHp: data.maxHp, color: "#78a99d", name: "伙伴" };
+      if (data.t === "player" && isAuthority) {
+        remote = {
+          x: data.x,
+          y: data.y,
+          r: 17,
+          hp: remote?.hp ?? 100,
+          maxHp: remote?.maxHp ?? 100,
+          color: "#78a99d",
+          name: "伙伴",
+        };
         remoteSeen = performance.now();
+      }
+      if (data.t === "world" && !isAuthority) {
+        const frame = data.frame;
+        elapsed = frame.elapsed;
+        currentLevel = frame.level;
+        currentXp = frame.xp;
+        if (frame.kills > currentKills) audio?.play("kill");
+        currentKills = frame.kills;
+        enemies = frame.enemies;
+        shots = frame.shots;
+        gems = frame.gems;
+        remote = { ...frame.host, r: 17, color: "#78a99d", name: "队长" };
+        remoteSeen = performance.now();
+        if (frame.guest) {
+          player.hp = frame.guest.hp;
+          player.maxHp = frame.guest.maxHp;
+        }
+        setSeconds(Math.floor(frame.elapsed));
+        setLevel(frame.level);
+        setKills(frame.kills);
+        setXp(clamp(frame.xp / frame.xpNeed * 100, 0, 100));
+        setHp(Math.max(0, Math.ceil(player.hp)));
+      }
+      if (data.t === "levelup" && !isAuthority) {
+        currentLevel = data.level;
+        localPaused = true;
+        setLevel(data.level);
+        setChoices(data.choices.map((id) => UPGRADES.find((upgrade) => upgrade.id === id)).filter((upgrade): upgrade is Upgrade => Boolean(upgrade)));
+      }
+      if (data.t === "upgrade" && !isAuthority) {
+        applyUpgradeRef.current(data.id);
+        setChoices(null);
+      }
+      if (data.t === "pause" && !isAuthority) {
+        setPaused(data.paused);
+      }
+      if (data.t === "gameover" && !isAuthority) {
+        audio?.play("game-over");
+        player.hp = 0;
+        setHp(0);
+        localPaused = true;
+        setPaused(true);
       }
     });
 
     const reset = () => {
-      elapsed = 0; spawnClock = 0; fireClock = 0; currentXp = 0; currentLevel = 1;
-      player = { x: W / 2, y: H / 2, r: 17, hp: 100, maxHp: 100, color: "#f4c95d" };
+      elapsed = 0; spawnClock = 0; fireClock = 0; currentXp = 0; currentLevel = 1; currentKills = 0;
+      netClock = 0; worldClock = 0; remoteFireClock = 0; gameOverSent = false;
+      player = {
+        x: network?.role === "join" ? W / 2 + 52 : W / 2 - 52,
+        y: H / 2,
+        r: 17,
+        hp: 100,
+        maxHp: 100,
+        color: "#f4c95d",
+      };
+      remote = null;
       enemies = []; shots = []; gems = []; particles = [];
-      stats = { speed: 245, damage: 24, interval: .42, multi: 1, magnet: 78 };
+      stats = { speed: 240, damage: 28, interval: .46, multi: 1, magnet: 84 };
     };
     resetRef.current = reset;
     applyUpgradeRef.current = (id) => {
-      if (id === "rapid") stats.interval *= .82;
-      if (id === "damage") stats.damage *= 1.3;
-      if (id === "multi") stats.multi += 1;
-      if (id === "speed") stats.speed *= 1.15;
-      if (id === "magnet") stats.magnet *= 1.45;
-      if (id === "vitality") { player.maxHp += 25; player.hp = Math.min(player.maxHp, player.hp + 35); }
+      if (id === "rapid") stats.interval *= .86;
+      if (id === "damage") stats.damage *= 1.22;
+      if (id === "multi") { stats.multi += 1; stats.interval *= 1.08; }
+      if (id === "speed") stats.speed *= 1.12;
+      if (id === "magnet") stats.magnet *= 1.35;
+      if (id === "vitality") {
+        player.maxHp += 20;
+        player.hp = Math.min(player.maxHp, player.hp + 30);
+        if (remote) {
+          remote.maxHp += 20;
+          remote.hp = Math.min(remote.maxHp, remote.hp + 30);
+        }
+        setHp(Math.ceil(player.hp));
+      }
       audio?.play("upgrade");
       localPaused = false;
     };
 
     const down = (e: KeyboardEvent) => {
       keys.add(e.key.toLowerCase());
-      if (e.key === "Escape") setPaused(p => !p);
+      if (e.key === "Escape" && network?.role !== "join") {
+        setPaused((wasPaused) => {
+          const nextPaused = !wasPaused;
+          if (network?.connected()) void network.send({ t: "pause", paused: nextPaused });
+          return nextPaused;
+        });
+      }
     };
     const up = (e: KeyboardEvent) => keys.delete(e.key.toLowerCase());
     const movePointer = (e: PointerEvent) => {
@@ -371,9 +471,20 @@ export default function Home() {
       const side = Math.floor(Math.random() * 4), pad = 35;
       let x = Math.random() * W, y = Math.random() * H;
       if (side === 0) y = -pad; if (side === 1) x = W + pad; if (side === 2) y = H + pad; if (side === 3) x = -pad;
-      const elite = Math.random() < Math.min(.18, elapsed / 300);
-      const maxHp = (elite ? 90 : 38) * (1 + elapsed / 160);
-      enemies.push({ x, y, r: elite ? 24 : 15, hp: maxHp, maxHp, speed: (elite ? 52 : 72) + elapsed * .12, hit: elite ? 22 : 11, color: elite ? "#e15d45" : "#75a99c" });
+      const coOpScale = remote ? 1.32 : 1;
+      const eliteChance = clamp((elapsed - 30) / 300, 0, .16);
+      const elite = Math.random() < eliteChance;
+      const maxHp = (elite ? 96 : 34) * (1 + elapsed / 210) * coOpScale;
+      enemies.push({
+        x,
+        y,
+        r: elite ? 24 : 15,
+        hp: maxHp,
+        maxHp,
+        speed: (elite ? 46 : 62) + Math.min(22, elapsed * .07),
+        hit: elite ? 17 : 9,
+        color: elite ? "#e15d45" : "#75a99c",
+      });
     };
     const burst = (x:number,y:number,color:string,n=8) => {
       for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2,s=40+Math.random()*120; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.35+Math.random()*.35,color}); }
@@ -383,26 +494,65 @@ export default function Home() {
       currentLevel++; setLevel(currentLevel);
       const pool = [...UPGRADES].sort(() => Math.random() - .5).slice(0, 3);
       localPaused = true; setChoices(pool);
+      if (network?.connected()) {
+        void network.send({ t: "levelup", level: currentLevel, choices: pool.map((upgrade) => upgrade.id) });
+      }
+    };
+
+    const xpNeed = () => 8 + currentLevel * 3;
+    const sendWorld = () => {
+      if (!network?.connected() || !isAuthority) return;
+      void network.send({
+        t: "world",
+        frame: {
+          elapsed,
+          level: currentLevel,
+          xp: currentXp,
+          xpNeed: xpNeed(),
+          kills: currentKills,
+          host: { x: player.x, y: player.y, hp: player.hp, maxHp: player.maxHp },
+          guest: remote ? { x: remote.x, y: remote.y, hp: remote.hp, maxHp: remote.maxHp } : undefined,
+          enemies,
+          shots,
+          gems,
+        },
+      });
     };
 
     const update = (dt: number) => {
-      elapsed += dt; setSeconds(Math.floor(elapsed));
       let dx = (keys.has("d") || keys.has("arrowright") ? 1 : 0) - (keys.has("a") || keys.has("arrowleft") ? 1 : 0);
       let dy = (keys.has("s") || keys.has("arrowdown") ? 1 : 0) - (keys.has("w") || keys.has("arrowup") ? 1 : 0);
       const dm = Math.hypot(dx, dy) || 1; dx /= dm; dy /= dm;
       player.x = clamp(player.x + dx * stats.speed * dt, 30, W - 30);
       player.y = clamp(player.y + dy * stats.speed * dt, 30, H - 30);
+
       if (remote && performance.now() - remoteSeen > 3500) remote = null;
       netClock -= dt;
-      if (network?.connected() && netClock <= 0) {
+      if (network?.connected() && network.role === "join" && netClock <= 0) {
         netClock = .05;
-        void network.send({ t:"player", x:player.x, y:player.y, hp:player.hp, maxHp:player.maxHp });
+        void network.send({ t: "player", x: player.x, y: player.y });
       }
 
+      for (const p of particles) {
+        p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; p.vx *= .96; p.vy *= .96;
+      }
+      particles = particles.filter((particle) => particle.life > 0);
+      if (!isAuthority) return;
+
+      elapsed += dt;
+      setSeconds(Math.floor(elapsed));
+      const coOpActive = Boolean(remote && network?.connected());
+      const enemyCap = coOpActive ? 90 : 70;
       spawnClock -= dt;
-      if (spawnClock <= 0) { spawnClock = Math.max(.16, .78 - elapsed * .006); spawnEnemy(); }
+      if (spawnClock <= 0) {
+        spawnClock = coOpActive
+          ? Math.max(.25, .88 - elapsed * .0038)
+          : Math.max(.32, 1.05 - elapsed * .0042);
+        if (enemies.length < enemyCap) spawnEnemy();
+      }
+
       fireClock -= dt;
-      if (fireClock <= 0 && enemies.length) {
+      if (fireClock <= 0 && enemies.length && player.hp > 0) {
         fireClock = stats.interval;
         const target = enemies.reduce((a,b) => dist(player,a) < dist(player,b) ? a : b);
         const a0 = Math.atan2(target.y-player.y,target.x-player.x);
@@ -411,33 +561,100 @@ export default function Home() {
         burst(player.x+Math.cos(a0)*18,player.y+Math.sin(a0)*18,"#f4c95d",3);
       }
       remoteFireClock -= dt;
-      if (remote && remoteFireClock <= 0 && enemies.length) {
-        remoteFireClock = .55;
+      if (remote && remote.hp > 0 && remoteFireClock <= 0 && enemies.length) {
+        remoteFireClock = stats.interval * 1.1;
         const target = enemies.reduce((a,b) => dist(remote!,a) < dist(remote!,b) ? a : b);
         const a = Math.atan2(target.y-remote.y,target.x-remote.x);
-        shots.push({x:remote.x,y:remote.y,vx:Math.cos(a)*540,vy:Math.sin(a)*540,r:5,damage:stats.damage*.72,life:1.5});
+        for(let i=0;i<stats.multi;i++){ const spread=(i-(stats.multi-1)/2)*.14; const shotAngle=a+spread; shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*550,vy:Math.sin(shotAngle)*550,r:5,damage:stats.damage*.85,life:1.5}); }
         audio?.play("ally-shot");
       }
-      for (const s of shots) { s.x += s.vx*dt; s.y += s.vy*dt; s.life -= dt; }
-      shots = shots.filter(s => s.life > 0);
-      for (const e of enemies) {
-        const target = remote && dist(e,remote) < dist(e,player) ? remote : player;
-        const a=Math.atan2(target.y-e.y,target.x-e.x); e.x+=Math.cos(a)*e.speed*dt; e.y+=Math.sin(a)*e.speed*dt;
-        if(dist(e,player)<e.r+player.r){ player.hp-=e.hit*dt; setHp(Math.max(0,Math.ceil(player.hp))); audio?.play("hurt"); }
+
+      for (const shot of shots) {
+        shot.x += shot.vx * dt; shot.y += shot.vy * dt; shot.life -= dt;
       }
-      for (const s of shots) for (const e of enemies) if(s.life>0&&e.hp>0&&dist(s,e)<s.r+e.r){ e.hp-=s.damage; s.life=0; audio?.play("hit"); burst(s.x,s.y,"#fff2ba",4); }
-      for (const e of enemies) if(e.hp<=0){ gems.push({x:e.x,y:e.y,value:e.r>20?3:1}); audio?.play("kill"); burst(e.x,e.y,e.color,10); setKills(k=>k+1); }
-      enemies = enemies.filter(e=>e.hp>0);
-      for (const g of gems) {
-        const d=dist(g,player); if(d<stats.magnet){ const a=Math.atan2(player.y-g.y,player.x-g.x); g.x+=Math.cos(a)*360*dt; g.y+=Math.sin(a)*360*dt; }
-        if(d<player.r+8){ g.value=0; audio?.play("pickup"); currentXp++; const need=6+currentLevel*4; setXp(currentXp/need*100); if(currentXp>=need){currentXp=0;setXp(0);levelUp();} }
+      shots = shots.filter((shot) => shot.life > 0);
+      for (const enemy of enemies) {
+        const target = remote && remote.hp > 0 && dist(enemy,remote) < dist(enemy,player) ? remote : player;
+        const angle = Math.atan2(target.y-enemy.y,target.x-enemy.x);
+        enemy.x += Math.cos(angle) * enemy.speed * dt;
+        enemy.y += Math.sin(angle) * enemy.speed * dt;
+        if (dist(enemy,target) < enemy.r + target.r) {
+          target.hp = Math.max(0, target.hp - enemy.hit * dt);
+          if (target === player) {
+            setHp(Math.ceil(player.hp));
+            audio?.play("hurt");
+          }
+        }
       }
-      gems=gems.filter(g=>g.value>0);
-      for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;p.vx*=.96;p.vy*=.96;} particles=particles.filter(p=>p.life>0);
-      if(player.hp<=0){ audio?.play("game-over"); localPaused=true; setPaused(true); }
+      for (const shot of shots) {
+        for (const enemy of enemies) {
+          if (shot.life > 0 && enemy.hp > 0 && dist(shot,enemy) < shot.r + enemy.r) {
+            enemy.hp -= shot.damage;
+            shot.life = 0;
+            audio?.play("hit");
+            burst(shot.x,shot.y,"#fff2ba",4);
+          }
+        }
+      }
+      for (const enemy of enemies) {
+        if (enemy.hp <= 0) {
+          gems.push({x:enemy.x,y:enemy.y,value:enemy.r>20?3:1});
+          audio?.play("kill");
+          burst(enemy.x,enemy.y,enemy.color,10);
+          currentKills++;
+          setKills(currentKills);
+        }
+      }
+      enemies = enemies.filter((enemy) => enemy.hp > 0);
+      for (const gem of gems) {
+        const collector = remote && remote.hp > 0 && dist(gem,remote) < dist(gem,player) ? remote : player;
+        const pickupDistance = dist(gem,collector);
+        if (pickupDistance < stats.magnet) {
+          const angle = Math.atan2(collector.y-gem.y,collector.x-gem.x);
+          gem.x += Math.cos(angle) * 340 * dt;
+          gem.y += Math.sin(angle) * 340 * dt;
+        }
+        if (pickupDistance < collector.r + 8) {
+          const earnedXp = gem.value;
+          gem.value = 0;
+          audio?.play("pickup");
+          currentXp += earnedXp;
+          const need = xpNeed();
+          setXp(clamp(currentXp / need * 100, 0, 100));
+          if (currentXp >= need) {
+            currentXp -= need;
+            levelUp();
+            setXp(clamp(currentXp / xpNeed() * 100, 0, 100));
+          }
+        }
+      }
+      gems = gems.filter((gem) => gem.value > 0);
+
+      worldClock -= dt;
+      if (worldClock <= 0) {
+        worldClock = .08;
+        sendWorld();
+      }
+      const teamDefeated = player.hp <= 0 || Boolean(remote && remote.hp <= 0);
+      if (teamDefeated && !gameOverSent) {
+        gameOverSent = true;
+        sendWorld();
+        if (network?.connected()) void network.send({ t: "gameover" });
+        audio?.play("game-over");
+        setHp(0);
+        localPaused = true;
+        setPaused(true);
+      }
     };
 
     const draw = () => {
+      canvas.dataset.role = network?.role || "solo";
+      canvas.dataset.enemies = String(enemies.length);
+      canvas.dataset.shots = String(shots.length);
+      canvas.dataset.gems = String(gems.length);
+      canvas.dataset.level = String(currentLevel);
+      canvas.dataset.kills = String(currentKills);
+      canvas.dataset.elapsed = String(Math.floor(elapsed));
       ctx.fillStyle="#111814"; ctx.fillRect(0,0,W,H);
       ctx.strokeStyle="rgba(205,224,187,.055)"; ctx.lineWidth=1;
       for(let x=0;x<W;x+=48){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
@@ -471,7 +688,22 @@ export default function Home() {
   }, [view]);
 
   const chooseUpgrade = (u: Upgrade) => {
+    const currentNetwork = netRef.current;
+    if (currentNetwork?.role === "join") return;
     applyUpgradeRef.current(u.id); setChoices(null);
+    if (currentNetwork?.connected()) void currentNetwork.send({ t: "upgrade", id: u.id });
+  };
+  const resumeRun = () => {
+    const currentNetwork = netRef.current;
+    if (currentNetwork?.role === "join") return;
+    setPaused(false);
+    if (currentNetwork?.connected()) void currentNetwork.send({ t: "pause", paused: false });
+  };
+  const restartRun = () => {
+    const currentNetwork = netRef.current;
+    if (currentNetwork?.role === "join") return;
+    if (currentNetwork?.connected()) void currentNetwork.send({ t: "start" });
+    startGame();
   };
   const formatTime = (s:number) => `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 
@@ -612,19 +844,20 @@ export default function Home() {
         </div>
         <div className="canvasFrame">
           <canvas ref={canvasRef} aria-label="余烬协议游戏画面"/>
+          {signalMode && <div className="syncBadge"><i /> 共享战场 · {signalMode==="host"?"队长同步":"伙伴同步"}</div>}
           <div className="health"><span>火种完整度</span><div><i style={{width:`${hp}%`}}/></div><b>{hp}</b></div>
           <div className="xp"><i style={{width:`${xp}%`}}/></div>
           <div className="mobileHint">按住并拖动来移动</div>
         </div>
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
-          <div className="upgradePanel"><div className="eyebrow">火种共鸣</div><h2>选择一项遗物</h2><p>每次选择，都将改变这趟远征。</p>
-            <div className="upgradeGrid">{choices.map((u,i)=><button key={u.id} onClick={()=>chooseUpgrade(u)}><small>0{i+1}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
+          <div className="upgradePanel"><div className="eyebrow">火种共鸣 · 团队共享</div><h2>{signalMode==="join"?"等待队长选择":"选择一项团队遗物"}</h2><p>{signalMode==="join"?"队长选择后，强化会同时应用到两位玩家。":"这项强化会同时改变两位玩家的战斗能力。"}</p>
+            <div className="upgradeGrid">{choices.map((u,i)=><button key={u.id} disabled={signalMode==="join"} onClick={()=>chooseUpgrade(u)}><small>0{i+1}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
           </div>
         </div>}
-        {paused && !choices && <div className="overlay"><div className="pausePanel"><div className="eyebrow">{hp<=0?"远征终止":"火焰暂歇"}</div><h2>{hp<=0?"火种熄灭了":"游戏已暂停"}</h2><p>{hp<=0?`你坚持了 ${formatTime(seconds)}，净化了 ${kills} 只荒兽。`:"休息一下，荒原会等你。"}</p>
-          {hp>0&&<button className="primary compact" onClick={()=>setPaused(false)}><span>继续远征</span></button>}
-          {hp<=0&&<button className="primary compact" onClick={startGame}><span>再次点火</span></button>}
+        {paused && !choices && <div className="overlay"><div className="pausePanel"><div className="eyebrow">{hp<=0?"远征终止":"火焰暂歇"}</div><h2>{hp<=0?"火种熄灭了":"游戏已暂停"}</h2><p>{hp<=0?`队伍坚持了 ${formatTime(seconds)}，共同净化了 ${kills} 只荒兽。`:signalMode==="join"?"等待队长继续远征。":"休息一下，荒原会等你。"}</p>
+          {hp>0&&signalMode!=="join"&&<button className="primary compact" onClick={resumeRun}><span>全队继续</span></button>}
+          {hp<=0&&signalMode!=="join"&&<button className="primary compact" onClick={restartRun}><span>全队再次点火</span></button>}
           <button className="textBtn" onClick={()=>void returnToMenu()}>返回主菜单</button></div></div>}
       </section>}
       <footer><span>EMBER PROTOCOL</span><span>失败不是终点，是配方。</span></footer>
