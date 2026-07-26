@@ -5,7 +5,7 @@ import { getRelaySockets, joinRoom } from "@trystero-p2p/mqtt";
 import { EmberAudioEngine, type SoundCue } from "./audio";
 
 type View = "menu" | "loadout" | "game" | "coop";
-type ClassId = "assault" | "guardian" | "engineer" | "phantom";
+type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost";
 type EnemyKind = "runner" | "crawler" | "artillery" | "assassin" | "brute" | "commander";
 type Upgrade = { id: string; title: string; desc: string; icon: string };
 type CombatStats = {
@@ -31,10 +31,30 @@ type ClassSpec = {
   cooldown: number;
   color: string;
   sprite: number;
+  sheet: "core" | "specialist";
+  radius: number;
+  renderSize: number;
 };
 type Actor = { x: number; y: number; r: number; hp: number; maxHp: number; color: string; name?: string; classId?: ClassId };
-type Enemy = Actor & { speed: number; hit: number; kind: EnemyKind; elite: boolean; cooldown: number };
-type Shot = { x: number; y: number; vx: number; vy: number; r: number; damage: number; life: number; hostile?: boolean; classId?: ClassId };
+type Enemy = Actor & { id: number; speed: number; hit: number; kind: EnemyKind; elite: boolean; cooldown: number; slow: number };
+type Shot = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  r: number;
+  damage: number;
+  life: number;
+  hostile?: boolean;
+  classId?: ClassId;
+  enemyKind?: EnemyKind;
+  pierce?: number;
+  splash?: number;
+  slow?: number;
+  chain?: boolean;
+  hitIds?: number[];
+};
+type Beam = { x1: number; y1: number; x2: number; y2: number; life: number; width: number; color: string };
 type Gem = { x: number; y: number; value: number };
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
@@ -48,6 +68,7 @@ type WorldFrame = {
   enemies: Enemy[];
   shots: Shot[];
   gems: Gem[];
+  beams: Beam[];
 };
 type NetPayload =
   | { t: "hello" }
@@ -80,15 +101,17 @@ const UPGRADES: Upgrade[] = [
   { id: "critical", title: "弱点演算", desc: "暴击率 +8%", icon: "◈" },
   { id: "velocity", title: "磁轨加速器", desc: "弹速 +18%，弹体更大", icon: "➤" },
   { id: "reactor", title: "过载反应炉", desc: "主动技能冷却 -15%", icon: "⌬" },
-  { id: "drone", title: "蜂群协议", desc: "增加 1 架辅助无人机", icon: "✣" },
+  { id: "drone", title: "蜂群协议", desc: "增加 1 架当前职业专属无人机", icon: "✣" },
   { id: "repair", title: "纳米修复", desc: "立即回复 35 点生命", icon: "✚" },
 ];
 
 const CLASSES: ClassSpec[] = [
-  { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "微型导弹：单发 40 伤害，中等射速", cooldown: 10, color: "#f4c95d", sprite: 0 },
-  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：3 秒内免疫伤害", passive: "穿甲重炮：单发 68 伤害，射速较慢", cooldown: 14, color: "#58c7c0", sprite: 1 },
-  { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", passive: "脉冲鱼雷：单发 24 伤害，附带无人机", cooldown: 16, color: "#92a35c", sprite: 2 },
-  { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", passive: "针刺弹：单发 15 伤害，高射速高暴击", cooldown: 9, color: "#9ec9ff", sprite: 3 },
+  { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "爆破弹：命中产生范围爆炸", cooldown: 10, color: "#f4c95d", sprite: 0, sheet: "core", radius: 18, renderSize: 78 },
+  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：3 秒内免疫伤害", passive: "穿甲重炮：可连续贯穿多个敌人", cooldown: 14, color: "#58c7c0", sprite: 1, sheet: "core", radius: 24, renderSize: 88 },
+  { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", passive: "链式脉冲：无人机弹丸会跳跃攻击", cooldown: 16, color: "#92a35c", sprite: 2, sheet: "core", radius: 20, renderSize: 82 },
+  { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", passive: "相位针刺：高射速、高暴击并可贯穿", cooldown: 9, color: "#9ec9ff", sprite: 3, sheet: "core", radius: 14, renderSize: 72 },
+  { id: "laser", name: "赤曜型", role: "贯穿激光猎手", active: "聚焦光束：发射横贯战场的高能激光", passive: "热能射线：高速弹丸可贯穿多名敌人", cooldown: 12, color: "#ff5b58", sprite: 0, sheet: "specialist", radius: 15, renderSize: 82 },
+  { id: "frost", name: "霜垒型", role: "冰冻攻城炮", active: "绝对零域：冻结附近敌人并造成伤害", passive: "低温弹头：命中后显著降低敌人速度", cooldown: 15, color: "#8bdcff", sprite: 1, sheet: "specialist", radius: 25, renderSize: 94 },
 ];
 
 const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; radius: number; color: string; cooldown: number }> = {
@@ -127,7 +150,18 @@ const makeBuild = (classId: ClassId): BuildFrame => {
   if (classId === "assault") return { ...base, damage: 40, interval: .65, projectileSpeed: 510, projectileSize: 7 };
   if (classId === "guardian") return { ...base, maxHp: 135, speed: 216, damage: 68, interval: 1.15, projectileSpeed: 430, projectileSize: 9.5, damageReduction: .22 };
   if (classId === "engineer") return { ...base, damage: 24, interval: .56, magnet: 110, projectileSpeed: 520, projectileSize: 6, drones: 1 };
-  return { ...base, maxHp: 90, speed: 286, damage: 15, interval: .27, projectileSpeed: 820, projectileSize: 4, critChance: .25 };
+  if (classId === "phantom") return { ...base, maxHp: 90, speed: 286, damage: 15, interval: .27, projectileSpeed: 820, projectileSize: 4, critChance: .25 };
+  if (classId === "laser") return { ...base, maxHp: 92, speed: 268, damage: 17, interval: .29, projectileSpeed: 900, projectileSize: 4.5, critChance: .12 };
+  return { ...base, maxHp: 118, speed: 205, damage: 38, interval: .82, projectileSpeed: 470, projectileSize: 8, damageReduction: .08 };
+};
+
+const projectileTraits = (classId: ClassId): Partial<Shot> => {
+  if (classId === "assault") return { splash: 54 };
+  if (classId === "guardian") return { pierce: 2 };
+  if (classId === "engineer") return { chain: true };
+  if (classId === "phantom") return { pierce: 1 };
+  if (classId === "laser") return { pierce: 4 };
+  return { slow: 2.8 };
 };
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -322,8 +356,8 @@ export default function Home() {
       const turnConfig = await getRelayServers();
       const room = joinRoom(
         {
-          appId: "ember-protocol-v5",
-          password: `ember-sync-v5-${code}`,
+          appId: "ember-protocol-v6",
+          password: `ember-sync-v6-${code}`,
           relayConfig: { urls: SIGNAL_RELAY_URLS, warnOnRelayFailure: false },
           turnConfig,
         },
@@ -336,7 +370,7 @@ export default function Home() {
           },
         },
       );
-      const gameplay = room.makeAction<NetPayload>("ember-game-v5");
+      const gameplay = room.makeAction<NetPayload>("ember-game-v6");
       const listeners = new Set<(data: NetPayload) => void>();
       const bridge: NetBridge = {
         roomId: code,
@@ -427,7 +461,7 @@ export default function Home() {
     canvas.width = W; canvas.height = H;
     let raf = 0, last = performance.now(), elapsed = 0, spawnClock = 0, fireClock = 0;
     let active = true, localPaused = false, currentXp = 0, currentLevel = 1, currentKills = 0;
-    let netClock = 0, worldClock = 0, remoteFireClock = 0, remoteSeen = 0, gameOverSent = false;
+    let netClock = 0, worldClock = 0, remoteFireClock = 0, remoteSeen = 0, gameOverSent = false, nextEnemyId = 1;
     let selfShieldUntil = 0, remoteShieldUntil = 0, skillReadyAt = 0, shownCooldown = -1;
     let localUpgradeDone = false, waitingForRemoteUpgrade = false;
     const network = netRef.current;
@@ -438,30 +472,41 @@ export default function Home() {
     let player: Actor = {
       x: network?.role === "join" ? W / 2 + 52 : W / 2 - 52,
       y: H / 2,
-      r: 17,
+      r: classSpec().radius,
       hp: build.maxHp,
       maxHp: build.maxHp,
       color: classSpec().color,
       classId: build.classId,
     };
     let remote: Actor | null = null;
-    let enemies: Enemy[] = [], shots: Shot[] = [], gems: Gem[] = [], particles: {x:number;y:number;vx:number;vy:number;life:number;color:string}[] = [];
+    let enemies: Enemy[] = [], shots: Shot[] = [], gems: Gem[] = [], beams: Beam[] = [], particles: {x:number;y:number;vx:number;vy:number;life:number;color:string}[] = [];
     const keys = new Set<string>();
     const pointer = { x: W / 2, y: H / 2, down: false };
     const audio = audioRef.current;
     const playerSprites = new Image();
+    const specialistSprites = new Image();
     const enemySprites = new Image();
     const projectileSprites = new Image();
+    const specialistProjectiles = new Image();
+    const droneSprites = new Image();
+    const specialistDrones = new Image();
+    const enemyProjectiles = new Image();
     playerSprites.src = "/game/player-mechs.png";
+    specialistSprites.src = "/game/specialist-mechs.png";
     enemySprites.src = "/game/enemy-mechs.png";
     projectileSprites.src = "/game/projectile-mechs.png";
+    specialistProjectiles.src = "/game/specialist-projectiles.png";
+    droneSprites.src = "/game/support-drones.png";
+    specialistDrones.src = "/game/specialist-drones.png";
+    enemyProjectiles.src = "/game/enemy-projectiles.png";
     const unsubscribeNetwork = network?.subscribe((data) => {
       if (data.t === "player" && isAuthority) {
         const remoteBuild = remoteBuildRef.current || makeBuild("assault");
+        const remoteSpec = CLASSES.find((item) => item.id === remoteBuild.classId) || CLASSES[0];
         remote = {
           x: data.x,
           y: data.y,
-          r: 17,
+          r: remoteSpec.radius,
           hp: remote?.hp ?? remoteBuild.maxHp,
           maxHp: remote?.maxHp ?? remoteBuild.maxHp,
           color: CLASSES.find((item) => item.id === remoteBuild.classId)?.color || "#78a99d",
@@ -473,8 +518,10 @@ export default function Home() {
       if (data.t === "build" && isAuthority) {
         remoteBuildRef.current = data.build;
         if (remote) {
+          const remoteSpec = CLASSES.find((item) => item.id === data.build.classId) || CLASSES[0];
           remote.classId = data.build.classId;
-          remote.color = CLASSES.find((item) => item.id === data.build.classId)?.color || "#78a99d";
+          remote.color = remoteSpec.color;
+          remote.r = remoteSpec.radius;
           remote.maxHp = Math.max(remote.maxHp, data.build.maxHp);
         }
       }
@@ -493,7 +540,7 @@ export default function Home() {
         if (data.classId === "assault") {
           for (let i = 0; i < 12; i++) {
             const angle = i / 12 * Math.PI * 2;
-            shots.push({ x: remote.x, y: remote.y, vx: Math.cos(angle) * 520, vy: Math.sin(angle) * 520, r: 7, damage: remoteBuild.damage * 1.65, life: 1.4, classId: "assault" });
+            shots.push({ x: remote.x, y: remote.y, vx: Math.cos(angle) * 520, vy: Math.sin(angle) * 520, r: 7, damage: remoteBuild.damage * 1.65, life: 1.4, classId: "assault", ...projectileTraits("assault") });
           }
         }
         if (data.classId === "guardian") remoteShieldUntil = performance.now() + 3000;
@@ -507,6 +554,8 @@ export default function Home() {
           remote.y = clamp(data.y, 30, H - 30);
           remoteShieldUntil = performance.now() + 1200;
         }
+        if (data.classId === "laser") fireLaser(remote, remoteBuild);
+        if (data.classId === "frost") freezeArea(remote, remoteBuild);
         audio?.play("upgrade");
       }
       if (data.t === "world" && !isAuthority) {
@@ -519,9 +568,10 @@ export default function Home() {
         enemies = frame.enemies;
         shots = frame.shots;
         gems = frame.gems;
+        beams = frame.beams;
         remote = {
           ...frame.host,
-          r: 17,
+          r: (CLASSES.find((item) => item.id === frame.host.classId) || CLASSES[0]).radius,
           color: CLASSES.find((item) => item.id === frame.host.classId)?.color || "#78a99d",
           name: "队长",
         };
@@ -559,6 +609,7 @@ export default function Home() {
     const reset = () => {
       elapsed = 0; spawnClock = 0; fireClock = 0; currentXp = 0; currentLevel = 1; currentKills = 0;
       netClock = 0; worldClock = 0; remoteFireClock = 0; gameOverSent = false;
+      nextEnemyId = 1;
       selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; shownCooldown = -1;
       localUpgradeDone = false; waitingForRemoteUpgrade = false;
       setWaitingPeerUpgrade(false);
@@ -567,14 +618,14 @@ export default function Home() {
       player = {
         x: network?.role === "join" ? W / 2 + 52 : W / 2 - 52,
         y: H / 2,
-        r: 17,
+        r: classSpec().radius,
         hp: build.maxHp,
         maxHp: build.maxHp,
         color: CLASSES.find((item) => item.id === build.classId)?.color || "#f4c95d",
         classId: build.classId,
       };
       remote = null;
-      enemies = []; shots = []; gems = []; particles = [];
+      enemies = []; shots = []; gems = []; beams = []; particles = [];
       setHp(build.maxHp);
       setMaxHp(build.maxHp);
       setSkillCooldown(0);
@@ -605,6 +656,9 @@ export default function Home() {
       if (network?.role === "join" && network.connected()) {
         void network.send({ t: "upgrade-done", build: ownBuildRef.current, hp: player.hp });
       }
+      if (network?.role === "host" && network.connected()) {
+        void network.send({ t: "build", build: ownBuildRef.current });
+      }
       setWaitingPeerUpgrade(Boolean(network?.role === "host" && waitingForRemoteUpgrade));
       if (network?.role === "join" || !waitingForRemoteUpgrade) localPaused = false;
     };
@@ -633,7 +687,7 @@ export default function Home() {
       if (build.classId === "assault") {
         for (let i = 0; i < 12; i++) {
           const angle = i / 12 * Math.PI * 2;
-          shots.push({ x: player.x, y: player.y, vx: Math.cos(angle) * 540, vy: Math.sin(angle) * 540, r: 7, damage: stats.damage * 1.75, life: 1.45, classId: "assault" });
+          shots.push({ x: player.x, y: player.y, vx: Math.cos(angle) * 540, vy: Math.sin(angle) * 540, r: 7, damage: stats.damage * 1.75, life: 1.45, classId: "assault", ...projectileTraits("assault") });
         }
       }
       if (build.classId === "guardian") selfShieldUntil = now + 3000;
@@ -651,6 +705,8 @@ export default function Home() {
         player.y = clamp(player.y + dashY / dashLength * 190, 30, H - 30);
         selfShieldUntil = now + 1200;
       }
+      if (build.classId === "laser") fireLaser(player, stats);
+      if (build.classId === "frost") freezeArea(player, stats);
       audio?.play("upgrade");
     };
 
@@ -700,6 +756,7 @@ export default function Home() {
       const lateScale = 1 + elapsed / 150 + Math.pow(elapsed / 360, 2);
       const maxHp = config.hp * lateScale * coOpScale * (elite ? 1.75 : 1);
       enemies.push({
+        id: nextEnemyId++,
         x,
         y,
         r: config.radius * (elite ? 1.16 : 1),
@@ -711,10 +768,47 @@ export default function Home() {
         kind,
         elite,
         cooldown: config.cooldown ? Math.random() * config.cooldown : 0,
+        slow: 0,
       });
     };
     const burst = (x:number,y:number,color:string,n=8) => {
       for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2,s=40+Math.random()*120; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.35+Math.random()*.35,color}); }
+    };
+    const dronePosition = (actor: Actor, index: number, count: number, now = performance.now()) => {
+      const angle = now / 1300 + index / Math.max(1, count) * Math.PI * 2;
+      const orbit = actor.r + 25 + (index % 2) * 7;
+      return { x: actor.x + Math.cos(angle) * orbit, y: actor.y + Math.sin(angle) * orbit, angle };
+    };
+    const fireLaser = (actor: Actor, combatStats: BuildFrame | CombatStats) => {
+      const target = enemies.length
+        ? enemies.reduce((nearest, enemy) => dist(actor, enemy) < dist(actor, nearest) ? enemy : nearest)
+        : null;
+      const angle = target ? Math.atan2(target.y - actor.y, target.x - actor.x) : 0;
+      const length = 1550;
+      const x2 = actor.x + Math.cos(angle) * length;
+      const y2 = actor.y + Math.sin(angle) * length;
+      beams.push({ x1: actor.x, y1: actor.y, x2, y2, life: .36, width: 16, color: "#ff4f50" });
+      for (const enemy of enemies) {
+        const along = (enemy.x - actor.x) * Math.cos(angle) + (enemy.y - actor.y) * Math.sin(angle);
+        const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(angle) - (enemy.y - actor.y) * Math.cos(angle));
+        if (along > 0 && along < length && perpendicular < enemy.r + 19) {
+          enemy.hp -= combatStats.damage * 9;
+          burst(enemy.x, enemy.y, "#ff5b58", 9);
+        }
+      }
+    };
+    const freezeArea = (actor: Actor, combatStats: BuildFrame | CombatStats) => {
+      for (const enemy of enemies) {
+        if (dist(actor, enemy) > 410) continue;
+        enemy.slow = Math.max(enemy.slow, 5);
+        enemy.hp -= combatStats.damage * 2.4;
+        burst(enemy.x, enemy.y, "#8bdcff", 7);
+      }
+      for (let index = 0; index < 30; index++) {
+        const angle = index / 30 * Math.PI * 2;
+        const speed = 160 + Math.random() * 150;
+        particles.push({ x: actor.x, y: actor.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: .7, color: "#b9efff" });
+      }
     };
     const levelUp = () => {
       audio?.play("level");
@@ -745,6 +839,7 @@ export default function Home() {
           enemies,
           shots,
           gems,
+          beams,
         },
       });
     };
@@ -767,6 +862,8 @@ export default function Home() {
         p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; p.vx *= .96; p.vy *= .96;
       }
       particles = particles.filter((particle) => particle.life > 0);
+      for (const beam of beams) beam.life -= dt;
+      beams = beams.filter((beam) => beam.life > 0);
       const cooldownRemaining = Math.max(0, Math.ceil((skillReadyAt - performance.now()) / 1000));
       if (cooldownRemaining !== shownCooldown) {
         shownCooldown = cooldownRemaining;
@@ -795,11 +892,12 @@ export default function Home() {
           const spread=(i-(stats.multi-1)/2)*.14;
           const angle=a0+spread;
           const damage = Math.random() < stats.critChance ? stats.damage * 2 : stats.damage;
-          shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5,classId:build.classId});
+          shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5,classId:build.classId,...projectileTraits(build.classId)});
         }
         for (let i = 0; i < stats.drones; i++) {
           const droneAngle = a0 + (i % 2 ? .22 : -.22);
-          shots.push({x:player.x,y:player.y,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*.42,life:1.6,classId:"engineer"});
+          const origin = dronePosition(player, i, stats.drones);
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*.42,life:1.6,classId:"engineer",chain:true});
         }
         audio?.play("shot");
         burst(player.x+Math.cos(a0)*18,player.y+Math.sin(a0)*18,"#f4c95d",3);
@@ -814,16 +912,27 @@ export default function Home() {
           const spread=(i-(remoteStats.multi-1)/2)*.14;
           const shotAngle=a+spread;
           const damage = Math.random() < remoteStats.critChance ? remoteStats.damage * 2 : remoteStats.damage;
-          shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5,classId:remoteStats.classId});
+          shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5,classId:remoteStats.classId,...projectileTraits(remoteStats.classId)});
         }
         for (let i = 0; i < remoteStats.drones; i++) {
           const droneAngle = a + (i % 2 ? .22 : -.22);
-          shots.push({x:remote.x,y:remote.y,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*.42,life:1.6,classId:"engineer"});
+          const origin = dronePosition(remote, i, remoteStats.drones);
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*.42,life:1.6,classId:"engineer",chain:true});
         }
         audio?.play("ally-shot");
       }
 
       for (const shot of shots) {
+        if (shot.hostile && shot.enemyKind === "commander") {
+          const targets: Actor[] = remote && remote.hp > 0 ? [player, remote] : [player];
+          const target = targets.reduce((nearest, actor) => dist(shot, actor) < dist(shot, nearest) ? actor : nearest);
+          const speed = Math.hypot(shot.vx, shot.vy);
+          const desired = Math.atan2(target.y - shot.y, target.x - shot.x);
+          const current = Math.atan2(shot.vy, shot.vx);
+          const turn = Math.atan2(Math.sin(desired - current), Math.cos(desired - current)) * .045;
+          shot.vx = Math.cos(current + turn) * speed;
+          shot.vy = Math.sin(current + turn) * speed;
+        }
         shot.x += shot.vx * dt; shot.y += shot.vy * dt; shot.life -= dt;
       }
       shots = shots.filter((shot) => shot.life > 0);
@@ -835,9 +944,11 @@ export default function Home() {
         enemy.cooldown -= dt;
         const ranged = enemy.kind === "artillery" || enemy.kind === "commander";
         if (!ranged || targetDistance > (enemy.kind === "commander" ? 250 : 310)) {
-          enemy.x += Math.cos(angle) * enemy.speed * dt;
-          enemy.y += Math.sin(angle) * enemy.speed * dt;
+          const speedScale = enemy.slow > 0 ? .52 : 1;
+          enemy.x += Math.cos(angle) * enemy.speed * speedScale * dt;
+          enemy.y += Math.sin(angle) * enemy.speed * speedScale * dt;
         }
+        enemy.slow = Math.max(0, enemy.slow - dt);
         if (enemy.kind === "assassin" && enemy.cooldown <= 0 && targetDistance > 90) {
           enemy.x += Math.cos(angle) * Math.min(125, targetDistance - 55);
           enemy.y += Math.sin(angle) * Math.min(125, targetDistance - 55);
@@ -858,6 +969,8 @@ export default function Home() {
               damage: enemy.hit * (1 + elapsed / 420),
               life: 2.4,
               hostile: true,
+              enemyKind: enemy.kind,
+              splash: enemy.kind === "artillery" ? 68 : undefined,
             });
           }
           enemy.cooldown = ENEMY_DATA[enemy.kind].cooldown * (enemy.elite ? .78 : 1);
@@ -880,21 +993,52 @@ export default function Home() {
             const targetShield = target === player ? selfShieldUntil : remoteShieldUntil;
             const reduction = target === player ? stats.damageReduction : (remoteBuildRef.current?.damageReduction || 0);
             if (now >= targetShield) target.hp = Math.max(0, target.hp - shot.damage * (1 - reduction));
+            if (shot.splash) {
+              burst(target.x, target.y, "#ff9a4d", 14);
+              for (const nearby of possibleTargets) {
+                if (nearby === target || dist(target, nearby) > shot.splash) continue;
+                const nearbyShield = nearby === player ? selfShieldUntil : remoteShieldUntil;
+                const nearbyReduction = nearby === player ? stats.damageReduction : (remoteBuildRef.current?.damageReduction || 0);
+                if (now >= nearbyShield) nearby.hp = Math.max(0, nearby.hp - shot.damage * .55 * (1 - nearbyReduction));
+                if (nearby === player) setHp(Math.ceil(player.hp));
+              }
+            }
             if (target === player) {
               setHp(Math.ceil(player.hp));
               audio?.play("hurt");
             }
             shot.life = 0;
+            break;
           }
           continue;
         }
         for (const enemy of enemies) {
-          if (shot.life > 0 && enemy.hp > 0 && dist(shot,enemy) < shot.r + enemy.r) {
-            enemy.hp -= shot.damage;
-            shot.life = 0;
-            audio?.play("hit");
-            burst(shot.x,shot.y,"#fff2ba",4);
+          if (shot.life <= 0 || enemy.hp <= 0 || shot.hitIds?.includes(enemy.id) || dist(shot,enemy) >= shot.r + enemy.r) continue;
+          enemy.hp -= shot.damage;
+          shot.hitIds = [...(shot.hitIds || []), enemy.id];
+          if (shot.slow) enemy.slow = Math.max(enemy.slow, shot.slow);
+          if (shot.splash) {
+            for (const nearby of enemies) {
+              if (nearby === enemy || nearby.hp <= 0 || dist(enemy, nearby) > shot.splash) continue;
+              nearby.hp -= shot.damage * .38;
+            }
+            burst(enemy.x, enemy.y, "#f4c95d", 12);
           }
+          if (shot.chain) {
+            const next = enemies
+              .filter((candidate) => candidate !== enemy && candidate.hp > 0 && !shot.hitIds?.includes(candidate.id) && dist(enemy, candidate) < 145)
+              .sort((a, b) => dist(enemy, a) - dist(enemy, b))[0];
+            if (next) {
+              next.hp -= shot.damage * .48;
+              beams.push({ x1: enemy.x, y1: enemy.y, x2: next.x, y2: next.y, life: .16, width: 4, color: "#a9ef84" });
+              burst(next.x, next.y, "#a9ef84", 5);
+            }
+            shot.chain = false;
+          }
+          if ((shot.pierce || 0) > 0) shot.pierce = (shot.pierce || 0) - 1;
+          else shot.life = 0;
+          audio?.play("hit");
+          burst(shot.x,shot.y,shot.slow?"#a8e9ff":"#fff2ba",4);
         }
       }
       for (const enemy of enemies) {
@@ -972,24 +1116,50 @@ export default function Home() {
         ctx.fillRect(-gemSize,-gemSize,gemSize*2,gemSize*2);ctx.restore();
       }
       for(const p of particles){ctx.globalAlpha=Math.max(0,p.life*2);ctx.fillStyle=p.color;ctx.fillRect(p.x-2,p.y-2,4,4);} ctx.globalAlpha=1;
-      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3 };
+      for(const beam of beams){
+        ctx.save();ctx.globalAlpha=clamp(beam.life*4,0,1);ctx.lineCap="round";
+        ctx.strokeStyle=beam.color;ctx.shadowColor=beam.color;ctx.shadowBlur=18;ctx.lineWidth=beam.width;
+        ctx.beginPath();ctx.moveTo(beam.x1,beam.y1);ctx.lineTo(beam.x2,beam.y2);ctx.stroke();
+        ctx.strokeStyle="rgba(255,255,255,.9)";ctx.shadowBlur=4;ctx.lineWidth=Math.max(2,beam.width*.24);
+        ctx.beginPath();ctx.moveTo(beam.x1,beam.y1);ctx.lineTo(beam.x2,beam.y2);ctx.stroke();ctx.restore();
+      }
+      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1 };
       const projectileDimensions: Record<ClassId, [number, number]> = {
         assault: [34, 18],
         guardian: [38, 22],
         engineer: [31, 18],
         phantom: [38, 16],
+        laser: [36, 17],
+        frost: [40, 23],
       };
       for(const s of shots){
-        if(s.hostile||!s.classId||!projectileSprites.complete||!projectileSprites.naturalWidth){
-          ctx.fillStyle=s.hostile?"#ff7657":"#fff2ba";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();
+        if(s.hostile){
+          const hostileSprite=s.enemyKind==="commander"?1:s.enemyKind==="artillery"?0:-1;
+          if(hostileSprite>=0&&enemyProjectiles.complete&&enemyProjectiles.naturalWidth){
+            const cellW=enemyProjectiles.naturalWidth/2,cellH=enemyProjectiles.naturalHeight;
+            const drawW=s.enemyKind==="commander"?42:46,drawH=s.enemyKind==="commander"?18:25;
+            ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));ctx.shadowColor=s.enemyKind==="commander"?"#b65cff":"#ff8b3e";ctx.shadowBlur=10;
+            ctx.drawImage(enemyProjectiles,hostileSprite*cellW,0,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);ctx.restore();
+          }else{
+            ctx.fillStyle="#ff7657";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();
+          }
+          continue;
+        }
+        if(!s.classId){
+          ctx.fillStyle="#fff2ba";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();
           continue;
         }
         const sprite=projectileSpriteIndex[s.classId];
-        const cellW=projectileSprites.naturalWidth/2,cellH=projectileSprites.naturalHeight/2;
+        const classInfo=CLASSES.find((item)=>item.id===s.classId)||CLASSES[0];
+        const projectileImage=classInfo.sheet==="specialist"?specialistProjectiles:projectileSprites;
+        if(!projectileImage.complete||!projectileImage.naturalWidth){
+          ctx.fillStyle="#fff2ba";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();continue;
+        }
+        const cellW=projectileImage.naturalWidth/2,cellH=classInfo.sheet==="specialist"?projectileImage.naturalHeight:projectileImage.naturalHeight/2;
         const [drawW,drawH]=projectileDimensions[s.classId];
         ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));
-        ctx.shadowColor=CLASSES.find((item)=>item.id===s.classId)?.color||"#fff2ba";ctx.shadowBlur=8;
-        ctx.drawImage(projectileSprites,(sprite%2)*cellW,Math.floor(sprite/2)*cellH,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
+        ctx.shadowColor=classInfo.color;ctx.shadowBlur=8;
+        ctx.drawImage(projectileImage,(sprite%2)*cellW,classInfo.sheet==="specialist"?0:Math.floor(sprite/2)*cellH,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
         ctx.restore();
       }
       const enemySpriteIndex: Record<EnemyKind, number> = { runner: 0, crawler: 1, artillery: 2, assassin: 3, brute: 4, commander: 5 };
@@ -1007,21 +1177,41 @@ export default function Home() {
           ctx.fillStyle=e.color;ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();
         }
         ctx.restore();
-        if(e.elite){ctx.strokeStyle="rgba(244,201,93,.8)";ctx.lineWidth=2;ctx.beginPath();ctx.arc(e.x,e.y,e.r+6,0,Math.PI*2);ctx.stroke();}
+        if(e.elite){ctx.strokeStyle="rgba(244,201,93,.85)";ctx.lineWidth=2;ctx.strokeRect(e.x-e.r-6,e.y-e.r-6,(e.r+6)*2,(e.r+6)*2);}
+        if(e.slow>0){ctx.fillStyle="#9eeaff";ctx.font="800 14px monospace";ctx.textAlign="center";ctx.fillText("✦",e.x,e.y-e.r-10);}
       }
       const drawMech = (actor: Actor, ally: boolean) => {
-        const sprite = CLASSES.find((item) => item.id === actor.classId)?.sprite || 0;
-        const cellW = playerSprites.naturalWidth / 2, cellH = playerSprites.naturalHeight / 2;
-        const size = actor.classId === "guardian" ? 84 : 76;
+        const classInfo = CLASSES.find((item) => item.id === actor.classId) || CLASSES[0];
+        const sprite = classInfo.sprite;
+        const mechImage = classInfo.sheet === "specialist" ? specialistSprites : playerSprites;
+        const cellW = mechImage.naturalWidth / 2, cellH = classInfo.sheet === "specialist" ? mechImage.naturalHeight : mechImage.naturalHeight / 2;
+        const size = classInfo.renderSize;
         ctx.save();
         ctx.shadowColor=ally?"#78a99d":actor.color;
         ctx.shadowBlur=20;
-        if(playerSprites.complete&&playerSprites.naturalWidth){
-          ctx.drawImage(playerSprites,(sprite%2)*cellW,Math.floor(sprite/2)*cellH,cellW,cellH,actor.x-size/2,actor.y-size/2,size,size);
+        if(mechImage.complete&&mechImage.naturalWidth){
+          ctx.drawImage(mechImage,(sprite%2)*cellW,classInfo.sheet==="specialist"?0:Math.floor(sprite/2)*cellH,cellW,cellH,actor.x-size/2,actor.y-size/2,size,size);
         }else{
           ctx.fillStyle=actor.color;ctx.beginPath();ctx.arc(actor.x,actor.y,actor.r,0,Math.PI*2);ctx.fill();
         }
         ctx.restore();
+      };
+      const drawDrones = (actor: Actor, count: number) => {
+        if(count<=0)return;
+        const classInfo=CLASSES.find((item)=>item.id===actor.classId)||CLASSES[0];
+        const droneImage=classInfo.sheet==="specialist"?specialistDrones:droneSprites;
+        if(!droneImage.complete||!droneImage.naturalWidth)return;
+        const cellW=droneImage.naturalWidth/2,cellH=classInfo.sheet==="specialist"?droneImage.naturalHeight:droneImage.naturalHeight/2;
+        for(let index=0;index<count;index++){
+          const position=dronePosition(actor,index,count);
+          const sprite=classInfo.sheet==="specialist"?classInfo.sprite:classInfo.sprite;
+          const target=enemies.length?enemies.reduce((nearest,enemy)=>dist(position,enemy)<dist(position,nearest)?enemy:nearest):null;
+          const angle=target?Math.atan2(target.y-position.y,target.x-position.x):position.angle+Math.PI/2;
+          const size=classInfo.id==="frost"?38:32;
+          ctx.save();ctx.translate(position.x,position.y);ctx.rotate(angle);ctx.shadowColor=classInfo.color;ctx.shadowBlur=10;
+          ctx.drawImage(droneImage,(sprite%2)*cellW,classInfo.sheet==="specialist"?0:Math.floor(sprite/2)*cellH,cellW,cellH,-size/2,-size/2,size,size);
+          ctx.restore();
+        }
       };
       const drawShieldCorners = (actor: Actor) => {
         const edge=32,corner=10;
@@ -1033,9 +1223,11 @@ export default function Home() {
         ctx.moveTo(edge-corner,edge);ctx.lineTo(edge,edge);ctx.lineTo(edge,edge-corner);
         ctx.stroke();ctx.restore();
       };
+      drawDrones(player,stats.drones);
       drawMech(player,false);
       if(performance.now()<selfShieldUntil)drawShieldCorners(player);
       if(remote){
+        drawDrones(remote,(remoteBuildRef.current||makeBuild(remote.classId||"assault")).drones);
         drawMech(remote,true);
         if(performance.now()<remoteShieldUntil)drawShieldCorners(remote);
         ctx.fillStyle="#c7d8d0";ctx.font="700 11px monospace";ctx.textAlign="center";ctx.fillText("伙伴",remote.x,remote.y-27);
@@ -1142,7 +1334,7 @@ export default function Home() {
   const selectedClassSpec = CLASSES.find((item) => item.id === selectedClass) || CLASSES[0];
   const classSelector = <div className="classGrid">
     {CLASSES.map((item) => <button key={item.id} className={selectedClass===item.id?"selected":""} onClick={()=>selectClass(item.id)}>
-      <span className={`mechPreview mech-${item.sprite}`} aria-hidden="true"/>
+      <span className={`mechPreview ${item.sheet==="specialist"?"specialistPreview":""} mech-${item.sprite}`} aria-hidden="true"/>
       <small>{item.role}</small>
       <b>{item.name}</b>
       <span><em>主动</em>{item.active}</span>
@@ -1154,7 +1346,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.5 · 弹丸武装</div>
+        <div className="status"><i /> 版本 0.6 · 激光冰霜</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -1252,7 +1444,7 @@ export default function Home() {
           <canvas ref={canvasRef} aria-label="余烬协议游戏画面"/>
           {signalMode && <div className="syncBadge"><i /> 共享战场 · {signalMode==="host"?"队长同步":"伙伴同步"}</div>}
           <div className="skillDock">
-            <span className={`mechPreview mech-${selectedClassSpec.sprite}`} aria-hidden="true"/>
+            <span className={`mechPreview ${selectedClassSpec.sheet==="specialist"?"specialistPreview":""} mech-${selectedClassSpec.sprite}`} aria-hidden="true"/>
             <div><small>{selectedClassSpec.role}</small><b>{selectedClassSpec.active}</b></div>
             <button onClick={()=>activeSkillRef.current()} disabled={skillCooldown>0}>{skillCooldown>0?`${skillCooldown}s`:"Q · 释放"}</button>
           </div>
