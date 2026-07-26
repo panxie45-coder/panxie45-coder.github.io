@@ -1,28 +1,13 @@
-# Ember Protocol
+# 游戏项目
 
-一款支持房间链接联机的浏览器肉鸽游戏。
+本仓库使用“一个游戏一个目录”的结构，所有游戏都放在 `games/` 中。
 
-## 在线游玩
+## 当前游戏
 
-部署完成后访问：
+- [`games/ember-protocol/`](games/ember-protocol/)：余烬协议，支持单人和双人联机的肉鸽生存游戏。
 
-<https://panxie45-coder.github.io/>
+## 添加新游戏
 
-创建房间后，把游戏生成的房间链接发给朋友，对方打开链接即可加入。
+以后新增游戏时，在 `games/新游戏名称/` 下分别保存该游戏的程序、样式、素材、测试和启动工具，避免不同游戏互相混用文件。
 
-## 本地开发
-
-需要 Node.js 22：
-
-```bash
-npm install
-npm run dev
-```
-
-## 构建
-
-```bash
-npm run build
-```
-
-推送到 `main` 分支后，GitHub Actions 会自动构建并发布 GitHub Pages。
+项目根目录只保留网站入口、构建配置和公共基础设施。

@@ -48,3 +48,5 @@ next-env.d.ts
 /work/
 /.tunnel/
 public-game-link.txt
+/games/**/.runtime/
+/games/**/public-game-link.txt

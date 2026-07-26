@@ -3,7 +3,7 @@ import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  const workerUrl = new URL("../../../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
@@ -37,9 +37,12 @@ test("server-renders the Ember Protocol game menu", async () => {
 });
 
 test("ships six independent classes, drones, effects, and generated sprites", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const page = await readFile(new URL("../Game.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../game.css", import.meta.url), "utf8");
+  const rootEntry = await readFile(new URL("../../../app/page.tsx", import.meta.url), "utf8");
 
+  assert.match(rootEntry, /games\/ember-protocol\/Game/);
+  assert.doesNotMatch(rootEntry, /ember-protocol-v7/);
   assert.match(page, /ember-protocol-v7/);
   assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost"/);
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
@@ -67,18 +70,19 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   assert.match(page, /enemy\.slow = Math\.max/);
   assert.doesNotMatch(page, /ctx\.arc\(player\.x/);
   assert.doesNotMatch(page, /ctx\.arc\(remote\.x/);
-  assert.match(css, /player-mechs\.png/);
+  assert.match(page, /player-mechs\.png/);
+  assert.match(css, /background-size:200% 200%/);
 
   await Promise.all([
-    access(new URL("../public/game/player-mechs.png", import.meta.url)),
-    access(new URL("../public/game/enemy-mechs.png", import.meta.url)),
-    access(new URL("../public/game/projectile-mechs.png", import.meta.url)),
-    access(new URL("../public/game/laser-mech.png", import.meta.url)),
-    access(new URL("../public/game/frost-mech.png", import.meta.url)),
-    access(new URL("../public/game/specialist-projectiles.png", import.meta.url)),
-    access(new URL("../public/game/support-drones.png", import.meta.url)),
-    access(new URL("../public/game/specialist-drones.png", import.meta.url)),
-    access(new URL("../public/game/enemy-projectiles.png", import.meta.url)),
-    access(new URL("../public/game/assassin-projectile.png", import.meta.url)),
+    access(new URL("../assets/player-mechs.png", import.meta.url)),
+    access(new URL("../assets/enemy-mechs.png", import.meta.url)),
+    access(new URL("../assets/projectile-mechs.png", import.meta.url)),
+    access(new URL("../assets/laser-mech.png", import.meta.url)),
+    access(new URL("../assets/frost-mech.png", import.meta.url)),
+    access(new URL("../assets/specialist-projectiles.png", import.meta.url)),
+    access(new URL("../assets/support-drones.png", import.meta.url)),
+    access(new URL("../assets/specialist-drones.png", import.meta.url)),
+    access(new URL("../assets/enemy-projectiles.png", import.meta.url)),
+    access(new URL("../assets/assassin-projectile.png", import.meta.url)),
   ]);
 });

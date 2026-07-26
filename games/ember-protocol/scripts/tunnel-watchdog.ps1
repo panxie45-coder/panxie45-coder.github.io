@@ -1,12 +1,14 @@
 param(
   [Parameter(Mandatory = $true)]
-  [string]$ProjectRoot
+  [string]$ProjectRoot,
+  [Parameter(Mandatory = $true)]
+  [string]$GameRoot
 )
 
 $ErrorActionPreference = "Continue"
-$tunnelDir = Join-Path $ProjectRoot ".tunnel"
+$tunnelDir = Join-Path $GameRoot ".runtime"
 $keyPath = Join-Path $tunnelDir "localhost_run"
-$publicLinkFile = Join-Path $ProjectRoot "public-game-link.txt"
+$publicLinkFile = Join-Path $GameRoot "public-game-link.txt"
 $tunnelOut = Join-Path $tunnelDir "public.out.log"
 $tunnelErr = Join-Path $tunnelDir "public.err.log"
 $tunnelPidFile = Join-Path $tunnelDir "tunnel.pid"

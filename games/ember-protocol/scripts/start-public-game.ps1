@@ -1,9 +1,10 @@
 $ErrorActionPreference = "Stop"
-$projectRoot = Split-Path -Parent $PSScriptRoot
-$tunnelDir = Join-Path $projectRoot ".tunnel"
+$gameRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = (Resolve-Path (Join-Path $gameRoot "..\..")).Path
+$tunnelDir = Join-Path $gameRoot ".runtime"
 $keyPath = Join-Path $tunnelDir "localhost_run"
 $watchdogPidFile = Join-Path $tunnelDir "watchdog.pid"
-$publicLinkFile = Join-Path $projectRoot "public-game-link.txt"
+$publicLinkFile = Join-Path $gameRoot "public-game-link.txt"
 $serverOut = Join-Path $tunnelDir "server.out.log"
 $serverErr = Join-Path $tunnelDir "server.err.log"
 
@@ -32,7 +33,7 @@ if (-not (Test-GameServer)) {
 }
 
 if (-not (Test-GameServer)) {
-  Show-GameMessage "The local game server could not start. Please send me .tunnel\server.err.log for diagnosis." 16
+  Show-GameMessage "The local game server could not start. Please send me games\ember-protocol\.runtime\server.err.log for diagnosis." 16
   exit 1
 }
 
@@ -52,7 +53,7 @@ if (Test-Path $watchdogPidFile) {
 if (-not $watchdogRunning) {
   Remove-Item -LiteralPath $publicLinkFile -Force -ErrorAction SilentlyContinue
   $watchdog = Start-Process -FilePath "powershell.exe" `
-    -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "tunnel-watchdog.ps1"), "-ProjectRoot", $projectRoot `
+    -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "tunnel-watchdog.ps1"), "-ProjectRoot", $projectRoot, "-GameRoot", $gameRoot `
     -WorkingDirectory $projectRoot `
     -WindowStyle Hidden `
     -PassThru
