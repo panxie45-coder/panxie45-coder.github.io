@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { joinRoom } from "trystero";
+import { getRelaySockets, joinRoom } from "@trystero-p2p/mqtt";
 import { EmberAudioEngine, type SoundCue } from "./audio";
 
 type View = "menu" | "game" | "coop";
@@ -35,7 +35,25 @@ const UPGRADES: Upgrade[] = [
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
 const normalizeRoomCode = (value: string) => value.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 24);
+const extractRoomCode = (value: string) => {
+  const input = value.trim();
+  if (!input) return "";
+  try {
+    const roomFromLink = new URL(input, "https://ember.local").searchParams.get("room");
+    if (roomFromLink) return normalizeRoomCode(roomFromLink);
+  } catch {
+    // Fall through to accepting a room code or one embedded in copied text.
+  }
+  const embeddedCode = input.toUpperCase().match(/EMBER-[A-Z0-9-]+/)?.[0];
+  return normalizeRoomCode(embeddedCode || input);
+};
 const newRoomCode = () => `EMBER-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36).toUpperCase().slice(0, 7)}`;
+const SIGNAL_RELAY_URLS = [
+  "wss://broker-cn.emqx.io:8084/mqtt",
+  "wss://broker.emqx.io:8084/mqtt",
+  "wss://broker.hivemq.com:8884/mqtt",
+  "wss://test.mosquitto.org:8081/mqtt",
+];
 
 async function getRelayServers(): Promise<RTCIceServer[]> {
   try {
@@ -96,6 +114,12 @@ export default function Home() {
   const applyUpgradeRef = useRef<(id: string) => void>(() => {});
   const netRef = useRef<NetBridge | null>(null);
   const audioRef = useRef<EmberAudioEngine | null>(null);
+  const connectionTimersRef = useRef<number[]>([]);
+
+  const clearConnectionTimers = useCallback(() => {
+    connectionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    connectionTimersRef.current = [];
+  }, []);
 
   const getAudio = useCallback(() => {
     if (!audioRef.current) {
@@ -161,6 +185,7 @@ export default function Home() {
   useEffect(() => () => audioRef.current?.destroy(), []);
 
   const leaveRoom = useCallback(async () => {
+    clearConnectionTimers();
     const activeRoom = netRef.current;
     netRef.current = null;
     if (activeRoom) await activeRoom.room.leave();
@@ -170,11 +195,12 @@ export default function Home() {
     setSignalMode(null);
     setRoomCode("");
     setShareLink("");
-  }, []);
+  }, [clearConnectionTimers]);
 
   const connectToRoom = useCallback(async (rawCode: string, role: "host" | "join") => {
-    const code = normalizeRoomCode(rawCode);
+    const code = extractRoomCode(rawCode);
     if (!code) return;
+    clearConnectionTimers();
     if (netRef.current) await netRef.current.room.leave();
     setView("coop");
     setSignalMode(role);
@@ -191,14 +217,15 @@ export default function Home() {
         {
           appId: "ember-protocol-v2",
           password: `ember-link-${code}`,
-          relayConfig: { redundancy: 5, warnOnRelayFailure: false },
+          relayConfig: { urls: SIGNAL_RELAY_URLS, warnOnRelayFailure: false },
           turnConfig,
         },
         code,
         {
           onJoinError: ({ error }) => {
+            clearConnectionTimers();
             setConnectionStatus("error");
-            setConnectionMessage(error || "当前网络无法建立联机，请稍后重试。");
+            setConnectionMessage(error || "当前网络无法建立联机，请检查网络后点击重新连接。");
           },
         },
       );
@@ -221,6 +248,7 @@ export default function Home() {
         if (data.t === "start" && role === "join") startGame();
       };
       room.onPeerJoin = (peerId) => {
+        clearConnectionTimers();
         wakeAudio("connected");
         setPeerCount(Object.keys(room.getPeers()).length);
         setConnectionStatus("connected");
@@ -236,12 +264,38 @@ export default function Home() {
         setConnectionMessage(count ? "伙伴已连接。" : "伙伴暂时离线，正在等待重连…");
       };
       setConnectionStatus("waiting");
-      setConnectionMessage(role === "host" ? "房间已创建，等待伙伴点击链接…" : "已进入房间，正在与队长建立连接…");
+      setConnectionMessage(role === "host" ? "房间已创建，正在接通联机线路…" : "已识别邀请链接，正在寻找队长…");
+
+      const relayHealthTimer = window.setTimeout(() => {
+        if (netRef.current?.room !== room || Object.keys(room.getPeers()).length) return;
+        const sockets = Object.values(getRelaySockets() as Record<string, WebSocket | undefined>);
+        const relayReady = sockets.some((socket) => socket?.readyState === WebSocket.OPEN);
+        if (relayReady) {
+          setConnectionStatus("waiting");
+          setConnectionMessage(role === "host"
+            ? "联机线路已就绪，把上方链接发给朋友即可。"
+            : "联机线路已就绪，正在等待队长响应…");
+        } else {
+          setConnectionStatus("connecting");
+          setConnectionMessage("正在切换联机线路，请保持页面打开…");
+        }
+      }, 4500);
+      connectionTimersRef.current.push(relayHealthTimer);
+
+      if (role === "join") {
+        const joinTimeout = window.setTimeout(() => {
+          if (netRef.current?.room !== room || Object.keys(room.getPeers()).length) return;
+          setConnectionStatus("error");
+          setConnectionMessage("暂未找到队长。请确认双方打开的是同一个链接，并让队长保持房间页面打开，然后点击重新连接。");
+        }, 18000);
+        connectionTimersRef.current.push(joinTimeout);
+      }
     } catch (error) {
+      clearConnectionTimers();
       setConnectionStatus("error");
       setConnectionMessage(error instanceof Error ? error.message : "联机初始化失败，请重试。");
     }
-  }, [startGame, wakeAudio]);
+  }, [clearConnectionTimers, startGame, wakeAudio]);
 
   useEffect(() => {
     const incoming = normalizeRoomCode(new URLSearchParams(location.search).get("room") || "");
@@ -423,7 +477,7 @@ export default function Home() {
 
   const createOnlineRoom = () => void connectToRoom(newRoomCode(), "host");
   const joinOnlineRoom = () => {
-    const code = normalizeRoomCode(joinCode);
+    const code = extractRoomCode(joinCode);
     if (code) void connectToRoom(code, "join");
   };
   const copyInvite = async () => {
@@ -521,10 +575,10 @@ export default function Home() {
             <button onClick={createOnlineRoom}><b>创建队伍</b><span>生成可分享的房间链接</span></button>
             <div className="joinBox">
               <b>加入队伍</b>
-              <span>输入朋友发来的房间码</span>
+              <span>粘贴朋友发来的完整邀请链接或房间码</span>
               <div className="joinLine">
-                <input value={joinCode} onChange={e=>setJoinCode(normalizeRoomCode(e.target.value))} onKeyDown={e=>{if(e.key==="Enter")joinOnlineRoom();}} placeholder="EMBER-AB12CD" aria-label="房间码"/>
-                <button onClick={joinOnlineRoom} disabled={!normalizeRoomCode(joinCode)}>加入</button>
+                <input value={joinCode} onChange={e=>setJoinCode(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")joinOnlineRoom();}} placeholder="粘贴邀请链接或 EMBER-房间码" aria-label="邀请链接或房间码"/>
+                <button onClick={joinOnlineRoom} disabled={!extractRoomCode(joinCode)}>加入</button>
               </div>
             </div>
           </div> : <>
