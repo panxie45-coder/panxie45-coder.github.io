@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { joinRoom } from "trystero";
+import { EmberAudioEngine, type SoundCue } from "./audio";
 
 type View = "menu" | "game" | "coop";
 type Upgrade = { id: string; title: string; desc: string; icon: string };
@@ -77,6 +78,9 @@ export default function Home() {
   const [seconds, setSeconds] = useState(0);
   const [choices, setChoices] = useState<Upgrade[] | null>(null);
   const [sound, setSound] = useState(true);
+  const [musicVolume, setMusicVolume] = useState(42);
+  const [sfxVolume, setSfxVolume] = useState(72);
+  const [audioOpen, setAudioOpen] = useState(false);
   const [signalMode, setSignalMode] = useState<"host" | "join" | null>(null);
   const [roomCode, setRoomCode] = useState("");
   const [joinCode, setJoinCode] = useState("");
@@ -91,14 +95,70 @@ export default function Home() {
   const resetRef = useRef<() => void>(() => {});
   const applyUpgradeRef = useRef<(id: string) => void>(() => {});
   const netRef = useRef<NetBridge | null>(null);
+  const audioRef = useRef<EmberAudioEngine | null>(null);
+
+  const getAudio = useCallback(() => {
+    if (!audioRef.current) {
+      audioRef.current = new EmberAudioEngine({
+        enabled: sound,
+        musicVolume: musicVolume / 100,
+        sfxVolume: sfxVolume / 100,
+      });
+    }
+    return audioRef.current;
+  }, [musicVolume, sfxVolume, sound]);
+
+  const wakeAudio = useCallback((cue?: SoundCue) => {
+    const audio = getAudio();
+    void audio.unlock().then(() => {
+      if (cue) audio.play(cue);
+    });
+  }, [getAudio]);
 
   const startGame = useCallback(() => {
+    wakeAudio("start");
     setLevel(1); setXp(0); setHp(100); setKills(0); setSeconds(0);
     setChoices(null); setPaused(false); setView("game");
     setTimeout(() => resetRef.current(), 0);
-  }, []);
+  }, [wakeAudio]);
 
   useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem("ember-audio") || "{}") as {
+          enabled?: boolean;
+          music?: number;
+          sfx?: number;
+        };
+        if (typeof saved.enabled === "boolean") setSound(saved.enabled);
+        if (typeof saved.music === "number") setMusicVolume(clamp(saved.music, 0, 100));
+        if (typeof saved.sfx === "number") setSfxVolume(clamp(saved.sfx, 0, 100));
+      } catch {
+        // Invalid local preferences should never prevent the game from starting.
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    audio?.setEnabled(sound);
+    audio?.setMusicVolume(musicVolume / 100);
+    audio?.setSfxVolume(sfxVolume / 100);
+    try {
+      localStorage.setItem("ember-audio", JSON.stringify({ enabled: sound, music: musicVolume, sfx: sfxVolume }));
+    } catch {
+      // Audio still works when a browser blocks persistent storage.
+    }
+  }, [musicVolume, sfxVolume, sound]);
+
+  useEffect(() => {
+    audioRef.current?.setScene(view === "game" ? (paused || choices ? "pause" : "game") : "menu");
+  }, [choices, paused, view]);
+
+  useEffect(() => () => audioRef.current?.destroy(), []);
 
   const leaveRoom = useCallback(async () => {
     const activeRoom = netRef.current;
@@ -161,6 +221,7 @@ export default function Home() {
         if (data.t === "start" && role === "join") startGame();
       };
       room.onPeerJoin = (peerId) => {
+        wakeAudio("connected");
         setPeerCount(Object.keys(room.getPeers()).length);
         setConnectionStatus("connected");
         setConnectionMessage("伙伴已连接，可以一起出发。");
@@ -180,7 +241,7 @@ export default function Home() {
       setConnectionStatus("error");
       setConnectionMessage(error instanceof Error ? error.message : "联机初始化失败，请重试。");
     }
-  }, [startGame]);
+  }, [startGame, wakeAudio]);
 
   useEffect(() => {
     const incoming = normalizeRoomCode(new URLSearchParams(location.search).get("room") || "");
@@ -207,6 +268,7 @@ export default function Home() {
     const keys = new Set<string>();
     const pointer = { x: W / 2, y: H / 2, down: false };
     const network = netRef.current;
+    const audio = audioRef.current;
     const unsubscribeNetwork = network?.subscribe((data) => {
       if (data.t === "player") {
         remote = { x: data.x, y: data.y, r: 17, hp: data.hp, maxHp: data.maxHp, color: "#78a99d", name: "伙伴" };
@@ -228,6 +290,7 @@ export default function Home() {
       if (id === "speed") stats.speed *= 1.15;
       if (id === "magnet") stats.magnet *= 1.45;
       if (id === "vitality") { player.maxHp += 25; player.hp = Math.min(player.maxHp, player.hp + 35); }
+      audio?.play("upgrade");
       localPaused = false;
     };
 
@@ -262,6 +325,7 @@ export default function Home() {
       for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2,s=40+Math.random()*120; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.35+Math.random()*.35,color}); }
     };
     const levelUp = () => {
+      audio?.play("level");
       currentLevel++; setLevel(currentLevel);
       const pool = [...UPGRADES].sort(() => Math.random() - .5).slice(0, 3);
       localPaused = true; setChoices(pool);
@@ -289,6 +353,7 @@ export default function Home() {
         const target = enemies.reduce((a,b) => dist(player,a) < dist(player,b) ? a : b);
         const a0 = Math.atan2(target.y-player.y,target.x-player.x);
         for(let i=0;i<stats.multi;i++){ const spread=(i-(stats.multi-1)/2)*.14; const a=a0+spread; shots.push({x:player.x,y:player.y,vx:Math.cos(a)*560,vy:Math.sin(a)*560,r:5,damage:stats.damage,life:1.5}); }
+        audio?.play("shot");
         burst(player.x+Math.cos(a0)*18,player.y+Math.sin(a0)*18,"#f4c95d",3);
       }
       remoteFireClock -= dt;
@@ -297,24 +362,25 @@ export default function Home() {
         const target = enemies.reduce((a,b) => dist(remote!,a) < dist(remote!,b) ? a : b);
         const a = Math.atan2(target.y-remote.y,target.x-remote.x);
         shots.push({x:remote.x,y:remote.y,vx:Math.cos(a)*540,vy:Math.sin(a)*540,r:5,damage:stats.damage*.72,life:1.5});
+        audio?.play("ally-shot");
       }
       for (const s of shots) { s.x += s.vx*dt; s.y += s.vy*dt; s.life -= dt; }
       shots = shots.filter(s => s.life > 0);
       for (const e of enemies) {
         const target = remote && dist(e,remote) < dist(e,player) ? remote : player;
         const a=Math.atan2(target.y-e.y,target.x-e.x); e.x+=Math.cos(a)*e.speed*dt; e.y+=Math.sin(a)*e.speed*dt;
-        if(dist(e,player)<e.r+player.r){ player.hp-=e.hit*dt; setHp(Math.max(0,Math.ceil(player.hp))); }
+        if(dist(e,player)<e.r+player.r){ player.hp-=e.hit*dt; setHp(Math.max(0,Math.ceil(player.hp))); audio?.play("hurt"); }
       }
-      for (const s of shots) for (const e of enemies) if(s.life>0&&e.hp>0&&dist(s,e)<s.r+e.r){ e.hp-=s.damage; s.life=0; burst(s.x,s.y,"#fff2ba",4); }
-      for (const e of enemies) if(e.hp<=0){ gems.push({x:e.x,y:e.y,value:e.r>20?3:1}); burst(e.x,e.y,e.color,10); setKills(k=>k+1); }
+      for (const s of shots) for (const e of enemies) if(s.life>0&&e.hp>0&&dist(s,e)<s.r+e.r){ e.hp-=s.damage; s.life=0; audio?.play("hit"); burst(s.x,s.y,"#fff2ba",4); }
+      for (const e of enemies) if(e.hp<=0){ gems.push({x:e.x,y:e.y,value:e.r>20?3:1}); audio?.play("kill"); burst(e.x,e.y,e.color,10); setKills(k=>k+1); }
       enemies = enemies.filter(e=>e.hp>0);
       for (const g of gems) {
         const d=dist(g,player); if(d<stats.magnet){ const a=Math.atan2(player.y-g.y,player.x-g.x); g.x+=Math.cos(a)*360*dt; g.y+=Math.sin(a)*360*dt; }
-        if(d<player.r+8){ g.value=0; currentXp++; const need=6+currentLevel*4; setXp(currentXp/need*100); if(currentXp>=need){currentXp=0;setXp(0);levelUp();} }
+        if(d<player.r+8){ g.value=0; audio?.play("pickup"); currentXp++; const need=6+currentLevel*4; setXp(currentXp/need*100); if(currentXp>=need){currentXp=0;setXp(0);levelUp();} }
       }
       gems=gems.filter(g=>g.value>0);
       for(const p of particles){p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;p.vx*=.96;p.vy*=.96;} particles=particles.filter(p=>p.life>0);
-      if(player.hp<=0){ localPaused=true; setPaused(true); }
+      if(player.hp<=0){ audio?.play("game-over"); localPaused=true; setPaused(true); }
     };
 
     const draw = () => {
@@ -375,6 +441,7 @@ export default function Home() {
       textarea.remove();
     }
     setCopied(true);
+    wakeAudio("ui");
     setTimeout(() => setCopied(false), 1800);
   };
   const startCoopGame = async () => {
@@ -383,11 +450,13 @@ export default function Home() {
     startGame();
   };
   const returnToMenu = async () => {
+    wakeAudio("ui");
     await leaveRoom();
     history.replaceState(null, "", location.pathname);
     setView("menu");
   };
   const resetCoop = async () => {
+    wakeAudio("ui");
     await leaveRoom();
     setJoinCode("");
     setConnectionMessage("");
@@ -397,13 +466,37 @@ export default function Home() {
     await leaveRoom();
     startGame();
   };
+  const toggleSound = () => {
+    const next = !sound;
+    setSound(next);
+    const audio = getAudio();
+    audio.setEnabled(next);
+    if (next) wakeAudio("ui");
+  };
 
   return (
-    <main className="shell">
+    <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 测试版本 0.1</div>
-        <button className="iconBtn" onClick={()=>setSound(s=>!s)} aria-label="切换声音">{sound?"◖))":"◖×"}</button>
+        <div className="status"><i /> 版本 0.2 · 声场更新</div>
+        <div className={`audioControl ${audioOpen ? "open" : ""}`}>
+          <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
+            <span aria-hidden="true">{sound ? "♫" : "×"}</span>
+          </button>
+          <button className="audioExpand" onClick={()=>{setAudioOpen(open=>!open);wakeAudio("ui");}} aria-label="打开音量设置" aria-expanded={audioOpen}>⌄</button>
+          {audioOpen && <div className="audioPanel">
+            <div className="audioHeading"><b>声音控制</b><span>{sound ? "余烬声场已启动" : "当前已静音"}</span></div>
+            <label>
+              <span>背景音乐 <b>{musicVolume}%</b></span>
+              <input type="range" min="0" max="100" value={musicVolume} onChange={event=>{setMusicVolume(Number(event.target.value));wakeAudio();}} aria-label="背景音乐音量"/>
+            </label>
+            <label>
+              <span>战斗音效 <b>{sfxVolume}%</b></span>
+              <input type="range" min="0" max="100" value={sfxVolume} onChange={event=>{setSfxVolume(Number(event.target.value));wakeAudio();}} aria-label="战斗音效音量"/>
+            </label>
+            <button className="audioToggle" onClick={toggleSound}>{sound ? "一键静音" : "恢复声音"}</button>
+          </div>}
+        </div>
       </header>
 
       {view==="menu" && <section className="menu">
