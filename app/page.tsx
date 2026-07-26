@@ -233,8 +233,8 @@ export default function Home() {
       const turnConfig = await getRelayServers();
       const room = joinRoom(
         {
-          appId: "ember-protocol-v2",
-          password: `ember-link-${code}`,
+          appId: "ember-protocol-v3",
+          password: `ember-sync-v3-${code}`,
           relayConfig: { urls: SIGNAL_RELAY_URLS, warnOnRelayFailure: false },
           turnConfig,
         },
@@ -247,7 +247,7 @@ export default function Home() {
           },
         },
       );
-      const gameplay = room.makeAction<NetPayload>("ember-game-v2");
+      const gameplay = room.makeAction<NetPayload>("ember-game-v3");
       const listeners = new Set<(data: NetPayload) => void>();
       const bridge: NetBridge = {
         roomId: code,
@@ -764,7 +764,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.2 · 声场更新</div>
+        <div className="status"><i /> 版本 0.3 · 共享战场</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
