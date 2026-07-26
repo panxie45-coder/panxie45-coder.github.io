@@ -43,8 +43,10 @@ if (-not (Test-Path $keyPath)) {
 $watchdogRunning = $false
 if (Test-Path $watchdogPidFile) {
   $watchdogPid = [int](Get-Content -Raw $watchdogPidFile)
-  $watchdog = Get-Process -Id $watchdogPid -ErrorAction SilentlyContinue
-  $watchdogRunning = $null -ne $watchdog -and $watchdog.ProcessName -eq "powershell"
+  $watchdog = Get-CimInstance Win32_Process -Filter "ProcessId = $watchdogPid" -ErrorAction SilentlyContinue
+  $watchdogRunning = $null -ne $watchdog `
+    -and $watchdog.Name -ieq "powershell.exe" `
+    -and $watchdog.CommandLine -like "*tunnel-watchdog.ps1*"
 }
 
 if (-not $watchdogRunning) {
