@@ -118,7 +118,7 @@ const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; ra
   runner: { hp: 24, speed: 108, hit: 7, radius: 13, color: "#e65d43", cooldown: 0 },
   crawler: { hp: 48, speed: 58, hit: 10, radius: 17, color: "#75a94c", cooldown: 0 },
   artillery: { hp: 58, speed: 42, hit: 8, radius: 18, color: "#de8b34", cooldown: 2.4 },
-  assassin: { hp: 68, speed: 82, hit: 14, radius: 18, color: "#865bc7", cooldown: 3.8 },
+  assassin: { hp: 68, speed: 82, hit: 10, radius: 18, color: "#865bc7", cooldown: 1.75 },
   brute: { hp: 185, speed: 36, hit: 21, radius: 27, color: "#a7542a", cooldown: 0 },
   commander: { hp: 320, speed: 48, hit: 18, radius: 30, color: "#d9b24b", cooldown: 1.5 },
 };
@@ -129,6 +129,14 @@ const ENEMY_XP: Record<EnemyKind, number> = {
   assassin: 4,
   brute: 7,
   commander: 12,
+};
+const ENEMY_ATTACK_MODE: Record<EnemyKind, "melee" | "ranged"> = {
+  runner: "melee",
+  crawler: "melee",
+  artillery: "ranged",
+  assassin: "ranged",
+  brute: "melee",
+  commander: "ranged",
 };
 
 const makeBuild = (classId: ClassId): BuildFrame => {
@@ -162,6 +170,12 @@ const projectileTraits = (classId: ClassId): Partial<Shot> => {
   if (classId === "phantom") return { pierce: 1 };
   if (classId === "laser") return { pierce: 4 };
   return { slow: 2.8 };
+};
+
+const mechPreviewClass = (classInfo: ClassSpec) => {
+  if (classInfo.id === "laser") return "mechPreview laserPreview";
+  if (classInfo.id === "frost") return "mechPreview frostPreview";
+  return `mechPreview mech-${classInfo.sprite}`;
 };
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -356,8 +370,8 @@ export default function Home() {
       const turnConfig = await getRelayServers();
       const room = joinRoom(
         {
-          appId: "ember-protocol-v6",
-          password: `ember-sync-v6-${code}`,
+          appId: "ember-protocol-v7",
+          password: `ember-sync-v7-${code}`,
           relayConfig: { urls: SIGNAL_RELAY_URLS, warnOnRelayFailure: false },
           turnConfig,
         },
@@ -370,7 +384,7 @@ export default function Home() {
           },
         },
       );
-      const gameplay = room.makeAction<NetPayload>("ember-game-v6");
+      const gameplay = room.makeAction<NetPayload>("ember-game-v7");
       const listeners = new Set<(data: NetPayload) => void>();
       const bridge: NetBridge = {
         roomId: code,
@@ -484,21 +498,25 @@ export default function Home() {
     const pointer = { x: W / 2, y: H / 2, down: false };
     const audio = audioRef.current;
     const playerSprites = new Image();
-    const specialistSprites = new Image();
+    const laserSprite = new Image();
+    const frostSprite = new Image();
     const enemySprites = new Image();
     const projectileSprites = new Image();
     const specialistProjectiles = new Image();
     const droneSprites = new Image();
     const specialistDrones = new Image();
     const enemyProjectiles = new Image();
+    const assassinProjectile = new Image();
     playerSprites.src = "/game/player-mechs.png";
-    specialistSprites.src = "/game/specialist-mechs.png";
+    laserSprite.src = "/game/laser-mech.png";
+    frostSprite.src = "/game/frost-mech.png";
     enemySprites.src = "/game/enemy-mechs.png";
     projectileSprites.src = "/game/projectile-mechs.png";
     specialistProjectiles.src = "/game/specialist-projectiles.png";
     droneSprites.src = "/game/support-drones.png";
     specialistDrones.src = "/game/specialist-drones.png";
     enemyProjectiles.src = "/game/enemy-projectiles.png";
+    assassinProjectile.src = "/game/assassin-projectile.png";
     const unsubscribeNetwork = network?.subscribe((data) => {
       if (data.t === "player" && isAuthority) {
         const remoteBuild = remoteBuildRef.current || makeBuild("assault");
@@ -942,37 +960,46 @@ export default function Home() {
         const targetDistance = dist(enemy, target);
         const angle = Math.atan2(target.y-enemy.y,target.x-enemy.x);
         enemy.cooldown -= dt;
-        const ranged = enemy.kind === "artillery" || enemy.kind === "commander";
-        if (!ranged || targetDistance > (enemy.kind === "commander" ? 250 : 310)) {
-          const speedScale = enemy.slow > 0 ? .52 : 1;
-          enemy.x += Math.cos(angle) * enemy.speed * speedScale * dt;
-          enemy.y += Math.sin(angle) * enemy.speed * speedScale * dt;
+        const ranged = ENEMY_ATTACK_MODE[enemy.kind] === "ranged";
+        const preferredRange = enemy.kind === "artillery" ? 330 : enemy.kind === "assassin" ? 230 : enemy.kind === "commander" ? 280 : 0;
+        const speedScale = enemy.slow > 0 ? .52 : 1;
+        const moveDirection = !ranged
+          ? 1
+          : targetDistance > preferredRange + 24
+            ? 1
+            : targetDistance < preferredRange * .62
+              ? -.72
+              : 0;
+        if (moveDirection) {
+          enemy.x += Math.cos(angle) * enemy.speed * speedScale * moveDirection * dt;
+          enemy.y += Math.sin(angle) * enemy.speed * speedScale * moveDirection * dt;
         }
         enemy.slow = Math.max(0, enemy.slow - dt);
-        if (enemy.kind === "assassin" && enemy.cooldown <= 0 && targetDistance > 90) {
-          enemy.x += Math.cos(angle) * Math.min(125, targetDistance - 55);
-          enemy.y += Math.sin(angle) * Math.min(125, targetDistance - 55);
-          enemy.cooldown = ENEMY_DATA.assassin.cooldown;
-          burst(enemy.x, enemy.y, enemy.color, 8);
-        }
         if (ranged && enemy.cooldown <= 0) {
-          const spreadCount = enemy.kind === "commander" ? 3 : 1;
+          const spreadCount = enemy.kind === "commander" ? 3 : enemy.kind === "assassin" ? 2 : 1;
           for (let index = 0; index < spreadCount; index++) {
-            const spread = (index - (spreadCount - 1) / 2) * .18;
+            const spread = (index - (spreadCount - 1) / 2) * (enemy.kind === "assassin" ? .075 : .18);
             const shotAngle = angle + spread;
+            const projectileSpeed = enemy.kind === "assassin" ? 510 : enemy.kind === "commander" ? 330 : 285;
             shots.push({
-              x: enemy.x,
-              y: enemy.y,
-              vx: Math.cos(shotAngle) * (enemy.kind === "commander" ? 330 : 285),
-              vy: Math.sin(shotAngle) * (enemy.kind === "commander" ? 330 : 285),
-              r: enemy.kind === "commander" ? 7 : 6,
-              damage: enemy.hit * (1 + elapsed / 420),
-              life: 2.4,
+              x: enemy.x + Math.cos(angle) * (enemy.r + 8),
+              y: enemy.y + Math.sin(angle) * (enemy.r + 8),
+              vx: Math.cos(shotAngle) * projectileSpeed,
+              vy: Math.sin(shotAngle) * projectileSpeed,
+              r: enemy.kind === "commander" ? 7 : enemy.kind === "assassin" ? 4 : 6,
+              damage: enemy.hit * (enemy.kind === "assassin" ? .62 : 1) * (1 + elapsed / 420),
+              life: enemy.kind === "assassin" ? 1.7 : 2.4,
               hostile: true,
               enemyKind: enemy.kind,
               splash: enemy.kind === "artillery" ? 68 : undefined,
             });
           }
+          burst(
+            enemy.x + Math.cos(angle) * (enemy.r + 5),
+            enemy.y + Math.sin(angle) * (enemy.r + 5),
+            enemy.kind === "artillery" ? "#ff9a4d" : enemy.kind === "assassin" ? "#a36cff" : "#e2b8ff",
+            enemy.kind === "commander" ? 7 : 4,
+          );
           enemy.cooldown = ENEMY_DATA[enemy.kind].cooldown * (enemy.elite ? .78 : 1);
         }
         if (targetDistance < enemy.r + target.r) {
@@ -1002,6 +1029,10 @@ export default function Home() {
                 if (now >= nearbyShield) nearby.hp = Math.max(0, nearby.hp - shot.damage * .55 * (1 - nearbyReduction));
                 if (nearby === player) setHp(Math.ceil(player.hp));
               }
+            } else if (shot.enemyKind === "assassin") {
+              burst(target.x, target.y, "#a36cff", 7);
+            } else if (shot.enemyKind === "commander") {
+              burst(target.x, target.y, "#d99aff", 10);
             }
             if (target === player) {
               setHp(Math.ceil(player.hp));
@@ -1134,6 +1165,11 @@ export default function Home() {
       };
       for(const s of shots){
         if(s.hostile){
+          if(s.enemyKind==="assassin"&&assassinProjectile.complete&&assassinProjectile.naturalWidth){
+            ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));ctx.shadowColor="#a36cff";ctx.shadowBlur=11;
+            ctx.drawImage(assassinProjectile,-21,-9,42,18);ctx.restore();
+            continue;
+          }
           const hostileSprite=s.enemyKind==="commander"?1:s.enemyKind==="artillery"?0:-1;
           if(hostileSprite>=0&&enemyProjectiles.complete&&enemyProjectiles.naturalWidth){
             const cellW=enemyProjectiles.naturalWidth/2,cellH=enemyProjectiles.naturalHeight;
@@ -1183,14 +1219,16 @@ export default function Home() {
       const drawMech = (actor: Actor, ally: boolean) => {
         const classInfo = CLASSES.find((item) => item.id === actor.classId) || CLASSES[0];
         const sprite = classInfo.sprite;
-        const mechImage = classInfo.sheet === "specialist" ? specialistSprites : playerSprites;
-        const cellW = mechImage.naturalWidth / 2, cellH = classInfo.sheet === "specialist" ? mechImage.naturalHeight : mechImage.naturalHeight / 2;
+        const mechImage = classInfo.id === "laser" ? laserSprite : classInfo.id === "frost" ? frostSprite : playerSprites;
+        const independentSprite = classInfo.sheet === "specialist";
+        const cellW = independentSprite ? mechImage.naturalWidth : mechImage.naturalWidth / 2;
+        const cellH = independentSprite ? mechImage.naturalHeight : mechImage.naturalHeight / 2;
         const size = classInfo.renderSize;
         ctx.save();
         ctx.shadowColor=ally?"#78a99d":actor.color;
         ctx.shadowBlur=20;
         if(mechImage.complete&&mechImage.naturalWidth){
-          ctx.drawImage(mechImage,(sprite%2)*cellW,classInfo.sheet==="specialist"?0:Math.floor(sprite/2)*cellH,cellW,cellH,actor.x-size/2,actor.y-size/2,size,size);
+          ctx.drawImage(mechImage,independentSprite?0:(sprite%2)*cellW,independentSprite?0:Math.floor(sprite/2)*cellH,cellW,cellH,actor.x-size/2,actor.y-size/2,size,size);
         }else{
           ctx.fillStyle=actor.color;ctx.beginPath();ctx.arc(actor.x,actor.y,actor.r,0,Math.PI*2);ctx.fill();
         }
@@ -1334,7 +1372,7 @@ export default function Home() {
   const selectedClassSpec = CLASSES.find((item) => item.id === selectedClass) || CLASSES[0];
   const classSelector = <div className="classGrid">
     {CLASSES.map((item) => <button key={item.id} className={selectedClass===item.id?"selected":""} onClick={()=>selectClass(item.id)}>
-      <span className={`mechPreview ${item.sheet==="specialist"?"specialistPreview":""} mech-${item.sprite}`} aria-hidden="true"/>
+      <span className={mechPreviewClass(item)} aria-hidden="true"/>
       <small>{item.role}</small>
       <b>{item.name}</b>
       <span><em>主动</em>{item.active}</span>
@@ -1346,7 +1384,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.6 · 激光冰霜</div>
+        <div className="status"><i /> 版本 0.7 · 远程火力</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -1444,7 +1482,7 @@ export default function Home() {
           <canvas ref={canvasRef} aria-label="余烬协议游戏画面"/>
           {signalMode && <div className="syncBadge"><i /> 共享战场 · {signalMode==="host"?"队长同步":"伙伴同步"}</div>}
           <div className="skillDock">
-            <span className={`mechPreview ${selectedClassSpec.sheet==="specialist"?"specialistPreview":""} mech-${selectedClassSpec.sprite}`} aria-hidden="true"/>
+            <span className={mechPreviewClass(selectedClassSpec)} aria-hidden="true"/>
             <div><small>{selectedClassSpec.role}</small><b>{selectedClassSpec.active}</b></div>
             <button onClick={()=>activeSkillRef.current()} disabled={skillCooldown>0}>{skillCooldown>0?`${skillCooldown}s`:"Q · 释放"}</button>
           </div>
