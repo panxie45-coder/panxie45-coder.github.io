@@ -47,6 +47,7 @@ test("ships independent builds, classes, elites, and generated sprites", async (
   assert.match(page, /waitingForRemoteUpgrade/);
   assert.match(page, /eliteChance/);
   assert.match(page, /kind = "commander"/);
+  assert.doesNotMatch(page, /ctx\.arc\(player\.x,player\.y,25/);
   assert.match(css, /player-mechs\.png/);
 
   await Promise.all([

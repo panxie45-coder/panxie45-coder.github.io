@@ -989,8 +989,6 @@ export default function Home() {
         ctx.restore();
       };
       drawMech(player,false);
-      ctx.strokeStyle="#242e27";ctx.lineWidth=7;ctx.beginPath();ctx.arc(player.x,player.y,25,0,Math.PI*2);ctx.stroke();
-      ctx.strokeStyle=player.color;ctx.beginPath();ctx.arc(player.x,player.y,25,-Math.PI/2,-Math.PI/2+Math.PI*2*(player.hp/player.maxHp));ctx.stroke();
       if(performance.now()<selfShieldUntil){ctx.strokeStyle="#75e6da";ctx.lineWidth=3;ctx.beginPath();ctx.arc(player.x,player.y,33,0,Math.PI*2);ctx.stroke();}
       if(remote){
         drawMech(remote,true);
