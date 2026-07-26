@@ -34,7 +34,7 @@ type ClassSpec = {
 };
 type Actor = { x: number; y: number; r: number; hp: number; maxHp: number; color: string; name?: string; classId?: ClassId };
 type Enemy = Actor & { speed: number; hit: number; kind: EnemyKind; elite: boolean; cooldown: number };
-type Shot = { x: number; y: number; vx: number; vy: number; r: number; damage: number; life: number; hostile?: boolean };
+type Shot = { x: number; y: number; vx: number; vy: number; r: number; damage: number; life: number; hostile?: boolean; classId?: ClassId };
 type Gem = { x: number; y: number; value: number };
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
@@ -85,10 +85,10 @@ const UPGRADES: Upgrade[] = [
 ];
 
 const CLASSES: ClassSpec[] = [
-  { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "武器过载：基础伤害和射速提高", cooldown: 10, color: "#f4c95d", sprite: 0 },
-  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：3 秒内免疫伤害", passive: "复合装甲：生命更高，受到伤害降低", cooldown: 14, color: "#58c7c0", sprite: 1 },
-  { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", passive: "伴飞无人机：自动提供额外火力", cooldown: 16, color: "#92a35c", sprite: 2 },
-  { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", passive: "弱点锁定：移速和暴击率更高", cooldown: 9, color: "#9ec9ff", sprite: 3 },
+  { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "微型导弹：单发 40 伤害，中等射速", cooldown: 10, color: "#f4c95d", sprite: 0 },
+  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：3 秒内免疫伤害", passive: "穿甲重炮：单发 68 伤害，射速较慢", cooldown: 14, color: "#58c7c0", sprite: 1 },
+  { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", passive: "脉冲鱼雷：单发 24 伤害，附带无人机", cooldown: 16, color: "#92a35c", sprite: 2 },
+  { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", passive: "针刺弹：单发 15 伤害，高射速高暴击", cooldown: 9, color: "#9ec9ff", sprite: 3 },
 ];
 
 const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; radius: number; color: string; cooldown: number }> = {
@@ -98,6 +98,14 @@ const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; ra
   assassin: { hp: 68, speed: 82, hit: 14, radius: 18, color: "#865bc7", cooldown: 3.8 },
   brute: { hp: 185, speed: 36, hit: 21, radius: 27, color: "#a7542a", cooldown: 0 },
   commander: { hp: 320, speed: 48, hit: 18, radius: 30, color: "#d9b24b", cooldown: 1.5 },
+};
+const ENEMY_XP: Record<EnemyKind, number> = {
+  runner: 1,
+  crawler: 2,
+  artillery: 3,
+  assassin: 4,
+  brute: 7,
+  commander: 12,
 };
 
 const makeBuild = (classId: ClassId): BuildFrame => {
@@ -116,10 +124,10 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     skillHaste: 1,
     drones: 0,
   };
-  if (classId === "assault") return { ...base, damage: 32, interval: .41 };
-  if (classId === "guardian") return { ...base, maxHp: 135, speed: 216, damage: 25, damageReduction: .22 };
-  if (classId === "engineer") return { ...base, damage: 26, magnet: 110, drones: 1 };
-  return { ...base, maxHp: 90, speed: 286, damage: 30, critChance: .19 };
+  if (classId === "assault") return { ...base, damage: 40, interval: .65, projectileSpeed: 510, projectileSize: 7 };
+  if (classId === "guardian") return { ...base, maxHp: 135, speed: 216, damage: 68, interval: 1.15, projectileSpeed: 430, projectileSize: 9.5, damageReduction: .22 };
+  if (classId === "engineer") return { ...base, damage: 24, interval: .56, magnet: 110, projectileSpeed: 520, projectileSize: 6, drones: 1 };
+  return { ...base, maxHp: 90, speed: 286, damage: 15, interval: .27, projectileSpeed: 820, projectileSize: 4, critChance: .25 };
 };
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -314,8 +322,8 @@ export default function Home() {
       const turnConfig = await getRelayServers();
       const room = joinRoom(
         {
-          appId: "ember-protocol-v4",
-          password: `ember-sync-v4-${code}`,
+          appId: "ember-protocol-v5",
+          password: `ember-sync-v5-${code}`,
           relayConfig: { urls: SIGNAL_RELAY_URLS, warnOnRelayFailure: false },
           turnConfig,
         },
@@ -328,7 +336,7 @@ export default function Home() {
           },
         },
       );
-      const gameplay = room.makeAction<NetPayload>("ember-game-v4");
+      const gameplay = room.makeAction<NetPayload>("ember-game-v5");
       const listeners = new Set<(data: NetPayload) => void>();
       const bridge: NetBridge = {
         roomId: code,
@@ -443,8 +451,10 @@ export default function Home() {
     const audio = audioRef.current;
     const playerSprites = new Image();
     const enemySprites = new Image();
+    const projectileSprites = new Image();
     playerSprites.src = "/game/player-mechs.png";
     enemySprites.src = "/game/enemy-mechs.png";
+    projectileSprites.src = "/game/projectile-mechs.png";
     const unsubscribeNetwork = network?.subscribe((data) => {
       if (data.t === "player" && isAuthority) {
         const remoteBuild = remoteBuildRef.current || makeBuild("assault");
@@ -483,7 +493,7 @@ export default function Home() {
         if (data.classId === "assault") {
           for (let i = 0; i < 12; i++) {
             const angle = i / 12 * Math.PI * 2;
-            shots.push({ x: remote.x, y: remote.y, vx: Math.cos(angle) * 520, vy: Math.sin(angle) * 520, r: 7, damage: remoteBuild.damage * 1.65, life: 1.4 });
+            shots.push({ x: remote.x, y: remote.y, vx: Math.cos(angle) * 520, vy: Math.sin(angle) * 520, r: 7, damage: remoteBuild.damage * 1.65, life: 1.4, classId: "assault" });
           }
         }
         if (data.classId === "guardian") remoteShieldUntil = performance.now() + 3000;
@@ -623,7 +633,7 @@ export default function Home() {
       if (build.classId === "assault") {
         for (let i = 0; i < 12; i++) {
           const angle = i / 12 * Math.PI * 2;
-          shots.push({ x: player.x, y: player.y, vx: Math.cos(angle) * 540, vy: Math.sin(angle) * 540, r: 7, damage: stats.damage * 1.75, life: 1.45 });
+          shots.push({ x: player.x, y: player.y, vx: Math.cos(angle) * 540, vy: Math.sin(angle) * 540, r: 7, damage: stats.damage * 1.75, life: 1.45, classId: "assault" });
         }
       }
       if (build.classId === "guardian") selfShieldUntil = now + 3000;
@@ -785,11 +795,11 @@ export default function Home() {
           const spread=(i-(stats.multi-1)/2)*.14;
           const angle=a0+spread;
           const damage = Math.random() < stats.critChance ? stats.damage * 2 : stats.damage;
-          shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5});
+          shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5,classId:build.classId});
         }
         for (let i = 0; i < stats.drones; i++) {
           const droneAngle = a0 + (i % 2 ? .22 : -.22);
-          shots.push({x:player.x,y:player.y,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*.42,life:1.6});
+          shots.push({x:player.x,y:player.y,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*.42,life:1.6,classId:"engineer"});
         }
         audio?.play("shot");
         burst(player.x+Math.cos(a0)*18,player.y+Math.sin(a0)*18,"#f4c95d",3);
@@ -804,11 +814,11 @@ export default function Home() {
           const spread=(i-(remoteStats.multi-1)/2)*.14;
           const shotAngle=a+spread;
           const damage = Math.random() < remoteStats.critChance ? remoteStats.damage * 2 : remoteStats.damage;
-          shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5});
+          shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5,classId:remoteStats.classId});
         }
         for (let i = 0; i < remoteStats.drones; i++) {
           const droneAngle = a + (i % 2 ? .22 : -.22);
-          shots.push({x:remote.x,y:remote.y,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*.42,life:1.6});
+          shots.push({x:remote.x,y:remote.y,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*.42,life:1.6,classId:"engineer"});
         }
         audio?.play("ally-shot");
       }
@@ -889,7 +899,7 @@ export default function Home() {
       }
       for (const enemy of enemies) {
         if (enemy.hp <= 0) {
-          const value = enemy.kind === "commander" ? 8 : enemy.elite ? 4 : enemy.kind === "brute" ? 3 : 1;
+          const value = Math.round(ENEMY_XP[enemy.kind] * (enemy.elite ? 1.75 : 1));
           gems.push({x:enemy.x,y:enemy.y,value});
           audio?.play("kill");
           burst(enemy.x,enemy.y,enemy.color,10);
@@ -954,9 +964,34 @@ export default function Home() {
       for(let y=0;y<H;y+=48){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
       ctx.fillStyle="rgba(244,201,93,.035)";
       for(let i=0;i<24;i++){ const x=(i*193)%W,y=(i*317)%H;ctx.beginPath();ctx.arc(x,y,18+(i%4)*9,0,Math.PI*2);ctx.fill();}
-      for(const g of gems){ctx.save();ctx.translate(g.x,g.y);ctx.rotate(performance.now()/600);ctx.fillStyle="#9ed9cc";ctx.fillRect(-6,-6,12,12);ctx.restore();}
+      for(const g of gems){
+        const gemSize=6+Math.min(7,Math.sqrt(g.value)*1.5);
+        ctx.save();ctx.translate(g.x,g.y);ctx.rotate(performance.now()/600);
+        ctx.fillStyle=g.value>=10?"#f4c95d":g.value>=5?"#c7e08f":"#9ed9cc";
+        ctx.shadowColor=ctx.fillStyle;ctx.shadowBlur=g.value>=5?12:5;
+        ctx.fillRect(-gemSize,-gemSize,gemSize*2,gemSize*2);ctx.restore();
+      }
       for(const p of particles){ctx.globalAlpha=Math.max(0,p.life*2);ctx.fillStyle=p.color;ctx.fillRect(p.x-2,p.y-2,4,4);} ctx.globalAlpha=1;
-      for(const s of shots){ctx.fillStyle=s.hostile?"#ff7657":"#fff2ba";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();}
+      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3 };
+      const projectileDimensions: Record<ClassId, [number, number]> = {
+        assault: [34, 18],
+        guardian: [38, 22],
+        engineer: [31, 18],
+        phantom: [38, 16],
+      };
+      for(const s of shots){
+        if(s.hostile||!s.classId||!projectileSprites.complete||!projectileSprites.naturalWidth){
+          ctx.fillStyle=s.hostile?"#ff7657":"#fff2ba";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();
+          continue;
+        }
+        const sprite=projectileSpriteIndex[s.classId];
+        const cellW=projectileSprites.naturalWidth/2,cellH=projectileSprites.naturalHeight/2;
+        const [drawW,drawH]=projectileDimensions[s.classId];
+        ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));
+        ctx.shadowColor=CLASSES.find((item)=>item.id===s.classId)?.color||"#fff2ba";ctx.shadowBlur=8;
+        ctx.drawImage(projectileSprites,(sprite%2)*cellW,Math.floor(sprite/2)*cellH,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
+        ctx.restore();
+      }
       const enemySpriteIndex: Record<EnemyKind, number> = { runner: 0, crawler: 1, artillery: 2, assassin: 3, brute: 4, commander: 5 };
       for(const e of enemies){
         const sprite = enemySpriteIndex[e.kind];
@@ -988,11 +1023,21 @@ export default function Home() {
         }
         ctx.restore();
       };
+      const drawShieldCorners = (actor: Actor) => {
+        const edge=32,corner=10;
+        ctx.save();ctx.translate(actor.x,actor.y);ctx.strokeStyle="#75e6da";ctx.lineWidth=3;ctx.shadowColor="#75e6da";ctx.shadowBlur=8;
+        ctx.beginPath();
+        ctx.moveTo(-edge+corner,-edge);ctx.lineTo(-edge,-edge);ctx.lineTo(-edge,-edge+corner);
+        ctx.moveTo(edge-corner,-edge);ctx.lineTo(edge,-edge);ctx.lineTo(edge,-edge+corner);
+        ctx.moveTo(-edge+corner,edge);ctx.lineTo(-edge,edge);ctx.lineTo(-edge,edge-corner);
+        ctx.moveTo(edge-corner,edge);ctx.lineTo(edge,edge);ctx.lineTo(edge,edge-corner);
+        ctx.stroke();ctx.restore();
+      };
       drawMech(player,false);
-      if(performance.now()<selfShieldUntil){ctx.strokeStyle="#75e6da";ctx.lineWidth=3;ctx.beginPath();ctx.arc(player.x,player.y,33,0,Math.PI*2);ctx.stroke();}
+      if(performance.now()<selfShieldUntil)drawShieldCorners(player);
       if(remote){
         drawMech(remote,true);
-        if(performance.now()<remoteShieldUntil){ctx.strokeStyle="#75e6da";ctx.lineWidth=3;ctx.beginPath();ctx.arc(remote.x,remote.y,33,0,Math.PI*2);ctx.stroke();}
+        if(performance.now()<remoteShieldUntil)drawShieldCorners(remote);
         ctx.fillStyle="#c7d8d0";ctx.font="700 11px monospace";ctx.textAlign="center";ctx.fillText("伙伴",remote.x,remote.y-27);
       }
     };
@@ -1109,7 +1154,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.4 · 机甲职业</div>
+        <div className="status"><i /> 版本 0.5 · 弹丸武装</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
