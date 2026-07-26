@@ -50,3 +50,6 @@ next-env.d.ts
 public-game-link.txt
 /games/**/.runtime/
 /games/**/public-game-link.txt
+/public/game/
+/public/og.png
+/public/favicon.svg

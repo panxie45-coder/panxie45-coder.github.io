@@ -74,15 +74,17 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   assert.match(css, /background-size:200% 200%/);
 
   await Promise.all([
-    access(new URL("../assets/player-mechs.png", import.meta.url)),
-    access(new URL("../assets/enemy-mechs.png", import.meta.url)),
-    access(new URL("../assets/projectile-mechs.png", import.meta.url)),
-    access(new URL("../assets/laser-mech.png", import.meta.url)),
-    access(new URL("../assets/frost-mech.png", import.meta.url)),
-    access(new URL("../assets/specialist-projectiles.png", import.meta.url)),
-    access(new URL("../assets/support-drones.png", import.meta.url)),
-    access(new URL("../assets/specialist-drones.png", import.meta.url)),
-    access(new URL("../assets/enemy-projectiles.png", import.meta.url)),
-    access(new URL("../assets/assassin-projectile.png", import.meta.url)),
+    access(new URL("../public/game/player-mechs.png", import.meta.url)),
+    access(new URL("../public/game/enemy-mechs.png", import.meta.url)),
+    access(new URL("../public/game/projectile-mechs.png", import.meta.url)),
+    access(new URL("../public/game/laser-mech.png", import.meta.url)),
+    access(new URL("../public/game/frost-mech.png", import.meta.url)),
+    access(new URL("../public/game/specialist-projectiles.png", import.meta.url)),
+    access(new URL("../public/game/support-drones.png", import.meta.url)),
+    access(new URL("../public/game/specialist-drones.png", import.meta.url)),
+    access(new URL("../public/game/enemy-projectiles.png", import.meta.url)),
+    access(new URL("../public/game/assassin-projectile.png", import.meta.url)),
+    access(new URL("../public/favicon.svg", import.meta.url)),
+    access(new URL("../public/og.png", import.meta.url)),
   ]);
 });

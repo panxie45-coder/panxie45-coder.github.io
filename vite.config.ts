@@ -44,6 +44,7 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    publicDir: "games/ember-protocol/public",
     server: {
       // Public preview tunnels use a generated hostname.
       allowedHosts: true,

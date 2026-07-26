@@ -5,7 +5,7 @@
 ```text
 games/
 └─ 游戏名称/
-   ├─ assets/       图片、音效等素材
+   ├─ public/       图片、音效等静态素材
    ├─ scripts/      本地启动或维护脚本
    ├─ tests/        游戏测试
    ├─ Game.tsx      游戏主程序

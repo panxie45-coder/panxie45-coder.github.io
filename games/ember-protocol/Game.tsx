@@ -3,18 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getRelaySockets, joinRoom } from "@trystero-p2p/mqtt";
 import type { CSSProperties } from "react";
-import type { StaticImageData } from "next/image";
 import { EmberAudioEngine, type SoundCue } from "./audio";
-import assassinProjectileAsset from "./assets/assassin-projectile.png";
-import enemyMechsAsset from "./assets/enemy-mechs.png";
-import enemyProjectilesAsset from "./assets/enemy-projectiles.png";
-import frostMechAsset from "./assets/frost-mech.png";
-import laserMechAsset from "./assets/laser-mech.png";
-import playerMechsAsset from "./assets/player-mechs.png";
-import projectileMechsAsset from "./assets/projectile-mechs.png";
-import specialistDronesAsset from "./assets/specialist-drones.png";
-import specialistProjectilesAsset from "./assets/specialist-projectiles.png";
-import supportDronesAsset from "./assets/support-drones.png";
 
 type View = "menu" | "loadout" | "game" | "coop";
 type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost";
@@ -102,18 +91,17 @@ type NetBridge = {
   connected: () => boolean;
 };
 
-const assetUrl = (asset: StaticImageData | string) => typeof asset === "string" ? asset : asset.src;
 const GAME_ASSETS = {
-  assassinProjectile: assetUrl(assassinProjectileAsset),
-  enemyMechs: assetUrl(enemyMechsAsset),
-  enemyProjectiles: assetUrl(enemyProjectilesAsset),
-  frostMech: assetUrl(frostMechAsset),
-  laserMech: assetUrl(laserMechAsset),
-  playerMechs: assetUrl(playerMechsAsset),
-  projectileMechs: assetUrl(projectileMechsAsset),
-  specialistDrones: assetUrl(specialistDronesAsset),
-  specialistProjectiles: assetUrl(specialistProjectilesAsset),
-  supportDrones: assetUrl(supportDronesAsset),
+  assassinProjectile: "/game/assassin-projectile.png",
+  enemyMechs: "/game/enemy-mechs.png",
+  enemyProjectiles: "/game/enemy-projectiles.png",
+  frostMech: "/game/frost-mech.png",
+  laserMech: "/game/laser-mech.png",
+  playerMechs: "/game/player-mechs.png",
+  projectileMechs: "/game/projectile-mechs.png",
+  specialistDrones: "/game/specialist-drones.png",
+  specialistProjectiles: "/game/specialist-projectiles.png",
+  supportDrones: "/game/support-drones.png",
 };
 
 const UPGRADES: Upgrade[] = [
