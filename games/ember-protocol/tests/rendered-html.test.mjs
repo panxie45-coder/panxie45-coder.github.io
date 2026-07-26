@@ -30,14 +30,14 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.9\.1 · 远征修复/);
+  assert.match(html, /版本 0\.10\.0 · 泰坦入侵/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
   assert.match(html, /终极大招/);
 });
 
-test("ships six independent classes, drones, effects, and generated sprites", async () => {
+test("ships eight independent classes, drones, effects, bosses, and generated sprites", async () => {
   const page = await readFile(new URL("../Game.tsx", import.meta.url), "utf8");
   const audio = await readFile(new URL("../audio.ts", import.meta.url), "utf8");
   const css = await readFile(new URL("../game.css", import.meta.url), "utf8");
@@ -46,7 +46,7 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   assert.match(rootEntry, /games\/ember-protocol\/Game/);
   assert.doesNotMatch(rootEntry, /ember-protocol-v9/);
   assert.match(page, /ember-protocol-v9/);
-  assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost"/);
+  assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost" \| "blade" \| "gravity"/);
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
   assert.match(page, /个人机体强化 · 独立选择/);
   assert.match(page, /waitingForRemoteUpgrade/);
@@ -56,6 +56,10 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   assert.match(page, /projectile-mechs\.png/);
   assert.match(page, /laser-mech\.png/);
   assert.match(page, /frost-mech\.png/);
+  assert.match(page, /blade-mech\.png/);
+  assert.match(page, /gravity-mech\.png/);
+  assert.match(page, /vanguard-drones\.png/);
+  assert.match(page, /vanguard-projectiles\.png/);
   assert.match(page, /specialist-drones\.png/);
   assert.match(page, /enemy-projectiles\.png/);
   assert.match(page, /assassin-projectile\.png/);
@@ -78,15 +82,32 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   assert.match(page, /正在观战/);
   assert.match(page, /队友机体/);
   assert.match(page, /entry\.distance < entry\.magnet/);
-  assert.match(page, /kind: "skill" \| "impact" \| "dash" \| "revive" \| "ultimate"/);
+  assert.match(page, /kind: "skill" \| "impact" \| "dash" \| "revive" \| "ultimate" \| "slash"/);
   assert.match(page, /effect\.classId==="assault"/);
   assert.match(page, /effect\.classId==="frost"/);
   assert.match(page, /const fireLaser/);
   assert.match(page, /const freezeArea/);
+  assert.match(page, /const fireBlade/);
+  assert.match(page, /const bladeRush/);
+  assert.match(page, /const gravityWell/);
   assert.match(page, /const dronePosition/);
   assert.match(page, /const CLASS_UPGRADES/);
   assert.match(page, /assault-double-storm/);
   assert.match(page, /const SHOP_ITEMS/);
+  assert.match(page, /const GUARDIAN_SHIELD_MAX = 5/);
+  assert.match(page, /const MIN_GUARDIAN_COOLDOWN = 7/);
+  assert.match(page, /Math\.min\(GUARDIAN_SHIELD_MAX, stats\.shieldDuration, cooldownSeconds - 2\)/);
+  assert.match(page, /const MAX_UPGRADE_REROLLS = 2/);
+  assert.match(page, /const MAX_SHOP_REROLLS = 3/);
+  assert.match(page, /const shopRerollPrice/);
+  assert.match(page, /const upgradeRerollPrice/);
+  assert.match(page, /商品会随波次逐渐涨价/);
+  assert.match(page, /刷新次数已用尽/);
+  assert.match(page, /const spawnBoss/);
+  assert.match(page, /currentWave % 3 === 0/);
+  assert.match(page, /bossPhase/);
+  assert.match(page, /t: "boss-loot"/);
+  assert.match(page, /const BOSS_RELICS/);
   assert.match(page, /t: "shop-open"/);
   assert.match(page, /wallet: \{ host: number; guest: number \}/);
   assert.match(page, /ultimate: \{ host: number; guest: number \}/);
@@ -115,6 +136,7 @@ test("ships six independent classes, drones, effects, and generated sprites", as
   assert.match(css, /\.shopWallet/);
   assert.match(css, /\.panelVitals/);
   assert.match(css, /\.ultimateCopy em/);
+  assert.match(css, /\.bossNotice/);
 
   await Promise.all([
     access(new URL("../public/game/player-mechs.png", import.meta.url)),
@@ -122,6 +144,10 @@ test("ships six independent classes, drones, effects, and generated sprites", as
     access(new URL("../public/game/projectile-mechs.png", import.meta.url)),
     access(new URL("../public/game/laser-mech.png", import.meta.url)),
     access(new URL("../public/game/frost-mech.png", import.meta.url)),
+    access(new URL("../public/game/blade-mech.png", import.meta.url)),
+    access(new URL("../public/game/gravity-mech.png", import.meta.url)),
+    access(new URL("../public/game/vanguard-drones.png", import.meta.url)),
+    access(new URL("../public/game/vanguard-projectiles.png", import.meta.url)),
     access(new URL("../public/game/specialist-projectiles.png", import.meta.url)),
     access(new URL("../public/game/support-drones.png", import.meta.url)),
     access(new URL("../public/game/specialist-drones.png", import.meta.url)),

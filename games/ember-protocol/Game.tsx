@@ -6,11 +6,13 @@ import type { CSSProperties } from "react";
 import { EmberAudioEngine, type SoundCue } from "./audio";
 
 type View = "menu" | "loadout" | "game" | "coop";
-type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost";
-type EnemyKind = "runner" | "crawler" | "artillery" | "assassin" | "brute" | "commander";
+type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity";
+type EnemyKind = "runner" | "crawler" | "artillery" | "assassin" | "brute" | "commander" | "boss";
 type PlayerSide = "host" | "guest";
+type BossRelicId = "titan-core" | "overdrive-core" | "chrono-core";
 type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId };
 type ShopItem = { id: string; title: string; desc: string; icon: string; cost: number };
+type BossRelic = { id: BossRelicId; title: string; desc: string; icon: string };
 type CombatStats = {
   speed: number;
   damage: number;
@@ -32,6 +34,9 @@ type CombatStats = {
   frostPower: number;
   dronePower: number;
   ultimatePower: number;
+  meleeRange: number;
+  meleePower: number;
+  gravityPower: number;
 };
 type BuildFrame = CombatStats & { classId: ClassId; maxHp: number };
 type ClassSpec = {
@@ -44,12 +49,12 @@ type ClassSpec = {
   cooldown: number;
   color: string;
   sprite: number;
-  sheet: "core" | "specialist";
+  sheet: "core" | "specialist" | "vanguard";
   radius: number;
   renderSize: number;
 };
 type Actor = { x: number; y: number; r: number; hp: number; maxHp: number; color: string; name?: string; classId?: ClassId };
-type Enemy = Actor & { id: number; speed: number; hit: number; kind: EnemyKind; elite: boolean; cooldown: number; slow: number; lastHitBy?: PlayerSide };
+type Enemy = Actor & { id: number; speed: number; hit: number; kind: EnemyKind; elite: boolean; cooldown: number; slow: number; bossPhase?: number; lastHitBy?: PlayerSide };
 type Shot = {
   x: number;
   y: number;
@@ -71,7 +76,7 @@ type Shot = {
 };
 type Beam = { x1: number; y1: number; x2: number; y2: number; life: number; width: number; color: string };
 type CombatEffect = {
-  kind: "skill" | "impact" | "dash" | "revive" | "ultimate";
+  kind: "skill" | "impact" | "dash" | "revive" | "ultimate" | "slash";
   classId?: ClassId;
   x: number;
   y: number;
@@ -82,7 +87,7 @@ type CombatEffect = {
   color: string;
   radius: number;
 };
-type Gem = { x: number; y: number; value: number };
+type Gem = { x: number; y: number; value: number; relic?: BossRelicId };
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
   elapsed: number;
@@ -115,6 +120,7 @@ type NetPayload =
   | { t: "shop-open"; wave: number; reward: number; coins: number }
   | { t: "shop-done"; build: BuildFrame; hp: number; coins: number; ultimate: number }
   | { t: "shop-resume" }
+  | { t: "boss-loot"; relic: BossRelicId }
   | { t: "pause"; paused: boolean }
   | { t: "gameover" };
 type NetBridge = {
@@ -128,15 +134,19 @@ type NetBridge = {
 
 const GAME_ASSETS = {
   assassinProjectile: "/game/assassin-projectile.png",
+  bladeMech: "/game/blade-mech.png",
   enemyMechs: "/game/enemy-mechs.png",
   enemyProjectiles: "/game/enemy-projectiles.png",
   frostMech: "/game/frost-mech.png",
+  gravityMech: "/game/gravity-mech.png",
   laserMech: "/game/laser-mech.png",
   playerMechs: "/game/player-mechs.png",
   projectileMechs: "/game/projectile-mechs.png",
   specialistDrones: "/game/specialist-drones.png",
   specialistProjectiles: "/game/specialist-projectiles.png",
   supportDrones: "/game/support-drones.png",
+  vanguardDrones: "/game/vanguard-drones.png",
+  vanguardProjectiles: "/game/vanguard-projectiles.png",
 };
 
 const UPGRADES: Upgrade[] = [
@@ -161,7 +171,7 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
     { id: "assault-warhead", classId: "assault", title: "炽核战斗部", desc: "火力 +18%，爆炸范围扩大", icon: "◆" },
   ],
   guardian: [
-    { id: "guardian-fortress", classId: "guardian", title: "永固壁垒", desc: "绝对屏障持续时间 +1.5 秒", icon: "⬢" },
+    { id: "guardian-fortress", classId: "guardian", title: "永固壁垒", desc: "绝对屏障持续时间 +0.75 秒，最多 5 秒", icon: "⬢" },
     { id: "guardian-rail", classId: "guardian", title: "震荡轨炮", desc: "重炮伤害 +24%，弹体更大", icon: "▰" },
     { id: "guardian-plating", classId: "guardian", title: "泰坦覆甲", desc: "生命上限 +28，额外减伤 5%", icon: "▣" },
   ],
@@ -185,6 +195,16 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
     { id: "frost-shatter", classId: "frost", title: "冰晶爆裂", desc: "炮弹伤害 +20%，弹体更大", icon: "✣" },
     { id: "frost-armor", classId: "frost", title: "低温装甲", desc: "生命上限 +24，额外减伤 5%", icon: "⬡" },
   ],
+  blade: [
+    { id: "blade-edge", classId: "blade", title: "延展刃域", desc: "近战范围 +18%，斩击伤害 +16%", icon: "〆" },
+    { id: "blade-vamp", classId: "blade", title: "噬能回路", desc: "斩击修复量 +45%，生命上限 +16", icon: "✚" },
+    { id: "blade-tempo", classId: "blade", title: "连斩协议", desc: "斩击间隔 -15%，移动速度 +8%", icon: "⚔" },
+  ],
+  gravity: [
+    { id: "gravity-collapse", classId: "gravity", title: "坍缩增幅", desc: "奇点范围与伤害 +28%", icon: "◉" },
+    { id: "gravity-lens", classId: "gravity", title: "引力透镜", desc: "炮弹伤害 +18%，额外穿透 1 名敌人", icon: "◌" },
+    { id: "gravity-anchor", classId: "gravity", title: "事件锚点", desc: "生命上限 +22，主动技能冷却 -15%", icon: "⬢" },
+  ],
 };
 
 const SHOP_ITEMS: ShopItem[] = [
@@ -198,6 +218,12 @@ const SHOP_ITEMS: ShopItem[] = [
   { id: "ult-battery", title: "终极电容", desc: "立即补充 35% 终极能量", icon: "✦", cost: 13 },
 ];
 
+const BOSS_RELICS: BossRelic[] = [
+  { id: "titan-core", title: "泰坦残核", desc: "全队生命上限 +18、减伤 +4%", icon: "⬢" },
+  { id: "overdrive-core", title: "过载燃芯", desc: "全队伤害 +14%、射击间隔 -6%", icon: "✹" },
+  { id: "chrono-core", title: "时序结晶", desc: "全队技能冷却 -10%、移动速度 +6%", icon: "◌" },
+];
+
 const ULTIMATE_NAMES: Record<ClassId, string> = {
   assault: "天穹火雨",
   guardian: "不灭要塞",
@@ -205,22 +231,37 @@ const ULTIMATE_NAMES: Record<ClassId, string> = {
   phantom: "虚空猎杀",
   laser: "赤曜审判",
   frost: "永冻纪元",
+  blade: "红莲断界",
+  gravity: "事件视界",
 };
 
+const GUARDIAN_SHIELD_MAX = 5;
+const MIN_GUARDIAN_COOLDOWN = 7;
+const MAX_UPGRADE_REROLLS = 2;
+const MAX_SHOP_REROLLS = 3;
+const shopRerollPrice = (wave: number, used: number) => 8 + Math.max(0, wave - 1) * 2 + used * 9;
+const upgradeRerollPrice = (wave: number, used: number) => 10 + Math.floor(Math.max(0, wave - 1) / 2) * 2 + used * 8;
 const shuffled = <T,>(items: T[]) => [...items].sort(() => Math.random() - .5);
 const rollUpgradeChoices = (classId: ClassId) => {
   const signature = shuffled(CLASS_UPGRADES[classId])[0];
   return shuffled([signature, ...shuffled(UPGRADES).slice(0, 2)]);
 };
-const rollShopItems = () => shuffled(SHOP_ITEMS).slice(0, 4);
+const rollShopItems = (wave: number) => {
+  const priceScale = 1 + Math.max(0, wave - 1) * .12;
+  return shuffled(SHOP_ITEMS)
+    .slice(0, 4)
+    .map((item) => ({ ...item, cost: Math.max(item.cost, Math.round(item.cost * priceScale)) }));
+};
 
 const CLASSES: ClassSpec[] = [
   { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "爆破弹：命中产生范围爆炸", ultimate: "天穹火雨：连续释放多轮强化饱和导弹", cooldown: 10, color: "#f4c95d", sprite: 0, sheet: "core", radius: 18, renderSize: 78 },
-  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：3 秒内免疫伤害", passive: "穿甲重炮：可连续贯穿多个敌人", ultimate: "不灭要塞：修复机体、长时间无敌并震荡全场", cooldown: 14, color: "#58c7c0", sprite: 1, sheet: "core", radius: 24, renderSize: 88 },
+  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：免疫伤害，强化上限 5 秒", passive: "穿甲重炮：可连续贯穿多个敌人", ultimate: "不灭要塞：修复机体、获得 6 秒屏障并震荡全场", cooldown: 14, color: "#58c7c0", sprite: 1, sheet: "core", radius: 24, renderSize: 88 },
   { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", passive: "链式脉冲：无人机弹丸会跳跃攻击", ultimate: "蜂群超载：全队修复并发射高压链式弹幕", cooldown: 16, color: "#92a35c", sprite: 2, sheet: "core", radius: 20, renderSize: 82 },
   { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", passive: "相位针刺：高射速、高暴击并可贯穿", ultimate: "虚空猎杀：瞬间锁定并斩击最多 16 名敌人", cooldown: 9, color: "#9ec9ff", sprite: 3, sheet: "core", radius: 14, renderSize: 72 },
   { id: "laser", name: "赤曜型", role: "贯穿激光猎手", active: "聚焦光束：发射横贯战场的高能激光", passive: "热能射线：高速弹丸可贯穿多名敌人", ultimate: "赤曜审判：向六个方向释放超宽贯穿光束", cooldown: 12, color: "#ff5b58", sprite: 0, sheet: "specialist", radius: 15, renderSize: 82 },
   { id: "frost", name: "霜垒型", role: "冰冻攻城炮", active: "绝对零域：冻结附近敌人并造成伤害", passive: "低温弹头：命中后显著降低敌人速度", ultimate: "永冻纪元：冰封全场并对所有敌人造成重创", cooldown: 15, color: "#8bdcff", sprite: 1, sheet: "specialist", radius: 25, renderSize: 94 },
+  { id: "blade", name: "裂锋型", role: "等离子近战", active: "磁轨冲锋：扑向目标并释放双重圆弧斩", passive: "熔断刃：近距离自动斩击并修复少量生命", ultimate: "红莲断界：连续处刑附近敌人并获得短暂减伤", cooldown: 10, color: "#ff9b43", sprite: 0, sheet: "vanguard", radius: 18, renderSize: 86 },
+  { id: "gravity", name: "星渊型", role: "重力控场", active: "坍缩奇点：牵引附近敌人并引爆核心", passive: "引力弹：穿透、减速并产生小型爆炸", ultimate: "事件视界：将全场敌人压向核心并造成三段重创", cooldown: 14, color: "#a58cff", sprite: 1, sheet: "vanguard", radius: 23, renderSize: 92 },
 ];
 
 const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; radius: number; color: string; cooldown: number }> = {
@@ -230,6 +271,7 @@ const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; ra
   assassin: { hp: 68, speed: 78, hit: 8, radius: 18, color: "#865bc7", cooldown: 1.9 },
   brute: { hp: 185, speed: 34, hit: 16, radius: 27, color: "#a7542a", cooldown: 0 },
   commander: { hp: 320, speed: 46, hit: 12, radius: 30, color: "#d9b24b", cooldown: 1.75 },
+  boss: { hp: 1500, speed: 42, hit: 15, radius: 48, color: "#f06b66", cooldown: 2.2 },
 };
 const ENEMY_XP: Record<EnemyKind, number> = {
   runner: 1,
@@ -238,6 +280,7 @@ const ENEMY_XP: Record<EnemyKind, number> = {
   assassin: 4,
   brute: 7,
   commander: 12,
+  boss: 55,
 };
 const ENEMY_ATTACK_MODE: Record<EnemyKind, "melee" | "ranged"> = {
   runner: "melee",
@@ -246,6 +289,7 @@ const ENEMY_ATTACK_MODE: Record<EnemyKind, "melee" | "ranged"> = {
   assassin: "ranged",
   brute: "melee",
   commander: "ranged",
+  boss: "ranged",
 };
 
 const makeBuild = (classId: ClassId): BuildFrame => {
@@ -272,13 +316,18 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     frostPower: 1,
     dronePower: 1,
     ultimatePower: 1,
+    meleeRange: 122,
+    meleePower: 1,
+    gravityPower: 1,
   };
   if (classId === "assault") return { ...base, maxHp: 116, damage: 46, interval: .6, projectileSpeed: 535, projectileSize: 7.5 };
   if (classId === "guardian") return { ...base, maxHp: 155, speed: 224, damage: 78, interval: 1.05, projectileSpeed: 455, projectileSize: 10, damageReduction: .25, ultimatePower: 1.12 };
   if (classId === "engineer") return { ...base, maxHp: 116, damage: 29, interval: .5, magnet: 118, projectileSpeed: 545, projectileSize: 6, drones: 1, repairPower: 1.15, dronePower: 1.12 };
   if (classId === "phantom") return { ...base, maxHp: 100, speed: 302, damage: 19, interval: .24, projectileSpeed: 850, projectileSize: 4.5, critChance: .28, dashDistance: 215 };
   if (classId === "laser") return { ...base, maxHp: 106, speed: 280, damage: 22, interval: .26, projectileSpeed: 930, projectileSize: 5, critChance: .15, laserPower: 1.12 };
-  return { ...base, maxHp: 138, speed: 218, damage: 47, interval: .72, projectileSpeed: 500, projectileSize: 8.5, damageReduction: .12, frostPower: 1.12 };
+  if (classId === "frost") return { ...base, maxHp: 138, speed: 218, damage: 47, interval: .72, projectileSpeed: 500, projectileSize: 8.5, damageReduction: .12, frostPower: 1.12 };
+  if (classId === "blade") return { ...base, maxHp: 132, speed: 292, damage: 66, interval: .56, projectileSpeed: 620, projectileSize: 6, damageReduction: .08, meleeRange: 132, meleePower: 1.08, repairPower: 1.05 };
+  return { ...base, maxHp: 146, speed: 226, damage: 44, interval: .66, magnet: 110, projectileSpeed: 510, projectileSize: 9, damageReduction: .14, gravityPower: 1.12 };
 };
 
 const projectileTraits = (classId: ClassId): Partial<Shot> => {
@@ -287,17 +336,46 @@ const projectileTraits = (classId: ClassId): Partial<Shot> => {
   if (classId === "engineer") return { chain: true };
   if (classId === "phantom") return { pierce: 1 };
   if (classId === "laser") return { pierce: 4 };
-  return { slow: 2.8 };
+  if (classId === "frost") return { slow: 2.8 };
+  if (classId === "blade") return { pierce: 1 };
+  return { slow: 1.4, splash: 48, pierce: 1 };
 };
 
 const mechPreviewClass = (classInfo: ClassSpec) => {
   if (classInfo.id === "laser") return "mechPreview laserPreview";
   if (classInfo.id === "frost") return "mechPreview frostPreview";
+  if (classInfo.id === "blade") return "mechPreview bladePreview";
+  if (classInfo.id === "gravity") return "mechPreview gravityPreview";
   return `mechPreview mech-${classInfo.sprite}`;
 };
 const mechPreviewStyle = (classInfo: ClassSpec): CSSProperties => ({
-  backgroundImage: `url("${classInfo.id === "laser" ? GAME_ASSETS.laserMech : classInfo.id === "frost" ? GAME_ASSETS.frostMech : GAME_ASSETS.playerMechs}")`,
+  backgroundImage: `url("${classInfo.id === "laser"
+    ? GAME_ASSETS.laserMech
+    : classInfo.id === "frost"
+      ? GAME_ASSETS.frostMech
+      : classInfo.id === "blade"
+        ? GAME_ASSETS.bladeMech
+        : classInfo.id === "gravity"
+          ? GAME_ASSETS.gravityMech
+          : GAME_ASSETS.playerMechs}")`,
 });
+const applyBossRelicToBuild = (source: BuildFrame, relic: BossRelicId): BuildFrame => {
+  if (relic === "titan-core") {
+    return {
+      ...source,
+      maxHp: source.maxHp + 18,
+      damageReduction: Math.min(.62, source.damageReduction + .04),
+    };
+  }
+  if (relic === "overdrive-core") {
+    return { ...source, damage: source.damage * 1.14, interval: Math.max(.12, source.interval * .94) };
+  }
+  return {
+    ...source,
+    skillHaste: Math.max(.5, source.skillHaste * .9),
+    speed: source.speed * 1.06,
+  };
+};
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -372,6 +450,9 @@ export default function Home() {
   const [shopItems, setShopItems] = useState<ShopItem[] | null>(null);
   const [supplyReward, setSupplyReward] = useState(0);
   const [waitingSupply, setWaitingSupply] = useState(false);
+  const [upgradeRerolls, setUpgradeRerolls] = useState(0);
+  const [shopRerolls, setShopRerolls] = useState(0);
+  const [bossLootNotice, setBossLootNotice] = useState("");
   const [selectedClass, setSelectedClass] = useState<ClassId>("assault");
   const [skillCooldown, setSkillCooldown] = useState(0);
   const [waitingPeerUpgrade, setWaitingPeerUpgrade] = useState(false);
@@ -433,6 +514,7 @@ export default function Home() {
     pausedRef.current = false;
     setLevel(1); setXp(0); setHp(ownBuildRef.current.maxHp); setMaxHp(ownBuildRef.current.maxHp); setTeammateHp(null); setRescueProgress(0); setKills(0); setSeconds(0); setSkillCooldown(0);
     setWave(1); setCoins(0); setUltimateEnergy(0); setShopItems(null); setSupplyReward(0); setWaitingSupply(false);
+    setUpgradeRerolls(0); setShopRerolls(0); setBossLootNotice("");
     setChoices(null); setPaused(false); setView("game");
     setTimeout(() => resetRef.current(), 0);
   }, [wakeAudio]);
@@ -621,7 +703,9 @@ export default function Home() {
     let hostReviveProgress = 0, guestReviveProgress = 0;
     let localUpgradeDone = false, waitingForRemoteUpgrade = false;
     let hostCoins = 0, guestCoins = 0, hostUltimate = 0, guestUltimate = 0;
-    let currentWave = 1, waveKills = 0, nextSupplyAt = 45;
+    let currentWave = 1, waveKills = 0, nextSupplyAt = 45, lastBossWave = 0;
+    let localUpgradeRerolls = 0, localShopRerolls = 0;
+    let shopStock: ShopItem[] = [];
     let localShopDone = false, remoteShopDone = false;
     let pendingMissileWaves: { actor: Actor; combatStats: BuildFrame | CombatStats; owner: PlayerSide; delay: number }[] = [];
     const REVIVE_SECONDS = 2;
@@ -649,21 +733,29 @@ export default function Home() {
     const playerSprites = new Image();
     const laserSprite = new Image();
     const frostSprite = new Image();
+    const bladeSprite = new Image();
+    const gravitySprite = new Image();
     const enemySprites = new Image();
     const projectileSprites = new Image();
     const specialistProjectiles = new Image();
     const droneSprites = new Image();
     const specialistDrones = new Image();
+    const vanguardDrones = new Image();
+    const vanguardProjectiles = new Image();
     const enemyProjectiles = new Image();
     const assassinProjectile = new Image();
     playerSprites.src = GAME_ASSETS.playerMechs;
     laserSprite.src = GAME_ASSETS.laserMech;
     frostSprite.src = GAME_ASSETS.frostMech;
+    bladeSprite.src = GAME_ASSETS.bladeMech;
+    gravitySprite.src = GAME_ASSETS.gravityMech;
     enemySprites.src = GAME_ASSETS.enemyMechs;
     projectileSprites.src = GAME_ASSETS.projectileMechs;
     specialistProjectiles.src = GAME_ASSETS.specialistProjectiles;
     droneSprites.src = GAME_ASSETS.supportDrones;
     specialistDrones.src = GAME_ASSETS.specialistDrones;
+    vanguardDrones.src = GAME_ASSETS.vanguardDrones;
+    vanguardProjectiles.src = GAME_ASSETS.vanguardProjectiles;
     enemyProjectiles.src = GAME_ASSETS.enemyProjectiles;
     assassinProjectile.src = GAME_ASSETS.assassinProjectile;
     const unsubscribeNetwork = network?.subscribe((data) => {
@@ -706,7 +798,7 @@ export default function Home() {
         const remoteBuild = remoteBuildRef.current || makeBuild(data.classId);
         const skillStart = { x: remote.x, y: remote.y };
         if (data.classId === "assault") queueMissileStorm(remote, remoteBuild, "guest");
-        if (data.classId === "guardian") remoteShieldUntil = performance.now() + remoteBuild.shieldDuration * 1000;
+        if (data.classId === "guardian") remoteShieldUntil = performance.now() + Math.min(GUARDIAN_SHIELD_MAX, remoteBuild.shieldDuration) * 1000;
         if (data.classId === "engineer") {
           const repair = 34 * remoteBuild.repairPower;
           if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + repair);
@@ -720,6 +812,8 @@ export default function Home() {
         }
         if (data.classId === "laser") fireLaser(remote, remoteBuild, "guest");
         if (data.classId === "frost") freezeArea(remote, remoteBuild, "guest");
+        if (data.classId === "blade") bladeRush(remote, remoteBuild, "guest", data.x, data.y);
+        if (data.classId === "gravity") gravityWell(remote, remoteBuild, "guest");
         triggerSkillEffect(remote, data.classId, skillStart);
         audio?.play("skill");
       }
@@ -775,6 +869,8 @@ export default function Home() {
         currentLevel = data.level;
         localUpgradeDone = false;
         localPaused = true;
+        localUpgradeRerolls = 0;
+        setUpgradeRerolls(0);
         setLevel(data.level);
         setChoices(rollUpgradeChoices(build.classId));
       }
@@ -783,11 +879,14 @@ export default function Home() {
         currentWave = data.wave;
         localShopDone = false;
         localPaused = true;
+        localShopRerolls = 0;
+        setShopRerolls(0);
         setCoins(guestCoins);
         setWave(currentWave);
         setSupplyReward(data.reward);
         setWaitingSupply(false);
-        setShopItems(rollShopItems());
+        shopStock = rollShopItems(currentWave);
+        setShopItems(shopStock);
       }
       if (data.t === "shop-done" && isAuthority) {
         guestCoins = data.coins;
@@ -807,6 +906,18 @@ export default function Home() {
       if (data.t === "shop-resume" && !isAuthority) {
         localPaused = false;
         setWaitingSupply(false);
+      }
+      if (data.t === "boss-loot" && !isAuthority) {
+        const relic = BOSS_RELICS.find((entry) => entry.id === data.relic);
+        const previousMaxHp = build.maxHp;
+        build = applyBossRelicToBuild(build, data.relic);
+        stats = { ...build };
+        ownBuildRef.current = { ...build };
+        player.maxHp = build.maxHp;
+        if (build.maxHp > previousMaxHp && player.hp > 0) player.hp += build.maxHp - previousMaxHp;
+        setMaxHp(player.maxHp);
+        setHp(Math.ceil(player.hp));
+        setBossLootNotice(relic ? `${relic.icon} ${relic.title} · ${relic.desc}` : "获得 Boss 核心");
       }
       if (data.t === "pause" && !isAuthority) {
         setPaused(data.paused);
@@ -828,7 +939,8 @@ export default function Home() {
       selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; shownCooldown = -1;
       hostReviveProgress = 0; guestReviveProgress = 0;
       hostCoins = 0; guestCoins = 0; hostUltimate = 0; guestUltimate = 0;
-      currentWave = 1; waveKills = 0; nextSupplyAt = 45;
+      currentWave = 1; waveKills = 0; nextSupplyAt = 45; lastBossWave = 0;
+      localUpgradeRerolls = 0; localShopRerolls = 0; shopStock = [];
       localShopDone = false; remoteShopDone = false; pendingMissileWaves = [];
       localUpgradeDone = false; waitingForRemoteUpgrade = false;
       keys.clear();
@@ -857,6 +969,9 @@ export default function Home() {
       setShopItems(null);
       setSupplyReward(0);
       setWaitingSupply(false);
+      setUpgradeRerolls(0);
+      setShopRerolls(0);
+      setBossLootNotice("");
     };
     resetRef.current = reset;
     applyUpgradeRef.current = (id) => {
@@ -868,7 +983,7 @@ export default function Home() {
       if (id === "armor") stats.damageReduction = Math.min(.55, stats.damageReduction + .08);
       if (id === "critical") stats.critChance = Math.min(.65, stats.critChance + .08);
       if (id === "velocity") { stats.projectileSpeed *= 1.18; stats.projectileSize += .7; }
-      if (id === "reactor") stats.skillHaste *= .85;
+      if (id === "reactor") stats.skillHaste = Math.max(.5, stats.skillHaste * .85);
       if (id === "drone") stats.drones += 1;
       if (id === "repair" && player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 35);
       if (id === "vitality") {
@@ -878,7 +993,7 @@ export default function Home() {
       if (id === "assault-double-storm") stats.missileWaves += 1;
       if (id === "assault-saturation") stats.missileCount += 4;
       if (id === "assault-warhead") { stats.damage *= 1.18; stats.projectileSize += 1.1; }
-      if (id === "guardian-fortress") stats.shieldDuration += 1.5;
+      if (id === "guardian-fortress") stats.shieldDuration = Math.min(GUARDIAN_SHIELD_MAX, stats.shieldDuration + .75);
       if (id === "guardian-rail") { stats.damage *= 1.24; stats.projectileSize += 1.4; }
       if (id === "guardian-plating") {
         player.maxHp += 28;
@@ -890,16 +1005,30 @@ export default function Home() {
       if (id === "engineer-repair") stats.repairPower *= 1.4;
       if (id === "phantom-fold") stats.dashDistance += 70;
       if (id === "phantom-needle") { stats.critChance = Math.min(.72, stats.critChance + .12); stats.damage *= 1.12; }
-      if (id === "phantom-cycle") stats.skillHaste *= .78;
+      if (id === "phantom-cycle") stats.skillHaste = Math.max(.45, stats.skillHaste * .78);
       if (id === "laser-overfocus") stats.laserPower *= 1.3;
       if (id === "laser-prism") { stats.damage *= 1.16; stats.multi += 1; }
-      if (id === "laser-capacitor") stats.skillHaste *= .8;
+      if (id === "laser-capacitor") stats.skillHaste = Math.max(.5, stats.skillHaste * .8);
       if (id === "frost-zero") stats.frostPower *= 1.28;
       if (id === "frost-shatter") { stats.damage *= 1.2; stats.projectileSize += 1.3; }
       if (id === "frost-armor") {
         player.maxHp += 24;
         player.hp = Math.min(player.maxHp, player.hp + 24);
         stats.damageReduction = Math.min(.6, stats.damageReduction + .05);
+      }
+      if (id === "blade-edge") { stats.meleeRange *= 1.18; stats.meleePower *= 1.16; }
+      if (id === "blade-vamp") {
+        stats.repairPower *= 1.45;
+        player.maxHp += 16;
+        player.hp = Math.min(player.maxHp, player.hp + 16);
+      }
+      if (id === "blade-tempo") { stats.interval = Math.max(.24, stats.interval * .85); stats.speed *= 1.08; }
+      if (id === "gravity-collapse") stats.gravityPower *= 1.28;
+      if (id === "gravity-lens") { stats.damage *= 1.18; stats.multi += 1; }
+      if (id === "gravity-anchor") {
+        player.maxHp += 22;
+        player.hp = Math.min(player.maxHp, player.hp + 22);
+        stats.skillHaste = Math.max(.5, stats.skillHaste * .85);
       }
       if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .18);
       build = { ...build, ...stats, maxHp: player.maxHp };
@@ -932,7 +1061,7 @@ export default function Home() {
       setUltimateEnergy(next);
     };
     buyShopItemRef.current = (id) => {
-      const item = SHOP_ITEMS.find((entry) => entry.id === id);
+      const item = shopStock.find((entry) => entry.id === id);
       if (!item || localWallet() < item.cost) return;
       setLocalWallet(localWallet() - item.cost);
       if (id === "medkit" && player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 55);
@@ -944,29 +1073,38 @@ export default function Home() {
       if (id === "coolant") stats.interval *= .91;
       if (id === "collector") stats.magnet *= 1.22;
       if (id === "drone-kit") stats.drones += 1;
-      if (id === "reactor-cell") stats.skillHaste *= .9;
+      if (id === "reactor-cell") stats.skillHaste = Math.max(.5, stats.skillHaste * .9);
       if (id === "ult-battery") setLocalUltimate(localUltimate() + 35);
       build = { ...build, ...stats, maxHp: player.maxHp };
       ownBuildRef.current = { ...build };
       setHp(Math.ceil(player.hp));
       setMaxHp(player.maxHp);
-      setShopItems((items) => items?.filter((entry) => entry.id !== id) || null);
+      shopStock = shopStock.filter((entry) => entry.id !== id);
+      setShopItems(shopStock);
       audio?.play("upgrade");
     };
     rerollShopRef.current = () => {
-      if (localWallet() < 8) return;
-      setLocalWallet(localWallet() - 8);
-      setShopItems(rollShopItems());
+      const cost = shopRerollPrice(currentWave, localShopRerolls);
+      if (localShopRerolls >= MAX_SHOP_REROLLS || localWallet() < cost) return;
+      setLocalWallet(localWallet() - cost);
+      localShopRerolls += 1;
+      setShopRerolls(localShopRerolls);
+      shopStock = rollShopItems(currentWave);
+      setShopItems(shopStock);
       audio?.play("ui");
     };
     rerollUpgradeRef.current = () => {
-      if (localWallet() < 10) return;
-      setLocalWallet(localWallet() - 10);
+      const cost = upgradeRerollPrice(currentWave, localUpgradeRerolls);
+      if (localUpgradeRerolls >= MAX_UPGRADE_REROLLS || localWallet() < cost) return;
+      setLocalWallet(localWallet() - cost);
+      localUpgradeRerolls += 1;
+      setUpgradeRerolls(localUpgradeRerolls);
       setChoices(rollUpgradeChoices(build.classId));
       audio?.play("ui");
     };
     finishShopRef.current = () => {
       localShopDone = true;
+      shopStock = [];
       setShopItems(null);
       if (network?.role === "join") {
         setWaitingSupply(true);
@@ -996,10 +1134,12 @@ export default function Home() {
       if (player.hp <= 0 || now < skillReadyAt || localPaused || pausedRef.current) return;
       const spec = classSpec();
       const skillStart = { x: player.x, y: player.y };
-      skillReadyAt = now + spec.cooldown * stats.skillHaste * 1000;
+      const minimumCooldown = spec.id === "guardian" ? MIN_GUARDIAN_COOLDOWN : 4;
+      const cooldownSeconds = Math.max(minimumCooldown, spec.cooldown * stats.skillHaste);
+      skillReadyAt = now + cooldownSeconds * 1000;
       setSkillCooldown(Math.ceil((skillReadyAt - now) / 1000));
       if (network?.role === "join") {
-        if (build.classId === "guardian") selfShieldUntil = now + stats.shieldDuration * 1000;
+        if (build.classId === "guardian") selfShieldUntil = now + Math.min(GUARDIAN_SHIELD_MAX, stats.shieldDuration, cooldownSeconds - 2) * 1000;
         if (build.classId === "phantom") {
           const dashX = (keys.has("d") ? 1 : 0) - (keys.has("a") ? 1 : 0);
           let dashY = (keys.has("s") ? 1 : 0) - (keys.has("w") ? 1 : 0);
@@ -1009,13 +1149,14 @@ export default function Home() {
           player.y = clamp(player.y + dashY / dashLength * stats.dashDistance, 30, H - 30);
           selfShieldUntil = now + 1200;
         }
+        if (build.classId === "blade") bladeRush(player, stats, "guest");
         triggerSkillEffect(player, build.classId, skillStart);
         if (network.connected()) void network.send({ t: "skill", classId: build.classId, x: player.x, y: player.y });
         audio?.play("skill");
         return;
       }
       if (build.classId === "assault") queueMissileStorm(player, stats, "host");
-      if (build.classId === "guardian") selfShieldUntil = now + stats.shieldDuration * 1000;
+      if (build.classId === "guardian") selfShieldUntil = now + Math.min(GUARDIAN_SHIELD_MAX, stats.shieldDuration, cooldownSeconds - 2) * 1000;
       if (build.classId === "engineer") {
         const repair = 34 * stats.repairPower;
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + repair);
@@ -1033,6 +1174,8 @@ export default function Home() {
       }
       if (build.classId === "laser") fireLaser(player, stats, "host");
       if (build.classId === "frost") freezeArea(player, stats, "host");
+      if (build.classId === "blade") bladeRush(player, stats, "host");
+      if (build.classId === "gravity") gravityWell(player, stats, "host");
       triggerSkillEffect(player, build.classId, skillStart);
       audio?.play("skill");
     };
@@ -1102,6 +1245,31 @@ export default function Home() {
         slow: 0,
       });
     };
+    const spawnBoss = () => {
+      const config = ENEMY_DATA.boss;
+      const coOpScale = remote ? 1.55 : 1;
+      const waveScale = 1 + Math.max(0, currentWave - 3) * .28;
+      const maxHp = config.hp * waveScale * coOpScale;
+      enemies.push({
+        id: nextEnemyId++,
+        x: W / 2,
+        y: -70,
+        r: config.radius,
+        hp: maxHp,
+        maxHp,
+        speed: config.speed + Math.min(12, currentWave * 1.2),
+        hit: config.hit * (1 + Math.min(.32, currentWave * .025)),
+        color: config.color,
+        kind: "boss",
+        elite: true,
+        cooldown: .8,
+        slow: 0,
+        bossPhase: 1,
+      });
+      lastBossWave = currentWave;
+      setBossLootNotice(`⚠ 第 ${currentWave} 波 · 裂界泰坦入侵`);
+      audio?.play("ultimate");
+    };
     const burst = (x:number,y:number,color:string,n=8) => {
       for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2,s=40+Math.random()*120; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.35+Math.random()*.35,color}); }
       if (particles.length > 360) particles.splice(0, particles.length - 360);
@@ -1121,6 +1289,8 @@ export default function Home() {
         phantom: "#a78cff",
         laser: "#ff5b58",
         frost: "#8bdcff",
+        blade: "#ff9b43",
+        gravity: "#a58cff",
       };
       const radii: Record<ClassId, number> = {
         assault: 190,
@@ -1129,6 +1299,8 @@ export default function Home() {
         phantom: 92,
         laser: 108,
         frost: 410,
+        blade: 170,
+        gravity: 330,
       };
       const color = colors[classId];
       addEffect({ kind: "skill", classId, x: actor.x, y: actor.y, color, radius: radii[classId] }, classId === "frost" ? 1 : .72);
@@ -1201,6 +1373,89 @@ export default function Home() {
         particles.push({ x: actor.x, y: actor.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: .7, color: "#b9efff" });
       }
     };
+    const fireBlade = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide, multiplier = 1) => {
+      const range = combatStats.meleeRange * combatStats.meleePower;
+      const target = enemies
+        .filter((enemy) => enemy.hp > 0 && dist(actor, enemy) <= range + enemy.r)
+        .sort((a, b) => dist(actor, a) - dist(actor, b))[0];
+      if (!target) return false;
+      const angle = Math.atan2(target.y - actor.y, target.x - actor.x);
+      const damage = combatStats.damage * combatStats.meleePower * multiplier;
+      let hitCount = 0;
+      for (const enemy of enemies) {
+        const distance = dist(actor, enemy);
+        if (enemy.hp <= 0 || distance > range + enemy.r) continue;
+        const enemyAngle = Math.atan2(enemy.y - actor.y, enemy.x - actor.x);
+        const angleDelta = Math.abs(Math.atan2(Math.sin(enemyAngle - angle), Math.cos(enemyAngle - angle)));
+        if (angleDelta > .92) continue;
+        enemy.hp -= damage;
+        enemy.lastHitBy = owner;
+        hitCount += 1;
+        burst(enemy.x, enemy.y, "#ff9b43", 7);
+        impactEffect(enemy.x, enemy.y, "#ffb25d", 34);
+      }
+      addEffect({
+        kind: "slash",
+        classId: "blade",
+        x: actor.x,
+        y: actor.y,
+        x2: actor.x + Math.cos(angle) * range,
+        y2: actor.y + Math.sin(angle) * range,
+        color: "#ff9b43",
+        radius: range,
+      }, .3);
+      if (hitCount > 0 && actor.hp > 0) {
+        actor.hp = Math.min(actor.maxHp, actor.hp + Math.min(5, hitCount * 1.25 * combatStats.repairPower));
+        if (actor === player) setHp(Math.ceil(player.hp));
+      }
+      audio?.play("hit");
+      return true;
+    };
+    const bladeRush = (
+      actor: Actor,
+      combatStats: BuildFrame | CombatStats,
+      owner: PlayerSide,
+      syncedX?: number,
+      syncedY?: number,
+    ) => {
+      const start = { x: actor.x, y: actor.y };
+      const target = enemies.filter((enemy) => enemy.hp > 0).sort((a, b) => dist(actor, a) - dist(actor, b))[0];
+      if (typeof syncedX === "number" && typeof syncedY === "number") {
+        actor.x = clamp(syncedX, 30, W - 30);
+        actor.y = clamp(syncedY, 30, H - 30);
+      } else if (target) {
+        const angle = Math.atan2(target.y - actor.y, target.x - actor.x);
+        const travel = Math.min(combatStats.dashDistance, Math.max(0, dist(actor, target) - target.r - 20));
+        actor.x = clamp(actor.x + Math.cos(angle) * travel, 30, W - 30);
+        actor.y = clamp(actor.y + Math.sin(angle) * travel, 30, H - 30);
+      }
+      if (actor === player) selfShieldUntil = performance.now() + 800;
+      else remoteShieldUntil = performance.now() + 800;
+      addEffect({ kind: "dash", classId: "blade", x: start.x, y: start.y, x2: actor.x, y2: actor.y, color: "#ff9b43", radius: 42 }, .42);
+      fireBlade(actor, combatStats, owner, 2.35);
+      for (const enemy of enemies) {
+        if (dist(actor, enemy) > combatStats.meleeRange * 1.25 + enemy.r) continue;
+        enemy.hp -= combatStats.damage * combatStats.meleePower * .75;
+        enemy.lastHitBy = owner;
+      }
+    };
+    const gravityWell = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      const radius = 330 * combatStats.gravityPower;
+      for (const enemy of enemies) {
+        const distance = dist(actor, enemy);
+        if (distance > radius) continue;
+        const angle = Math.atan2(actor.y - enemy.y, actor.x - enemy.x);
+        const pull = Math.min(120, distance * .34) * combatStats.gravityPower;
+        enemy.x += Math.cos(angle) * pull;
+        enemy.y += Math.sin(angle) * pull;
+        enemy.slow = Math.max(enemy.slow, 2.6 * combatStats.gravityPower);
+        enemy.hp -= combatStats.damage * 2.3 * combatStats.gravityPower;
+        enemy.lastHitBy = owner;
+        burst(enemy.x, enemy.y, "#a58cff", 6);
+      }
+      addEffect({ kind: "skill", classId: "gravity", x: actor.x, y: actor.y, color: "#a58cff", radius }, 1);
+      burst(actor.x, actor.y, "#a58cff", 24);
+    };
     const executeUltimate = (actor: Actor, combatStats: BuildFrame | CombatStats, classId: ClassId, owner: PlayerSide) => {
       const power = combatStats.ultimatePower;
       const color = CLASSES.find((entry) => entry.id === classId)?.color || "#f4c95d";
@@ -1210,7 +1465,7 @@ export default function Home() {
         queueMissileStorm(actor, { ...combatStats, missileWaves: Math.max(3, combatStats.missileWaves + 2), missileCount: combatStats.missileCount + 6, damage: combatStats.damage * 1.35 * power }, owner);
       }
       if (classId === "guardian") {
-        const shieldUntil = performance.now() + 8000 * power;
+        const shieldUntil = performance.now() + Math.min(6000, 5200 * power);
         if (actor === player) selfShieldUntil = shieldUntil;
         else remoteShieldUntil = shieldUntil;
         actor.hp = Math.min(actor.maxHp, actor.hp + actor.maxHp * .45);
@@ -1258,6 +1513,30 @@ export default function Home() {
           enemy.lastHitBy = owner;
         }
       }
+      if (classId === "blade") {
+        const targets = [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, 18);
+        for (const enemy of targets) {
+          beams.push({ x1: actor.x, y1: actor.y, x2: enemy.x, y2: enemy.y, life: .28, width: 11, color: "#ff9b43" });
+          enemy.hp -= combatStats.damage * 6.2 * combatStats.meleePower * power;
+          enemy.lastHitBy = owner;
+          burst(enemy.x, enemy.y, "#ff9b43", 10);
+        }
+        actor.hp = Math.min(actor.maxHp, actor.hp + actor.maxHp * .24);
+        if (actor === player) selfShieldUntil = performance.now() + 2200;
+        else remoteShieldUntil = performance.now() + 2200;
+      }
+      if (classId === "gravity") {
+        for (const enemy of enemies) {
+          const angle = Math.atan2(actor.y - enemy.y, actor.x - enemy.x);
+          const distance = dist(actor, enemy);
+          enemy.x += Math.cos(angle) * Math.min(240, distance * .58);
+          enemy.y += Math.sin(angle) * Math.min(240, distance * .58);
+          enemy.slow = Math.max(enemy.slow, 7);
+          enemy.hp -= combatStats.damage * 5.2 * combatStats.gravityPower * power;
+          enemy.lastHitBy = owner;
+          beams.push({ x1: enemy.x, y1: enemy.y, x2: actor.x, y2: actor.y, life: .42, width: 5, color: "#a58cff" });
+        }
+      }
       setHp(Math.ceil(player.hp));
       audio?.play("ultimate");
     };
@@ -1277,6 +1556,8 @@ export default function Home() {
       currentLevel++; setLevel(currentLevel);
       const pool = rollUpgradeChoices(build.classId);
       localUpgradeDone = false;
+      localUpgradeRerolls = 0;
+      setUpgradeRerolls(0);
       waitingForRemoteUpgrade = Boolean(remote && network?.connected());
       setWaitingPeerUpgrade(false);
       localPaused = true; setChoices(pool);
@@ -1397,21 +1678,27 @@ export default function Home() {
         nextSupplyAt += 45;
         localShopDone = false;
         remoteShopDone = false;
+        localShopRerolls = 0;
+        setShopRerolls(0);
         localPaused = true;
         setWave(currentWave);
         setCoins(hostCoins);
         setSupplyReward(reward);
         setWaitingSupply(false);
-        setShopItems(rollShopItems());
+        shopStock = rollShopItems(currentWave);
+        setShopItems(shopStock);
         if (network?.connected()) void network.send({ t: "shop-open", wave: currentWave, reward, coins: guestCoins });
         return;
       }
-      const enemyCap = Math.min(coOpActive ? 150 : 120, (coOpActive ? 64 : 50) + Math.floor(elapsed / 40) * 6);
+      if (currentWave % 3 === 0 && lastBossWave !== currentWave) spawnBoss();
+      const bossActive = enemies.some((enemy) => enemy.kind === "boss" && enemy.hp > 0);
+      const baseEnemyCap = Math.min(coOpActive ? 150 : 120, (coOpActive ? 64 : 50) + Math.floor(elapsed / 40) * 6);
+      const enemyCap = bossActive ? Math.max(34, Math.floor(baseEnemyCap * .58)) : baseEnemyCap;
       spawnClock -= dt;
       if (spawnClock <= 0) {
-        spawnClock = coOpActive
+        spawnClock = (coOpActive
           ? Math.max(.2, .93 - elapsed * .0024)
-          : Math.max(.25, 1.1 - elapsed * .0025);
+          : Math.max(.25, 1.1 - elapsed * .0025)) * (bossActive ? 1.65 : 1);
         if (enemies.length < enemyCap) spawnEnemy();
       }
 
@@ -1420,16 +1707,20 @@ export default function Home() {
         fireClock = stats.interval;
         const target = enemies.reduce((a,b) => dist(player,a) < dist(player,b) ? a : b);
         const a0 = Math.atan2(target.y-player.y,target.x-player.x);
-        for(let i=0;i<stats.multi;i++){
-          const spread=(i-(stats.multi-1)/2)*.14;
-          const angle=a0+spread;
-          const damage = Math.random() < stats.critChance ? stats.damage * 2 : stats.damage;
-          shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5,owner:"host",classId:build.classId,...projectileTraits(build.classId)});
+        if (build.classId === "blade") {
+          fireBlade(player, stats, "host");
+        } else {
+          for(let i=0;i<stats.multi;i++){
+            const spread=(i-(stats.multi-1)/2)*.14;
+            const angle=a0+spread;
+            const damage = Math.random() < stats.critChance ? stats.damage * 2 : stats.damage;
+            shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5,owner:"host",classId:build.classId,...projectileTraits(build.classId)});
+          }
         }
         for (let i = 0; i < stats.drones; i++) {
           const droneAngle = a0 + (i % 2 ? .22 : -.22);
           const origin = dronePosition(player, i, stats.drones);
-          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*.42*stats.dronePower,life:1.6,owner:"host",classId:"engineer",chain:true});
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*.42*stats.dronePower,life:1.6,owner:"host",classId:build.classId,...projectileTraits(build.classId)});
         }
         audio?.play("shot");
         burst(player.x+Math.cos(a0)*18,player.y+Math.sin(a0)*18,"#f4c95d",3);
@@ -1440,22 +1731,26 @@ export default function Home() {
         remoteFireClock = remoteStats.interval;
         const target = enemies.reduce((a,b) => dist(remote!,a) < dist(remote!,b) ? a : b);
         const a = Math.atan2(target.y-remote.y,target.x-remote.x);
-        for(let i=0;i<remoteStats.multi;i++){
-          const spread=(i-(remoteStats.multi-1)/2)*.14;
-          const shotAngle=a+spread;
-          const damage = Math.random() < remoteStats.critChance ? remoteStats.damage * 2 : remoteStats.damage;
-          shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId)});
+        if (remoteStats.classId === "blade") {
+          fireBlade(remote, remoteStats, "guest");
+        } else {
+          for(let i=0;i<remoteStats.multi;i++){
+            const spread=(i-(remoteStats.multi-1)/2)*.14;
+            const shotAngle=a+spread;
+            const damage = Math.random() < remoteStats.critChance ? remoteStats.damage * 2 : remoteStats.damage;
+            shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId)});
+          }
         }
         for (let i = 0; i < remoteStats.drones; i++) {
           const droneAngle = a + (i % 2 ? .22 : -.22);
           const origin = dronePosition(remote, i, remoteStats.drones);
-          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*.42*remoteStats.dronePower,life:1.6,owner:"guest",classId:"engineer",chain:true});
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*.42*remoteStats.dronePower,life:1.6,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId)});
         }
         audio?.play("ally-shot");
       }
 
       for (const shot of shots) {
-        if (shot.hostile && shot.enemyKind === "commander" && (shot.homing || 0) > 0) {
+        if (shot.hostile && (shot.enemyKind === "commander" || shot.enemyKind === "boss") && (shot.homing || 0) > 0) {
           const targets: Actor[] = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
           if (!targets.length) continue;
           const target = targets.reduce((nearest, actor) => dist(shot, actor) < dist(shot, nearest) ? actor : nearest);
@@ -1479,7 +1774,16 @@ export default function Home() {
         const angle = Math.atan2(target.y-enemy.y,target.x-enemy.x);
         enemy.cooldown -= dt;
         const ranged = ENEMY_ATTACK_MODE[enemy.kind] === "ranged";
-        const preferredRange = enemy.kind === "artillery" ? 330 : enemy.kind === "assassin" ? 230 : enemy.kind === "commander" ? 280 : 0;
+        if (enemy.kind === "boss") {
+          const hpRatio = enemy.hp / Math.max(1, enemy.maxHp);
+          const phase = hpRatio > .66 ? 1 : hpRatio > .33 ? 2 : 3;
+          if (phase !== enemy.bossPhase) {
+            enemy.bossPhase = phase;
+            burst(enemy.x, enemy.y, phase === 2 ? "#f4c95d" : "#ff5b7d", 36);
+            addEffect({ kind: "ultimate", x: enemy.x, y: enemy.y, color: phase === 2 ? "#f4c95d" : "#ff5b7d", radius: 250 }, .95);
+          }
+        }
+        const preferredRange = enemy.kind === "artillery" ? 330 : enemy.kind === "assassin" ? 230 : enemy.kind === "commander" ? 280 : enemy.kind === "boss" ? 305 : 0;
         const speedScale = enemy.slow > 0 ? .52 : 1;
         const moveDirection = !ranged
           ? 1
@@ -1493,7 +1797,44 @@ export default function Home() {
           enemy.y += Math.sin(angle) * enemy.speed * speedScale * moveDirection * dt;
         }
         enemy.slow = Math.max(0, enemy.slow - dt);
-        if (ranged && enemy.cooldown <= 0) {
+        if (enemy.kind === "boss" && enemy.cooldown <= 0) {
+          const phase = enemy.bossPhase || 1;
+          const radialCount = phase === 1 ? 10 : phase === 2 ? 14 : 18;
+          const patternOffset = elapsed * (.42 + phase * .16);
+          for (let index = 0; index < radialCount; index++) {
+            const shotAngle = patternOffset + index / radialCount * Math.PI * 2;
+            const projectileSpeed = 205 + phase * 32;
+            shots.push({
+              x: enemy.x + Math.cos(shotAngle) * (enemy.r + 8),
+              y: enemy.y + Math.sin(shotAngle) * (enemy.r + 8),
+              vx: Math.cos(shotAngle) * projectileSpeed,
+              vy: Math.sin(shotAngle) * projectileSpeed,
+              r: 7 + phase,
+              damage: enemy.hit * (phase === 3 ? .58 : .48),
+              life: 3.4,
+              hostile: true,
+              enemyKind: "boss",
+            });
+          }
+          for (let index = 0; index < phase; index++) {
+            const spread = (index - (phase - 1) / 2) * .13;
+            const shotAngle = angle + spread;
+            shots.push({
+              x: enemy.x + Math.cos(angle) * (enemy.r + 10),
+              y: enemy.y + Math.sin(angle) * (enemy.r + 10),
+              vx: Math.cos(shotAngle) * (290 + phase * 24),
+              vy: Math.sin(shotAngle) * (290 + phase * 24),
+              r: 8,
+              damage: enemy.hit * .72,
+              life: 2.7,
+              hostile: true,
+              enemyKind: "boss",
+              homing: phase === 3 ? .5 : .22,
+            });
+          }
+          burst(enemy.x, enemy.y, phase === 3 ? "#ff5b7d" : "#e2b8ff", 16);
+          enemy.cooldown = phase === 1 ? 2.25 : phase === 2 ? 1.72 : 1.28;
+        } else if (ranged && enemy.cooldown <= 0) {
           const spreadCount = enemy.kind === "commander" ? 3 : enemy.kind === "assassin" ? 2 : 1;
           for (let index = 0; index < spreadCount; index++) {
             const spread = (index - (spreadCount - 1) / 2) * (enemy.kind === "assassin" ? .075 : .18);
@@ -1573,8 +1914,15 @@ export default function Home() {
               burst(target.x, target.y, "#a36cff", 7);
             } else if (shot.enemyKind === "commander") {
               burst(target.x, target.y, "#d99aff", 10);
+            } else if (shot.enemyKind === "boss") {
+              burst(target.x, target.y, "#ff5b7d", 14);
             }
-            impactEffect(target.x, target.y, shot.enemyKind === "assassin" ? "#a36cff" : shot.enemyKind === "commander" ? "#d99aff" : "#ff9a4d", shot.splash ? 58 : 28);
+            impactEffect(
+              target.x,
+              target.y,
+              shot.enemyKind === "assassin" ? "#a36cff" : shot.enemyKind === "commander" ? "#d99aff" : shot.enemyKind === "boss" ? "#ff5b7d" : "#ff9a4d",
+              shot.splash ? 58 : shot.enemyKind === "boss" ? 42 : 28,
+            );
             if (target === player) {
               setHp(Math.ceil(player.hp));
               audio?.play("hurt");
@@ -1620,15 +1968,19 @@ export default function Home() {
       }
       for (const enemy of enemies) {
         if (enemy.hp <= 0) {
-          const value = Math.round(ENEMY_XP[enemy.kind] * (enemy.elite ? 1.75 : 1));
-          gems.push({x:enemy.x,y:enemy.y,value});
+          const bossRelic = enemy.kind === "boss" ? shuffled(BOSS_RELICS)[0] : null;
+          const value = enemy.kind === "boss"
+            ? ENEMY_XP.boss + currentWave * 6
+            : Math.round(ENEMY_XP[enemy.kind] * (enemy.elite ? 1.75 : 1));
+          gems.push({x:enemy.x,y:enemy.y,value,relic:bossRelic?.id});
           audio?.play("kill");
-          burst(enemy.x,enemy.y,enemy.color,10);
-          impactEffect(enemy.x, enemy.y, enemy.elite ? "#f4c95d" : enemy.color, enemy.elite ? 72 : 42);
+          burst(enemy.x,enemy.y,enemy.color,enemy.kind === "boss" ? 46 : 10);
+          impactEffect(enemy.x, enemy.y, enemy.kind === "boss" ? "#ff5b7d" : enemy.elite ? "#f4c95d" : enemy.color, enemy.kind === "boss" ? 180 : enemy.elite ? 72 : 42);
+          if (bossRelic) setBossLootNotice(`Boss 已击破 · ${bossRelic.icon} ${bossRelic.title}等待拾取`);
           currentKills++;
           waveKills++;
           const killer = enemy.lastHitBy || "host";
-          const energyGain = enemy.kind === "commander" ? 16 : enemy.elite ? 10 : 6;
+          const energyGain = enemy.kind === "boss" ? 30 : enemy.kind === "commander" ? 16 : enemy.elite ? 10 : 6;
           if (killer === "guest") {
             guestUltimate = clamp(guestUltimate + energyGain, 0, ULTIMATE_MAX);
           } else {
@@ -1659,6 +2011,28 @@ export default function Home() {
           .sort((a, b) => a.distance - b.distance)[0];
         if (collector) {
           const earnedXp = gem.value;
+          if (gem.relic) {
+            const relic = BOSS_RELICS.find((entry) => entry.id === gem.relic);
+            const previousMaxHp = build.maxHp;
+            build = applyBossRelicToBuild({ ...build, ...stats, maxHp: player.maxHp }, gem.relic);
+            stats = { ...build };
+            ownBuildRef.current = { ...build };
+            player.maxHp = build.maxHp;
+            if (build.maxHp > previousMaxHp && player.hp > 0) player.hp += build.maxHp - previousMaxHp;
+            if (remote) {
+              const remoteBuild = remoteBuildRef.current || makeBuild(remote.classId || "assault");
+              const remotePreviousMax = remoteBuild.maxHp;
+              const nextRemoteBuild = applyBossRelicToBuild(remoteBuild, gem.relic);
+              remoteBuildRef.current = nextRemoteBuild;
+              remote.maxHp = nextRemoteBuild.maxHp;
+              if (nextRemoteBuild.maxHp > remotePreviousMax && remote.hp > 0) remote.hp += nextRemoteBuild.maxHp - remotePreviousMax;
+            }
+            setMaxHp(player.maxHp);
+            setHp(Math.ceil(player.hp));
+            setBossLootNotice(relic ? `${relic.icon} ${relic.title} · ${relic.desc}` : "获得 Boss 核心");
+            if (network?.connected()) void network.send({ t: "boss-loot", relic: gem.relic });
+            audio?.play("ultimate");
+          }
           gem.value = 0;
           audio?.play("pickup");
           currentXp += earnedXp;
@@ -1706,11 +2080,12 @@ export default function Home() {
       ctx.fillStyle="rgba(244,201,93,.035)";
       for(let i=0;i<24;i++){ const x=(i*193)%W,y=(i*317)%H;ctx.beginPath();ctx.arc(x,y,18+(i%4)*9,0,Math.PI*2);ctx.fill();}
       for(const g of gems){
-        const gemSize=6+Math.min(7,Math.sqrt(g.value)*1.5);
+        const gemSize=g.relic?15:6+Math.min(7,Math.sqrt(g.value)*1.5);
         ctx.save();ctx.translate(g.x,g.y);ctx.rotate(performance.now()/600);
-        ctx.fillStyle=g.value>=10?"#f4c95d":g.value>=5?"#c7e08f":"#9ed9cc";
+        ctx.fillStyle=g.relic?"#ffda6a":g.value>=10?"#f4c95d":g.value>=5?"#c7e08f":"#9ed9cc";
         ctx.shadowColor=ctx.fillStyle;ctx.shadowBlur=g.value>=5?12:5;
         ctx.fillRect(-gemSize,-gemSize,gemSize*2,gemSize*2);ctx.restore();
+        if(g.relic){ctx.fillStyle="#fff4bd";ctx.font="900 13px monospace";ctx.textAlign="center";ctx.fillText("BOSS CORE",g.x,g.y-24);}
       }
       for(const p of particles){ctx.globalAlpha=Math.max(0,p.life*2);ctx.fillStyle=p.color;ctx.fillRect(p.x-2,p.y-2,4,4);} ctx.globalAlpha=1;
       for(const beam of beams){
@@ -1756,6 +2131,15 @@ export default function Home() {
             ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*radius*.3,effect.y+Math.sin(angle)*radius*.3);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();
           }
         }
+        if(effect.kind==="slash"){
+          const angle=Math.atan2((effect.y2??effect.y)-effect.y,(effect.x2??effect.x)-effect.x);
+          const radius=effect.radius*(.72+.28*progress);
+          ctx.translate(effect.x,effect.y);ctx.rotate(angle);
+          ctx.lineWidth=18*(1-progress)+4;
+          ctx.beginPath();ctx.arc(0,0,radius,-.76,.76);ctx.stroke();
+          ctx.strokeStyle="rgba(255,255,255,.9)";ctx.lineWidth=3;
+          ctx.beginPath();ctx.arc(0,0,radius,-.7,.7);ctx.stroke();
+        }
         if(effect.kind==="skill"){
           const radius=18+effect.radius*progress;
           ctx.lineWidth=5*(1-progress)+2;
@@ -1790,10 +2174,25 @@ export default function Home() {
               ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();
             }
           }
+          if(effect.classId==="blade"){
+            ctx.translate(effect.x,effect.y);ctx.rotate(progress*Math.PI*.8);
+            ctx.beginPath();ctx.arc(0,0,radius,-.9,.9);ctx.stroke();
+            ctx.rotate(Math.PI);ctx.beginPath();ctx.arc(0,0,radius*.72,-.8,.8);ctx.stroke();
+          }
+          if(effect.classId==="gravity"){
+            ctx.globalAlpha=alpha*.75;
+            for(let ring=1;ring<=3;ring++){
+              ctx.beginPath();ctx.arc(effect.x,effect.y,radius*(.24*ring),0,Math.PI*2);ctx.stroke();
+            }
+            for(let index=0;index<8;index++){
+              const angle=index/8*Math.PI*2-progress*1.8;
+              ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.lineTo(effect.x+Math.cos(angle)*radius*.25,effect.y+Math.sin(angle)*radius*.25);ctx.stroke();
+            }
+          }
         }
         ctx.restore();
       }
-      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1 };
+      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1, blade: 0, gravity: 1 };
       const projectileDimensions: Record<ClassId, [number, number]> = {
         assault: [34, 18],
         guardian: [38, 22],
@@ -1801,9 +2200,18 @@ export default function Home() {
         phantom: [38, 16],
         laser: [36, 17],
         frost: [40, 23],
+        blade: [40, 21],
+        gravity: [42, 24],
       };
       for(const s of shots){
         if(s.hostile){
+          if(s.enemyKind==="boss"){
+            ctx.save();ctx.translate(s.x,s.y);ctx.rotate(performance.now()/320);
+            ctx.fillStyle="#4d173f";ctx.strokeStyle="#ff6a9c";ctx.lineWidth=3;ctx.shadowColor="#ff5b7d";ctx.shadowBlur=16;
+            ctx.beginPath();ctx.arc(0,0,s.r+3,0,Math.PI*2);ctx.fill();ctx.stroke();
+            ctx.strokeStyle="#ffd2e5";ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(0,0,s.r+7,0,Math.PI*1.35);ctx.stroke();ctx.restore();
+            continue;
+          }
           if(s.enemyKind==="assassin"&&assassinProjectile.complete&&assassinProjectile.naturalWidth){
             ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));ctx.shadowColor="#a36cff";ctx.shadowBlur=11;
             ctx.drawImage(assassinProjectile,-21,-9,42,18);ctx.restore();
@@ -1826,42 +2234,64 @@ export default function Home() {
         }
         const sprite=projectileSpriteIndex[s.classId];
         const classInfo=CLASSES.find((item)=>item.id===s.classId)||CLASSES[0];
-        const projectileImage=classInfo.sheet==="specialist"?specialistProjectiles:projectileSprites;
+        const projectileImage=classInfo.sheet==="specialist"?specialistProjectiles:classInfo.sheet==="vanguard"?vanguardProjectiles:projectileSprites;
         if(!projectileImage.complete||!projectileImage.naturalWidth){
           ctx.fillStyle="#fff2ba";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();continue;
         }
-        const cellW=projectileImage.naturalWidth/2,cellH=classInfo.sheet==="specialist"?projectileImage.naturalHeight:projectileImage.naturalHeight/2;
+        const cellW=projectileImage.naturalWidth/2,cellH=classInfo.sheet==="core"?projectileImage.naturalHeight/2:projectileImage.naturalHeight;
         const [drawW,drawH]=projectileDimensions[s.classId];
         ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));
         ctx.shadowColor=classInfo.color;ctx.shadowBlur=8;
-        ctx.drawImage(projectileImage,(sprite%2)*cellW,classInfo.sheet==="specialist"?0:Math.floor(sprite/2)*cellH,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
+        ctx.drawImage(projectileImage,(sprite%2)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:0,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
         ctx.restore();
       }
-      const enemySpriteIndex: Record<EnemyKind, number> = { runner: 0, crawler: 1, artillery: 2, assassin: 3, brute: 4, commander: 5 };
+      const enemySpriteIndex: Record<EnemyKind, number> = { runner: 0, crawler: 1, artillery: 2, assassin: 3, brute: 4, commander: 5, boss: 5 };
       for(const e of enemies){
         const sprite = enemySpriteIndex[e.kind];
         const cellW = enemySprites.naturalWidth / 3, cellH = enemySprites.naturalHeight / 2;
-        const size = e.r * 4.25;
+        const size = e.r * (e.kind==="boss"?5.15:4.25);
         const visualTargets = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
         const visualTarget = visualTargets.length ? visualTargets.reduce((nearest, actor) => dist(e, actor) < dist(e, nearest) ? actor : nearest) : player;
         ctx.save();
         ctx.translate(e.x,e.y);
         ctx.rotate(Math.atan2(visualTarget.y-e.y,visualTarget.x-e.x)-Math.PI/2);
-        if(e.elite){ctx.shadowColor="#f4c95d";ctx.shadowBlur=18;}
+        if(e.kind==="boss"){ctx.shadowColor=e.bossPhase===3?"#ff4f7c":"#c277ff";ctx.shadowBlur=34;}
+        else if(e.elite){ctx.shadowColor="#f4c95d";ctx.shadowBlur=18;}
         if(enemySprites.complete&&enemySprites.naturalWidth){
           ctx.drawImage(enemySprites,(sprite%3)*cellW,Math.floor(sprite/3)*cellH,cellW,cellH,-size/2,-size/2,size,size);
         }else{
           ctx.fillStyle=e.color;ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();
         }
         ctx.restore();
-        if(e.elite){ctx.strokeStyle="rgba(244,201,93,.85)";ctx.lineWidth=2;ctx.strokeRect(e.x-e.r-6,e.y-e.r-6,(e.r+6)*2,(e.r+6)*2);}
+        if(e.kind==="boss"){
+          ctx.save();ctx.translate(e.x,e.y);ctx.rotate(performance.now()/900);ctx.strokeStyle=e.bossPhase===3?"#ff5b7d":"#b78cff";ctx.lineWidth=4;ctx.shadowColor=ctx.strokeStyle;ctx.shadowBlur=14;
+          ctx.beginPath();for(let index=0;index<6;index++){const angle=index/6*Math.PI*2;const radius=e.r+18;const px=Math.cos(angle)*radius,py=Math.sin(angle)*radius;if(index)ctx.lineTo(px,py);else ctx.moveTo(px,py);}ctx.closePath();ctx.stroke();ctx.restore();
+        }else if(e.elite){ctx.strokeStyle="rgba(244,201,93,.85)";ctx.lineWidth=2;ctx.strokeRect(e.x-e.r-6,e.y-e.r-6,(e.r+6)*2,(e.r+6)*2);}
         if(e.slow>0){ctx.fillStyle="#9eeaff";ctx.font="800 14px monospace";ctx.textAlign="center";ctx.fillText("✦",e.x,e.y-e.r-10);}
+      }
+      const activeBoss = enemies.find((enemy)=>enemy.kind==="boss"&&enemy.hp>0);
+      if(activeBoss){
+        const bossRatio=clamp(activeBoss.hp/Math.max(1,activeBoss.maxHp),0,1);
+        ctx.save();ctx.fillStyle="rgba(11,12,18,.88)";ctx.fillRect(W/2-270,20,540,44);
+        ctx.strokeStyle=activeBoss.bossPhase===3?"#ff5b7d":"#a58cff";ctx.lineWidth=2;ctx.strokeRect(W/2-270,20,540,44);
+        ctx.fillStyle="#35213e";ctx.fillRect(W/2-250,47,500,7);
+        ctx.fillStyle=activeBoss.bossPhase===3?"#ff5b7d":"#a58cff";ctx.fillRect(W/2-250,47,500*bossRatio,7);
+        ctx.fillStyle="#f2e9ff";ctx.font="900 13px monospace";ctx.textAlign="left";ctx.fillText(`BOSS · 裂界泰坦 · PHASE ${activeBoss.bossPhase||1}`,W/2-250,39);
+        ctx.textAlign="right";ctx.fillText(`${Math.ceil(activeBoss.hp)} / ${Math.ceil(activeBoss.maxHp)}`,W/2+250,39);ctx.restore();
       }
       const drawMech = (actor: Actor, ally: boolean) => {
         const classInfo = CLASSES.find((item) => item.id === actor.classId) || CLASSES[0];
         const sprite = classInfo.sprite;
-        const mechImage = classInfo.id === "laser" ? laserSprite : classInfo.id === "frost" ? frostSprite : playerSprites;
-        const independentSprite = classInfo.sheet === "specialist";
+        const mechImage = classInfo.id === "laser"
+          ? laserSprite
+          : classInfo.id === "frost"
+            ? frostSprite
+            : classInfo.id === "blade"
+              ? bladeSprite
+              : classInfo.id === "gravity"
+                ? gravitySprite
+                : playerSprites;
+        const independentSprite = classInfo.sheet !== "core";
         const cellW = independentSprite ? mechImage.naturalWidth : mechImage.naturalWidth / 2;
         const cellH = independentSprite ? mechImage.naturalHeight : mechImage.naturalHeight / 2;
         const size = classInfo.renderSize;
@@ -1890,17 +2320,17 @@ export default function Home() {
       const drawDrones = (actor: Actor, count: number) => {
         if(count<=0)return;
         const classInfo=CLASSES.find((item)=>item.id===actor.classId)||CLASSES[0];
-        const droneImage=classInfo.sheet==="specialist"?specialistDrones:droneSprites;
+        const droneImage=classInfo.sheet==="specialist"?specialistDrones:classInfo.sheet==="vanguard"?vanguardDrones:droneSprites;
         if(!droneImage.complete||!droneImage.naturalWidth)return;
-        const cellW=droneImage.naturalWidth/2,cellH=classInfo.sheet==="specialist"?droneImage.naturalHeight:droneImage.naturalHeight/2;
+        const cellW=droneImage.naturalWidth/2,cellH=classInfo.sheet==="core"?droneImage.naturalHeight/2:droneImage.naturalHeight;
         for(let index=0;index<count;index++){
           const position=dronePosition(actor,index,count);
-          const sprite=classInfo.sheet==="specialist"?classInfo.sprite:classInfo.sprite;
+          const sprite=classInfo.sprite;
           const target=enemies.length?enemies.reduce((nearest,enemy)=>dist(position,enemy)<dist(position,nearest)?enemy:nearest):null;
           const angle=target?Math.atan2(target.y-position.y,target.x-position.x):position.angle+Math.PI/2;
-          const size=classInfo.id==="frost"?38:32;
+          const size=classInfo.id==="frost"||classInfo.id==="gravity"?38:classInfo.id==="blade"?36:32;
           ctx.save();ctx.translate(position.x,position.y);ctx.rotate(angle);ctx.shadowColor=classInfo.color;ctx.shadowBlur=10;
-          ctx.drawImage(droneImage,(sprite%2)*cellW,classInfo.sheet==="specialist"?0:Math.floor(sprite/2)*cellH,cellW,cellH,-size/2,-size/2,size,size);
+          ctx.drawImage(droneImage,(sprite%2)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:0,cellW,cellH,-size/2,-size/2,size,size);
           ctx.restore();
         }
       };
@@ -2025,6 +2455,8 @@ export default function Home() {
     if (next) wakeAudio("ui");
   };
   const selectedClassSpec = CLASSES.find((item) => item.id === selectedClass) || CLASSES[0];
+  const currentUpgradeRerollCost = upgradeRerollPrice(wave, upgradeRerolls);
+  const currentShopRerollCost = shopRerollPrice(wave, shopRerolls);
   const classSelector = <div className="classGrid">
     {CLASSES.map((item) => <button key={item.id} className={selectedClass===item.id?"selected":""} onClick={()=>selectClass(item.id)}>
       <span className={mechPreviewClass(item)} style={mechPreviewStyle(item)} aria-hidden="true"/>
@@ -2040,7 +2472,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.9.1 · 远征修复</div>
+        <div className="status"><i /> 版本 0.10.0 · 泰坦入侵</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -2137,6 +2569,7 @@ export default function Home() {
         <div className="canvasFrame">
           <canvas ref={canvasRef} aria-label="余烬协议游戏画面"/>
           {signalMode && <div className="syncBadge"><i /> 共享战场 · {signalMode==="host"?"队长同步":"伙伴同步"}</div>}
+          {bossLootNotice && <div key={bossLootNotice} className="bossNotice">{bossLootNotice}</div>}
           {signalMode && teammateHp!==null && <div className={`teammateHealth ${teammateHp<=0?"down":""}`}>
             <span><b>队友机体</b><small>{teammateHp<=0?"已倒地":`${teammateHp}/${teammateMaxHp}`}</small></span>
             <i><em style={{width:`${clamp(teammateHp/Math.max(1,teammateMaxHp)*100,0,100)}%`}}/></i>
@@ -2161,21 +2594,25 @@ export default function Home() {
           <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>至少包含一个职业专属强化；装配完成后恢复 18% 最大生命值。</p>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="upgradeGrid">{choices.map((u,i)=><button key={u.id} onClick={()=>chooseUpgrade(u)}><small>0{i+1}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
-            <button className="rerollBtn" onClick={()=>rerollUpgradeRef.current()} disabled={coins<10}>◈ 10 刷新本次升级选项</button>
+            <button className="rerollBtn" onClick={()=>rerollUpgradeRef.current()} disabled={upgradeRerolls>=MAX_UPGRADE_REROLLS||coins<currentUpgradeRerollCost}>
+              {upgradeRerolls>=MAX_UPGRADE_REROLLS?"刷新次数已用尽":`◈ ${currentUpgradeRerollCost} 刷新升级 · 剩余 ${MAX_UPGRADE_REROLLS-upgradeRerolls} 次`}
+            </button>
           </div>
         </div>}
         {shopItems && !choices && <div className="overlay">
           <div className="shopPanel">
             <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波结算</div>
             <h2>战场补给站</h2>
-            <p>本波共享结算 <b>◈ {supplyReward}</b>。联机时双方获得相同金币，但购买各自结算。</p>
+            <p>本波共享结算 <b>◈ {supplyReward}</b>。联机时双方获得相同金币，但购买各自结算；商品会随波次逐渐涨价。</p>
             <div className="shopWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="shopGrid">{shopItems.map((item)=><button key={item.id} onClick={()=>buyShopItemRef.current(item.id)} disabled={coins<item.cost}>
               <i>{item.icon}</i><b>{item.title}</b><span>{item.desc}</span><small>◈ {item.cost}</small>
             </button>)}</div>
             <div className="shopActions">
-              <button className="rerollBtn" onClick={()=>rerollShopRef.current()} disabled={coins<8}>◈ 8 刷新商品</button>
+              <button className="rerollBtn" onClick={()=>rerollShopRef.current()} disabled={shopRerolls>=MAX_SHOP_REROLLS||coins<currentShopRerollCost}>
+                {shopRerolls>=MAX_SHOP_REROLLS?"刷新次数已用尽":`◈ ${currentShopRerollCost} 刷新商品 · 剩余 ${MAX_SHOP_REROLLS-shopRerolls} 次`}
+              </button>
               <button className="primary compact" onClick={()=>finishShopRef.current()}><span>整备完成 · 继续战斗</span></button>
             </div>
           </div>
