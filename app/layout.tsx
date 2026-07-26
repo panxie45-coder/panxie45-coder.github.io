@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://panxie45-coder.github.io"),
   title: "余烬协议｜双人肉鸽生存游戏",
   description: "守住最后一簇不肯熄灭的火。可单人游玩、支持点对点联机的俯视角肉鸽生存游戏。",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
