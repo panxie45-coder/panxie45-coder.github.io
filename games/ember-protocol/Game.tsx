@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getRelaySockets, joinRoom } from "@trystero-p2p/mqtt";
 import type { CSSProperties } from "react";
 import { EmberAudioEngine, type SoundCue } from "./audio";
+import { earlyWaveXpMultiplier, prioritizeUltimateTargets } from "./combat-balance.mjs";
 import { reconcilePausedPeerHp, teamRunDefeated } from "./team-state.mjs";
 
 type View = "menu" | "loadout" | "game" | "coop";
@@ -2051,13 +2052,14 @@ export default function Home() {
     const executeUltimate = (actor: Actor, combatStats: BuildFrame | CombatStats, classId: ClassId, owner: PlayerSide) => {
       const power = combatStats.ultimatePower;
       const color = CLASSES.find((entry) => entry.id === classId)?.color || "#f4c95d";
-      const aimTarget = enemies.filter((enemy) => enemy.hp > 0).sort((a, b) => b.maxHp - a.maxHp)[0];
+      const aimTarget = prioritizeUltimateTargets(enemies, actor, 1)[0];
       const aimAngle = aimTarget ? Math.atan2(aimTarget.y - actor.y, aimTarget.x - actor.x) : -Math.PI / 2;
+      const ultimateReach = Math.hypot(W, H) + 160;
       const damageEnemy = (enemy: Enemy, amount: number) => {
         applyEnemyDamage(enemy, amount, owner);
       };
       if (classId === "assault") {
-        const strikeTargets = [...enemies].sort((a, b) => b.maxHp - a.maxHp).slice(0, Math.round(combatStats.ultimateTargets));
+        const strikeTargets = prioritizeUltimateTargets(enemies, actor, combatStats.ultimateTargets);
         for (const target of strikeTargets) {
           addEffect({ kind: "ultimate", classId, x: target.x, y: target.y, x2: target.x, y2: target.y - 250, color, radius: 92 }, 1.25);
           beams.push({ x1: target.x, y1: target.y - 250, x2: target.x, y2: target.y, life: .46, width: 7, color: "#fff2a8" });
@@ -2088,18 +2090,18 @@ export default function Home() {
       if (classId === "engineer") {
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 42 * combatStats.repairPower);
         if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + 42 * combatStats.repairPower);
-        const targets = [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, Math.round(combatStats.ultimateTargets));
+        const targets = prioritizeUltimateTargets(enemies, actor, combatStats.ultimateTargets);
         for (let index = 0; index < Math.max(12, targets.length * 2); index++) {
           const orbitAngle = index / Math.max(12, targets.length * 2) * Math.PI * 2;
           const origin = { x: actor.x + Math.cos(orbitAngle) * 92, y: actor.y + Math.sin(orbitAngle) * 92 };
           const target = targets[index % Math.max(1, targets.length)];
           const shotAngle = target ? Math.atan2(target.y - origin.y, target.x - origin.x) : orbitAngle;
-          shots.push({ x: origin.x, y: origin.y, vx: Math.cos(shotAngle) * 780, vy: Math.sin(shotAngle) * 780, r: 5, damage: combatStats.damage * 2.15 * combatStats.dronePower * power, life: 1.8, owner, classId: "engineer", chain: true, pierce: 1 });
+          shots.push({ x: origin.x, y: origin.y, vx: Math.cos(shotAngle) * 780, vy: Math.sin(shotAngle) * 780, r: 5, damage: combatStats.damage * 2.15 * combatStats.dronePower * power, life: 2.65, owner, classId: "engineer", chain: true, pierce: 1 });
         }
         addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: 120 }, 2);
       }
       if (classId === "phantom") {
-        const marked = [...enemies].sort((a, b) => b.maxHp - a.maxHp || dist(actor, a) - dist(actor, b)).slice(0, Math.round(combatStats.ultimateTargets));
+        const marked = prioritizeUltimateTargets(enemies, actor, combatStats.ultimateTargets);
         let previous = { x: actor.x, y: actor.y };
         for (const enemy of marked) {
           beams.push({ x1: previous.x, y1: previous.y, x2: enemy.x, y2: enemy.y, life: .5, width: 7, color: "#a78cff" });
@@ -2112,7 +2114,7 @@ export default function Home() {
         else remoteShieldUntil = performance.now() + 2600;
       }
       if (classId === "laser") {
-        const length = 1550;
+        const length = ultimateReach;
         const beamCount = clamp(Math.round(combatStats.ultimateLanes), 8, 16);
         for (let index = 0; index < beamCount; index++) {
           const beamAngle = aimAngle + index / beamCount * Math.PI * 2;
@@ -2134,23 +2136,25 @@ export default function Home() {
         const laneOffsets = Array.from({ length: laneCount }, (_, index) => (index - (laneCount - 1) / 2) * 104);
         for (const offset of laneOffsets) {
           const laneX = actor.x + normalX * offset, laneY = actor.y + normalY * offset;
-          const endX = laneX + Math.cos(aimAngle) * 1250, endY = laneY + Math.sin(aimAngle) * 1250;
+          const endX = laneX + Math.cos(aimAngle) * ultimateReach, endY = laneY + Math.sin(aimAngle) * ultimateReach;
           beams.push({ x1: laneX, y1: laneY, x2: endX, y2: endY, life: 1.15, width: 18 * combatStats.frostPower, color: "#b9efff" });
           for (const enemy of enemies) {
             const along = (enemy.x - laneX) * Math.cos(aimAngle) + (enemy.y - laneY) * Math.sin(aimAngle);
             const perpendicular = Math.abs((enemy.x - laneX) * Math.sin(aimAngle) - (enemy.y - laneY) * Math.cos(aimAngle));
             const laneWidth = 72 + Math.max(0, along) * .055;
-            if (along < -60 || along > 1250 || perpendicular > laneWidth + enemy.r) continue;
+            if (along < -60 || along > ultimateReach || perpendicular > laneWidth + enemy.r) continue;
             enemy.frozen = Math.max(enemy.frozen || 0, Math.min(3.8, 1.8 * combatStats.frostPower));
             enemy.slow = Math.max(enemy.slow, 9 * combatStats.frostPower);
             damageEnemy(enemy, combatStats.damage * 4.8 * combatStats.frostPower * power);
           }
         }
-        addEffect({ kind: "ultimate", classId, count: laneCount, x: actor.x, y: actor.y, x2: actor.x + Math.cos(aimAngle) * 1250, y2: actor.y + Math.sin(aimAngle) * 1250, color, radius: 220 }, 2.1);
+        addEffect({ kind: "ultimate", classId, count: laneCount, x: actor.x, y: actor.y, x2: actor.x + Math.cos(aimAngle) * ultimateReach, y2: actor.y + Math.sin(aimAngle) * ultimateReach, color, radius: 220 }, 2.1);
       }
       if (classId === "blade") {
         const start = { x: actor.x, y: actor.y };
-        const travel = 720;
+        const travel = aimTarget
+          ? Math.min(ultimateReach, Math.max(720, dist(actor, aimTarget) + aimTarget.r + 24))
+          : 720;
         const end = { x: clamp(actor.x + Math.cos(aimAngle) * travel, 34, W - 34), y: clamp(actor.y + Math.sin(aimAngle) * travel, 34, H - 34) };
         for (const enemy of enemies) {
           const lineLength = Math.max(1, dist(start, end));
@@ -2176,8 +2180,11 @@ export default function Home() {
       }
       if (classId === "gravity") {
         const gravityRange = clamp(combatStats.ultimateRange, 430, 670);
-        const cluster = [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, 16);
-        const center = cluster.length
+        const cluster = prioritizeUltimateTargets(enemies, actor, 16);
+        const bossTarget = cluster.find((enemy) => enemy.kind === "boss");
+        const center = bossTarget
+          ? { x: bossTarget.x, y: bossTarget.y }
+          : cluster.length
           ? { x: cluster.reduce((sum, enemy) => sum + enemy.x, 0) / cluster.length, y: cluster.reduce((sum, enemy) => sum + enemy.y, 0) / cluster.length }
           : { x: actor.x, y: actor.y };
         for (const enemy of enemies) {
@@ -2193,10 +2200,7 @@ export default function Home() {
         addEffect({ kind: "ultimate", classId, x: center.x, y: center.y, color, radius: gravityRange * .58 }, 2.2);
       }
       if (classId === "thunder") {
-        const targets = [...enemies]
-          .filter((enemy) => enemy.hp > 0)
-          .sort((a, b) => b.maxHp - a.maxHp)
-          .slice(0, Math.round(combatStats.ultimateTargets));
+        const targets = prioritizeUltimateTargets(enemies, actor, combatStats.ultimateTargets);
         for (const [index, target] of targets.entries()) {
           const strikeDamage = combatStats.damage * 5.1 * combatStats.lightningPower * power;
           damageEnemy(target, strikeDamage);
@@ -2212,10 +2216,7 @@ export default function Home() {
         }
       }
       if (classId === "sky") {
-        const targets = [...enemies]
-          .filter((enemy) => enemy.hp > 0)
-          .sort((a, b) => (b.kind === "boss" ? 1 : 0) - (a.kind === "boss" ? 1 : 0) || b.maxHp - a.maxHp)
-          .slice(0, Math.round(combatStats.ultimateTargets));
+        const targets = prioritizeUltimateTargets(enemies, actor, combatStats.ultimateTargets);
         for (const [index, target] of targets.entries()) {
           const xOffset = (index - (targets.length - 1) / 2) * 38;
           beams.push({ x1: target.x + xOffset, y1: -120, x2: target.x, y2: target.y, life: .95, width: 16, color: "#fff1df" });
@@ -2228,7 +2229,7 @@ export default function Home() {
       if (classId === "cinder") {
         const laneCount = clamp(Math.round(combatStats.ultimateLanes), 3, 5);
         const normalX = -Math.sin(aimAngle), normalY = Math.cos(aimAngle);
-        const length = 1320;
+        const length = ultimateReach;
         for (let lane = 0; lane < laneCount; lane++) {
           const offset = (lane - (laneCount - 1) / 2) * 118;
           const x1 = actor.x + normalX * offset;
@@ -2942,7 +2943,7 @@ export default function Home() {
             audio?.play("upgrade");
             continue;
           }
-          const earnedXp = gem.value * xpGainScale();
+          const earnedXp = gem.value * xpGainScale() * earlyWaveXpMultiplier(currentWave);
           if (gem.relic) {
             const relic = BOSS_RELICS.find((entry) => entry.id === gem.relic);
             const previousMaxHp = build.maxHp;
@@ -3603,7 +3604,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.13.5 · 团队存活修复</div>
+        <div className="status"><i /> 版本 0.13.6 · 首领锁定与前期成长</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>

@@ -5,6 +5,10 @@ import {
   reconcilePausedPeerHp,
   teamRunDefeated,
 } from "../team-state.mjs";
+import {
+  earlyWaveXpMultiplier,
+  prioritizeUltimateTargets,
+} from "../combat-balance.mjs";
 
 async function render() {
   const workerUrl = new URL("../../../dist/server/index.js", import.meta.url);
@@ -34,7 +38,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.13\.5 · 团队存活修复/);
+  assert.match(html, /版本 0\.13\.6 · 首领锁定与前期成长/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -189,7 +193,10 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /wallet: \{ host: number; guest: number \}/);
   assert.match(page, /ultimate: \{ host: number; guest: number \}/);
   assert.match(page, /const executeUltimate/);
-  assert.match(page, /const strikeTargets = \[\.\.\.enemies\]/);
+  assert.match(page, /const strikeTargets = prioritizeUltimateTargets\(enemies, actor, combatStats\.ultimateTargets\)/);
+  assert.match(page, /const aimTarget = prioritizeUltimateTargets\(enemies, actor, 1\)\[0\]/);
+  assert.match(page, /const ultimateReach = Math\.hypot\(W, H\) \+ 160/);
+  assert.match(page, /const bossTarget = cluster\.find\(\(enemy\) => enemy\.kind === "boss"\)/);
   assert.match(page, /combatStats\.ultimateDuration \* 1000/);
   assert.match(page, /const beamCount = clamp\(Math\.round\(combatStats\.ultimateLanes\), 8, 16\)/);
   assert.match(page, /const laneCount = clamp\(Math\.round\(combatStats\.ultimateLanes\), 1, 4\)/);
@@ -200,7 +207,7 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /laser: \.5/);
   assert.match(page, /const chargingClass = killer === "guest"/);
   assert.match(page, /baseEnergyGain \* ULTIMATE_CHARGE_SCALE\[chargingClass\]/);
-  assert.match(page, /const cluster = \[\.\.\.enemies\]/);
+  assert.match(page, /const cluster = prioritizeUltimateTargets\(enemies, actor, 16\)/);
   assert.match(page, /ULTIMATE_NAMES/);
   assert.match(page, /ultimate: "天穹火雨：/);
   assert.match(page, /ultimate: "赤曜审判：以机体为中心向四面八方发射贯穿激光"/);
@@ -240,7 +247,7 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /const xpGainScale = \(\) => clamp/);
   assert.match(page, /currentLevel - 1\) \* \.035/);
   assert.match(page, /currentWave - 1\) \* \.04/);
-  assert.match(page, /const earnedXp = gem\.value \* xpGainScale\(\)/);
+  assert.match(page, /const earnedXp = gem\.value \* xpGainScale\(\) \* earlyWaveXpMultiplier\(currentWave\)/);
   assert.match(page, /const W = 1600, H = 900/);
   assert.match(page, /type Gem = \{ x: number; y: number; value: number; life: number; relic\?: BossRelicId; heal\?: number \}/);
   assert.match(page, /const HEALTH_PACK_ENEMY_KINDS/);
@@ -316,4 +323,28 @@ test("keeps a co-op run alive across upgrade/shop pauses until both players are 
   assert.equal(reconcilePausedPeerHp(true, 0, 120), 1, "stale zero report cannot kill a living peer");
   assert.equal(reconcilePausedPeerHp(true, 75, 120), 75);
   assert.equal(reconcilePausedPeerHp(false, 75, 120), 0, "a downed peer cannot revive through a menu");
+});
+
+test("prioritizes bosses for every offensive ultimate and boosts only early-wave XP", () => {
+  const origin = { x: 0, y: 0 };
+  const targets = [
+    { kind: "runner", hp: 20, maxHp: 20, elite: false, x: 5, y: 0 },
+    { kind: "brute", hp: 200, maxHp: 200, elite: true, x: 20, y: 0 },
+    { kind: "boss", hp: 3000, maxHp: 3000, elite: false, x: 1500, y: 800 },
+  ];
+  assert.equal(prioritizeUltimateTargets(targets, origin, 1)[0]?.kind, "boss");
+  assert.deepEqual(
+    prioritizeUltimateTargets(targets, origin, 3).map((target) => target.kind),
+    ["boss", "brute", "runner"],
+  );
+  assert.equal(
+    prioritizeUltimateTargets([{ ...targets[2], hp: 0 }, targets[0]], origin, 1)[0]?.kind,
+    "runner",
+  );
+
+  assert.equal(earlyWaveXpMultiplier(1), 1.5);
+  assert.equal(earlyWaveXpMultiplier(2), 1.35);
+  assert.equal(earlyWaveXpMultiplier(3), 1.2);
+  assert.equal(earlyWaveXpMultiplier(4), 1);
+  assert.equal(earlyWaveXpMultiplier(12), 1);
 });
