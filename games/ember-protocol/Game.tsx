@@ -26,7 +26,8 @@ type PlayerSide = "host" | "guest";
 type BossRelicId = "titan-core" | "overdrive-core" | "chrono-core";
 type UpgradeRarity = "common" | "rare" | "epic" | "legendary";
 type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId; ultimate?: boolean; rarity?: UpgradeRarity };
-type ShopItem = { id: string; title: string; desc: string; icon: string; cost: number };
+type ShopCategory = "补给" | "武装" | "防御" | "核心";
+type ShopItem = { id: string; title: string; desc: string; icon: string; cost: number; category: ShopCategory; rarity: UpgradeRarity; unlockWave?: number; priceRate?: number };
 type BossRelic = { id: BossRelicId; title: string; desc: string; icon: string };
 type CombatStats = {
   speed: number;
@@ -284,14 +285,30 @@ const ULTIMATE_UPGRADES: Record<ClassId, Upgrade[]> = {
 };
 
 const SHOP_ITEMS: ShopItem[] = [
-  { id: "medkit", title: "战地医疗包", desc: "回复 36 点机体完整度", icon: "✚", cost: 18 },
-  { id: "overhaul", title: "装甲大修", desc: "生命上限 +12，并修复新增部分", icon: "▣", cost: 32 },
-  { id: "ammo", title: "高能弹药", desc: "本局伤害永久 +8%", icon: "◆", cost: 29 },
-  { id: "coolant", title: "冷却液", desc: "射击间隔永久 -6%", icon: "❉", cost: 27 },
-  { id: "collector", title: "磁力扩展器", desc: "拾取范围永久 +14%", icon: "◉", cost: 21 },
-  { id: "drone-kit", title: "无人机组装包", desc: "增加 1 架本职业无人机", icon: "✣", cost: 42 },
-  { id: "reactor-cell", title: "反应堆电池", desc: "主动技能冷却永久 -7%", icon: "◌", cost: 33 },
-  { id: "ult-battery", title: "终极电容", desc: "立即补充 22% 终极能量", icon: "✦", cost: 23 },
+  { id: "medkit", title: "战地医疗包", desc: "立即回复 36 点机体完整度", icon: "✚", cost: 28, category: "补给", rarity: "common", priceRate: .035 },
+  { id: "repair-gel", title: "自愈凝胶", desc: "回复 22 点生命，并使生命上限 +4", icon: "◈", cost: 42, category: "补给", rarity: "common" },
+  { id: "ult-battery", title: "终极电容", desc: "立即补充 22% 终极能量", icon: "✦", cost: 46, category: "补给", rarity: "rare", unlockWave: 2 },
+  { id: "combat-cocktail", title: "应急战斗剂", desc: "回复 18 点生命并补充 12% 终极能量", icon: "⌁", cost: 62, category: "补给", rarity: "rare", unlockWave: 4 },
+  { id: "full-service", title: "方舟整备舱", desc: "立即修复 32% 最大生命值", icon: "⬡", cost: 92, category: "补给", rarity: "epic", unlockWave: 6, priceRate: .055 },
+
+  { id: "ammo", title: "高能弹药", desc: "本局伤害永久 +8%", icon: "◆", cost: 54, category: "武装", rarity: "common" },
+  { id: "coolant", title: "相变冷却液", desc: "射击间隔永久 -6%", icon: "❉", cost: 58, category: "武装", rarity: "common" },
+  { id: "crit-optic", title: "量子瞄准镜", desc: "暴击率 +6%，弹丸速度 +8%", icon: "⌖", cost: 68, category: "武装", rarity: "rare", unlockWave: 2 },
+  { id: "projectile-core", title: "磁轨膛芯", desc: "伤害 +5%，弹速 +14%，弹体略微增大", icon: "➤", cost: 76, category: "武装", rarity: "rare", unlockWave: 3 },
+  { id: "multi-loader", title: "复联装填器", desc: "额外弹丸 +1，但射击间隔增加 7%", icon: "⌬", cost: 104, category: "武装", rarity: "epic", unlockWave: 5, priceRate: .085 },
+
+  { id: "overhaul", title: "装甲大修", desc: "生命上限 +12，并修复新增部分", icon: "▣", cost: 64, category: "防御", rarity: "common" },
+  { id: "servo", title: "矢量伺服器", desc: "移动速度永久 +7%", icon: "➜", cost: 52, category: "防御", rarity: "common" },
+  { id: "armor-plate", title: "偏转复合甲", desc: "受到的伤害永久 -4%", icon: "⬢", cost: 74, category: "防御", rarity: "rare", unlockWave: 2 },
+  { id: "adaptive-hull", title: "自适应机壳", desc: "生命上限 +8、减伤 +2%，并修复 16 点", icon: "◇", cost: 88, category: "防御", rarity: "rare", unlockWave: 4, priceRate: .075 },
+  { id: "evasion-drive", title: "闪避推进器", desc: "移动速度 +5%，减伤 +2%，技能冷却 -3%", icon: "〽", cost: 96, category: "防御", rarity: "epic", unlockWave: 6, priceRate: .08 },
+
+  { id: "collector", title: "磁力扩展器", desc: "拾取范围永久 +14%", icon: "◉", cost: 44, category: "核心", rarity: "common" },
+  { id: "drone-kit", title: "无人机组装包", desc: "增加 1 架本职业无人机", icon: "✣", cost: 108, category: "核心", rarity: "epic", unlockWave: 2, priceRate: .095 },
+  { id: "reactor-cell", title: "反应堆电池", desc: "主动技能冷却永久 -7%", icon: "◌", cost: 82, category: "核心", rarity: "rare", unlockWave: 3 },
+  { id: "drone-overclock", title: "蜂群超频芯片", desc: "无人机伤害永久 +20%", icon: "✥", cost: 90, category: "核心", rarity: "rare", unlockWave: 4 },
+  { id: "signature-module", title: "职业校准模组", desc: "强化当前机甲的独特主动或被动机制", icon: "◎", cost: 102, category: "核心", rarity: "epic", unlockWave: 5, priceRate: .09 },
+  { id: "ultimate-amplifier", title: "终极增幅核心", desc: "终极大招伤害永久 +12%", icon: "✹", cost: 122, category: "核心", rarity: "legendary", unlockWave: 7, priceRate: .105 },
 ];
 
 const BOSS_RELICS: BossRelic[] = [
@@ -370,7 +387,13 @@ const GUARDIAN_SHIELD_MAX = 5;
 const MIN_GUARDIAN_COOLDOWN = 7;
 const MAX_UPGRADE_REROLLS = 2;
 const MAX_SHOP_REROLLS = 3;
-const shopRerollPrice = (wave: number, used: number) => 13 + Math.max(0, wave - 1) * 3 + used * 12;
+const roundShopPrice = (value: number) => Math.max(5, Math.ceil(value / 5) * 5);
+const shopRerollPrice = (wave: number, used: number, wallet: number) => {
+  const lateWave = Math.max(0, wave - 1);
+  const wavePrice = (22 + wave * 7 + Math.pow(lateWave, 1.68) * 4) * (1 + used * .65);
+  const economyFloor = wallet * (.07 + used * .055);
+  return roundShopPrice(Math.max(wavePrice, economyFloor));
+};
 const upgradeRerollPrice = (wave: number, used: number) => 10 + Math.floor(Math.max(0, wave - 1) / 2) * 2 + used * 8;
 const shuffled = <T,>(items: T[]) => [...items].sort(() => Math.random() - .5);
 const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
@@ -415,11 +438,36 @@ const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame) => {
   }
   return shuffled(choices);
 };
-const rollShopItems = (wave: number) => {
-  const priceScale = 1 + Math.max(0, wave - 1) * .14;
-  return shuffled(SHOP_ITEMS)
-    .slice(0, 4)
-    .map((item) => ({ ...item, cost: Math.max(item.cost, Math.round(item.cost * priceScale)) }));
+const SHOP_CATEGORIES: ShopCategory[] = ["补给", "武装", "防御", "核心"];
+const SHOP_CATEGORY_PRICE_RATE: Record<ShopCategory, number> = { 补给: .04, 武装: .065, 防御: .06, 核心: .08 };
+const SHOP_RARITY_WEIGHTS: Record<UpgradeRarity, number> = { common: 62, rare: 26, epic: 9, legendary: 3 };
+const SHOP_RARITY_PRICE_MULTIPLIER: Record<UpgradeRarity, number> = { common: 1, rare: 1.08, epic: 1.2, legendary: 1.38 };
+const weightedShopPick = (items: ShopItem[]) => {
+  const totalWeight = items.reduce((sum, item) => sum + SHOP_RARITY_WEIGHTS[item.rarity], 0);
+  let roll = Math.random() * totalWeight;
+  for (const item of items) {
+    roll -= SHOP_RARITY_WEIGHTS[item.rarity];
+    if (roll <= 0) return item;
+  }
+  return items[items.length - 1];
+};
+const rollShopItems = (wave: number, wallet: number, recentIds: string[] = []) => {
+  const lateWave = Math.max(0, wave - 1);
+  const priceScale = 1 + lateWave * .18 + Math.pow(lateWave, 1.45) * .075;
+  const unlocked = SHOP_ITEMS.filter((item) => (item.unlockWave || 1) <= wave);
+  const recent = new Set(recentIds);
+  const picked = new Set<string>();
+  const choices = SHOP_CATEGORIES.flatMap((category) => {
+    const categoryItems = unlocked.filter((item) => item.category === category && !picked.has(item.id));
+    const freshItems = categoryItems.filter((item) => !recent.has(item.id));
+    const item = weightedShopPick(freshItems.length ? freshItems : categoryItems);
+    if (!item) return [];
+    picked.add(item.id);
+    const economyFloor = wallet * (item.priceRate || SHOP_CATEGORY_PRICE_RATE[item.category]);
+    const rarityPrice = item.cost * priceScale * SHOP_RARITY_PRICE_MULTIPLIER[item.rarity];
+    return [{ ...item, cost: roundShopPrice(Math.max(rarityPrice, economyFloor)) }];
+  });
+  return shuffled(choices);
 };
 
 const CLASSES: ClassSpec[] = [
@@ -906,6 +954,7 @@ export default function Home() {
     let currentWave = 1, waveKills = 0, nextSupplyAt = 45, lastBossWave = 0;
     let localUpgradeRerolls = 0, localShopRerolls = 0;
     let shopStock: ShopItem[] = [];
+    let recentShopIds: string[] = [];
     let localShopDone = false, remoteShopDone = false;
     let pendingMissileWaves: { actor: Actor; combatStats: BuildFrame | CombatStats; owner: PlayerSide; delay: number }[] = [];
     const REVIVE_SECONDS = 2;
@@ -1093,7 +1142,8 @@ export default function Home() {
         setWave(currentWave);
         setSupplyReward(data.reward);
         setWaitingSupply(false);
-        shopStock = rollShopItems(currentWave);
+        shopStock = rollShopItems(currentWave, guestCoins, recentShopIds);
+        recentShopIds = shopStock.map((item) => item.id);
         setShopItems(shopStock);
       }
       if (data.t === "shop-done" && isAuthority) {
@@ -1148,7 +1198,7 @@ export default function Home() {
       hostReviveProgress = 0; guestReviveProgress = 0;
       hostCoins = 0; guestCoins = 0; hostUltimate = 0; guestUltimate = 0;
       currentWave = 1; waveKills = 0; nextSupplyAt = 45; lastBossWave = 0;
-      localUpgradeRerolls = 0; localShopRerolls = 0; shopStock = [];
+      localUpgradeRerolls = 0; localShopRerolls = 0; shopStock = []; recentShopIds = [];
       localShopDone = false; remoteShopDone = false; pendingMissileWaves = [];
       localUpgradeDone = false; waitingForRemoteUpgrade = false;
       keys.clear();
@@ -1282,15 +1332,61 @@ export default function Home() {
       if (!item || localWallet() < item.cost) return;
       setLocalWallet(localWallet() - item.cost);
       if (id === "medkit" && player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 36);
+      if (id === "repair-gel") {
+        player.maxHp += 4;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 26);
+      }
+      if (id === "combat-cocktail") {
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 18);
+        setLocalUltimate(localUltimate() + 12);
+      }
+      if (id === "full-service" && player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .32);
       if (id === "overhaul") {
         player.maxHp += 12;
         player.hp = Math.min(player.maxHp, player.hp + 12);
       }
       if (id === "ammo") stats.damage *= 1.08;
       if (id === "coolant") stats.interval *= .94;
+      if (id === "crit-optic") {
+        stats.critChance = Math.min(.72, stats.critChance + .06);
+        stats.projectileSpeed *= 1.08;
+      }
+      if (id === "projectile-core") {
+        stats.damage *= 1.05;
+        stats.projectileSpeed *= 1.14;
+        stats.projectileSize += .8;
+      }
+      if (id === "multi-loader") {
+        stats.multi += 1;
+        stats.interval *= 1.07;
+      }
       if (id === "collector") stats.magnet *= 1.14;
       if (id === "drone-kit") stats.drones += 1;
       if (id === "reactor-cell") stats.skillHaste = Math.max(.5, stats.skillHaste * .93);
+      if (id === "servo") stats.speed *= 1.07;
+      if (id === "armor-plate") stats.damageReduction = Math.min(.62, stats.damageReduction + .04);
+      if (id === "adaptive-hull") {
+        player.maxHp += 8;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 24);
+        stats.damageReduction = Math.min(.62, stats.damageReduction + .02);
+      }
+      if (id === "evasion-drive") {
+        stats.speed *= 1.05;
+        stats.damageReduction = Math.min(.62, stats.damageReduction + .02);
+        stats.skillHaste = Math.max(.5, stats.skillHaste * .97);
+      }
+      if (id === "drone-overclock") stats.dronePower *= 1.2;
+      if (id === "signature-module") {
+        if (build.classId === "assault") { stats.missileCount += 2; stats.projectileSize += .35; }
+        if (build.classId === "guardian") { stats.shieldDuration = Math.min(GUARDIAN_SHIELD_MAX, stats.shieldDuration + .35); stats.damageReduction = Math.min(.62, stats.damageReduction + .015); }
+        if (build.classId === "engineer") { stats.dronePower *= 1.15; stats.repairPower *= 1.1; }
+        if (build.classId === "phantom") { stats.dashDistance += 35; stats.critChance = Math.min(.72, stats.critChance + .03); }
+        if (build.classId === "laser") stats.laserPower *= 1.15;
+        if (build.classId === "frost") stats.frostPower *= 1.15;
+        if (build.classId === "blade") { stats.meleePower *= 1.15; stats.meleeRange *= 1.06; }
+        if (build.classId === "gravity") stats.gravityPower *= 1.15;
+      }
+      if (id === "ultimate-amplifier") stats.ultimatePower *= 1.12;
       if (id === "ult-battery") setLocalUltimate(localUltimate() + 22);
       build = { ...build, ...stats, maxHp: player.maxHp };
       ownBuildRef.current = { ...build };
@@ -1301,12 +1397,13 @@ export default function Home() {
       audio?.play("upgrade");
     };
     rerollShopRef.current = () => {
-      const cost = shopRerollPrice(currentWave, localShopRerolls);
+      const cost = shopRerollPrice(currentWave, localShopRerolls, localWallet());
       if (localShopRerolls >= MAX_SHOP_REROLLS || localWallet() < cost) return;
       setLocalWallet(localWallet() - cost);
       localShopRerolls += 1;
       setShopRerolls(localShopRerolls);
-      shopStock = rollShopItems(currentWave);
+      shopStock = rollShopItems(currentWave, localWallet(), recentShopIds);
+      recentShopIds = shopStock.map((item) => item.id);
       setShopItems(shopStock);
       audio?.play("ui");
     };
@@ -1996,7 +2093,8 @@ export default function Home() {
         setCoins(hostCoins);
         setSupplyReward(reward);
         setWaitingSupply(false);
-        shopStock = rollShopItems(currentWave);
+        shopStock = rollShopItems(currentWave, hostCoins, recentShopIds);
+        recentShopIds = shopStock.map((item) => item.id);
         setShopItems(shopStock);
         if (network?.connected()) void network.send({ t: "shop-open", wave: currentWave, reward, coins: guestCoins });
         return;
@@ -3015,7 +3113,7 @@ export default function Home() {
   };
   const selectedClassSpec = CLASSES.find((item) => item.id === selectedClass) || CLASSES[0];
   const currentUpgradeRerollCost = upgradeRerollPrice(wave, upgradeRerolls);
-  const currentShopRerollCost = shopRerollPrice(wave, shopRerolls);
+  const currentShopRerollCost = shopRerollPrice(wave, shopRerolls, coins);
   const classSelector = <div className="classGrid">
     {CLASSES.map((item) => <button key={item.id} className={selectedClass===item.id?"selected":""} onClick={()=>selectClass(item.id)}>
       <span className={mechPreviewClass(item)} style={mechPreviewStyle(item)} aria-hidden="true"/>
@@ -3031,7 +3129,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.12.1 · 兽潮构筑</div>
+        <div className="status"><i /> 版本 0.12.2 · 补给扩容</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -3163,11 +3261,11 @@ export default function Home() {
           <div className="shopPanel">
             <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波结算</div>
             <h2>战场补给站</h2>
-            <p>本波共享结算 <b>◈ {supplyReward}</b>。联机时双方获得相同金币，但购买各自结算；商品会随波次逐渐涨价。</p>
+            <p>本波共享结算 <b>◈ {supplyReward}</b>。商品价格会随波次与个人经济持续上涨；连续刷新费用逐次提高，高稀有度配件出现概率更低。</p>
             <div className="shopWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
-            <div className="shopGrid">{shopItems.map((item)=><button key={item.id} onClick={()=>buyShopItemRef.current(item.id)} disabled={coins<item.cost}>
-              <i>{item.icon}</i><b>{item.title}</b><span>{item.desc}</span><small>◈ {item.cost}</small>
+            <div className="shopGrid">{shopItems.map((item)=><button key={item.id} className={`shop-rarity-${item.rarity}`} onClick={()=>buyShopItemRef.current(item.id)} disabled={coins<item.cost}>
+              <em>{item.category} · {RARITY_LABELS[item.rarity]}</em><i>{item.icon}</i><b>{item.title}</b><span>{item.desc}</span><small>◈ {item.cost}</small>
             </button>)}</div>
             <div className="shopActions">
               <button className="rerollBtn" onClick={()=>rerollShopRef.current()} disabled={shopRerolls>=MAX_SHOP_REROLLS||coins<currentShopRerollCost}>

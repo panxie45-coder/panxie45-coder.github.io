@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.12\.1 · 兽潮构筑/);
+  assert.match(html, /版本 0\.12\.2 · 补给扩容/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -113,14 +113,27 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /Math\.min\(GUARDIAN_SHIELD_MAX, stats\.shieldDuration, cooldownSeconds - 2\)/);
   assert.match(page, /const MAX_UPGRADE_REROLLS = 2/);
   assert.match(page, /const MAX_SHOP_REROLLS = 3/);
-  assert.match(page, /const shopRerollPrice/);
-  assert.match(page, /cost: 18 \},\s+\{ id: "overhaul"/);
-  assert.match(page, /cost: 42 \},\s+\{ id: "reactor-cell"/);
+  assert.match(page, /type ShopCategory = "补给" \| "武装" \| "防御" \| "核心"/);
+  assert.match(page, /const shopRerollPrice = \(wave: number, used: number, wallet: number\)/);
+  assert.match(page, /Math\.pow\(lateWave, 1\.68\) \* 4/);
+  assert.match(page, /wallet \* \(\.07 \+ used \* \.055\)/);
+  assert.match(page, /const SHOP_CATEGORIES/);
+  assert.match(page, /const SHOP_RARITY_WEIGHTS/);
+  assert.match(page, /common: 62, rare: 26, epic: 9, legendary: 3/);
+  assert.match(page, /const weightedShopPick/);
+  assert.match(page, /const SHOP_RARITY_PRICE_MULTIPLIER/);
+  assert.match(page, /const rollShopItems = \(wave: number, wallet: number, recentIds: string\[\] = \[\]\)/);
+  assert.match(page, /Math\.pow\(lateWave, 1\.45\) \* \.075/);
+  assert.match(page, /id: "ultimate-amplifier"[\s\S]*rarity: "legendary"/);
+  assert.match(page, /id: "signature-module"/);
+  assert.match(page, /id: "multi-loader"/);
   assert.match(page, /player\.hp \+ 36/);
   assert.match(page, /stats\.damage \*= 1\.08/);
   assert.match(page, /stats\.interval \*= \.94/);
   assert.match(page, /stats\.magnet \*= 1\.14/);
   assert.match(page, /localUltimate\(\) \+ 22/);
+  assert.match(page, /stats\.ultimatePower \*= 1\.12/);
+  assert.match(page, /recentShopIds = shopStock\.map/);
   assert.match(page, /coOpActive \? 100 : 82/);
   assert.match(page, /Math\.max\(\.17, \.58 - elapsed \* \.00145\)/);
   assert.match(page, /Math\.max\(\.2, \.7 - elapsed \* \.00155\)/);
@@ -133,7 +146,8 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /const coOpScale = remote \? 1\.5 : 1;\s+const lateBossWave/);
   assert.match(page, /Math\.pow\(lateBossWave \/ 6, 1\.45\) \* \.45/);
   assert.match(page, /const upgradeRerollPrice/);
-  assert.match(page, /商品会随波次逐渐涨价/);
+  assert.match(page, /商品价格会随波次与个人经济持续上涨/);
+  assert.match(page, /高稀有度配件出现概率更低/);
   assert.match(page, /刷新次数已用尽/);
   assert.match(page, /const spawnBoss/);
   assert.match(page, /currentWave % 3 === 0/);
@@ -205,6 +219,7 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(css, /\.panelVitals/);
   assert.match(css, /\.upgradeGrid button\.ultimateUpgrade/);
   assert.match(css, /\.upgradeGrid button\.rarity-legendary/);
+  assert.match(css, /\.shopGrid button\.shop-rarity-legendary/);
   assert.match(css, /\.ultimateCopy em/);
   assert.match(css, /\.bossNotice/);
 
