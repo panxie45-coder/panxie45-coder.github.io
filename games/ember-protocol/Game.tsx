@@ -135,7 +135,7 @@ type CombatEffect = {
   color: string;
   radius: number;
 };
-type Gem = { x: number; y: number; value: number; relic?: BossRelicId };
+type Gem = { x: number; y: number; value: number; relic?: BossRelicId; heal?: number };
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
   elapsed: number;
@@ -492,7 +492,7 @@ const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame) => {
   const fullPool = [...UPGRADES, ...classPool];
   const excluded = new Set<string>();
   const choices: Upgrade[] = [];
-  const signature = weightedUpgradePick(classPool, excluded);
+  const signature = weightedUpgradePick(CLASS_UPGRADES[classId], excluded);
   if (signature) {
     choices.push(signature);
     excluded.add(signature.id);
@@ -574,7 +574,7 @@ const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; ra
   mortarwasp: { hp: 84, speed: 63, hit: 11, radius: 19, color: "#efa330", cooldown: 2.7 },
   leech: { hp: 118, speed: 52, hit: 10, radius: 21, color: "#a56cff", cooldown: 2.25 },
   rammer: { hp: 230, speed: 48, hit: 20, radius: 29, color: "#568dc9", cooldown: 3.8 },
-  boss: { hp: 2300, speed: 42, hit: 15, radius: 48, color: "#f06b66", cooldown: 2.2 },
+  boss: { hp: 3400, speed: 42, hit: 15, radius: 48, color: "#f06b66", cooldown: 2.2 },
 };
 const ENEMY_XP: Record<EnemyKind, number> = {
   runner: 1,
@@ -591,6 +591,7 @@ const ENEMY_XP: Record<EnemyKind, number> = {
   rammer: 11,
   boss: 55,
 };
+const HEALTH_PACK_ENEMY_KINDS: EnemyKind[] = ["brute", "commander", "leech", "rammer", "boss"];
 const ENEMY_ATTACK_MODE: Record<EnemyKind, "melee" | "ranged"> = {
   runner: "melee",
   crawler: "melee",
@@ -1033,7 +1034,7 @@ export default function Home() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const W = 1280, H = 720;
+    const W = 1600, H = 900;
     canvas.width = W; canvas.height = H;
     let raf = 0, last = performance.now(), elapsed = 0, spawnClock = 0, fireClock = 0;
     let nextSurgeAt = 22, surgeRemaining = 0, surgeSpawnClock = 0;
@@ -1729,7 +1730,7 @@ export default function Home() {
       const variant = BOSS_VARIANTS[bossVariant];
       const coOpScale = remote ? 1.5 : 1;
       const lateBossWave = Math.max(0, currentWave - 3);
-      const waveScale = 1 + lateBossWave * .34 + Math.pow(lateBossWave / 6, 1.45) * .45;
+      const waveScale = 1 + lateBossWave * .38 + Math.pow(lateBossWave / 6, 1.45) * .5;
       const maxHp = config.hp * variant.hp * waveScale * coOpScale;
       enemies.push({
         id: nextEnemyId++,
@@ -1827,6 +1828,12 @@ export default function Home() {
         pendingMissileWaves.push({ actor, combatStats: { ...combatStats }, owner, delay: waveIndex * .28 });
       }
     };
+    const applyEnemyDamage = (enemy: Enemy, amount: number, owner?: PlayerSide) => {
+      const phase = enemy.bossPhase || 1;
+      const bossResilience = enemy.kind !== "boss" ? 1 : phase === 1 ? .82 : phase === 2 ? .74 : .68;
+      enemy.hp -= amount * bossResilience;
+      if (owner) enemy.lastHitBy = owner;
+    };
     const fireLaser = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
       const target = enemies.length
         ? enemies.reduce((nearest, enemy) => dist(actor, enemy) < dist(actor, nearest) ? enemy : nearest)
@@ -1840,8 +1847,7 @@ export default function Home() {
         const along = (enemy.x - actor.x) * Math.cos(angle) + (enemy.y - actor.y) * Math.sin(angle);
         const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(angle) - (enemy.y - actor.y) * Math.cos(angle));
         if (along > 0 && along < length && perpendicular < enemy.r + 19 * combatStats.laserPower) {
-          enemy.hp -= combatStats.damage * 9 * combatStats.laserPower;
-          enemy.lastHitBy = owner;
+          applyEnemyDamage(enemy, combatStats.damage * 9 * combatStats.laserPower, owner);
           burst(enemy.x, enemy.y, "#ff5b58", 9);
         }
       }
@@ -1852,8 +1858,7 @@ export default function Home() {
         if (dist(actor, enemy) > radius) continue;
         enemy.frozen = Math.max(enemy.frozen || 0, Math.min(3.2, 1.45 * combatStats.frostPower));
         enemy.slow = Math.max(enemy.slow, 5.5 * combatStats.frostPower);
-        enemy.hp -= combatStats.damage * 2.4 * combatStats.frostPower;
-        enemy.lastHitBy = owner;
+        applyEnemyDamage(enemy, combatStats.damage * 2.4 * combatStats.frostPower, owner);
         burst(enemy.x, enemy.y, "#8bdcff", 7);
       }
       for (let index = 0; index < 30; index++) {
@@ -1877,8 +1882,7 @@ export default function Home() {
         const enemyAngle = Math.atan2(enemy.y - actor.y, enemy.x - actor.x);
         const angleDelta = Math.abs(Math.atan2(Math.sin(enemyAngle - angle), Math.cos(enemyAngle - angle)));
         if (angleDelta > .92) continue;
-        enemy.hp -= damage;
-        enemy.lastHitBy = owner;
+        applyEnemyDamage(enemy, damage, owner);
         hitCount += 1;
         burst(enemy.x, enemy.y, "#ff9b43", 7);
         impactEffect(enemy.x, enemy.y, "#ffb25d", 34);
@@ -1924,8 +1928,7 @@ export default function Home() {
       fireBlade(actor, combatStats, owner, 2.35);
       for (const enemy of enemies) {
         if (dist(actor, enemy) > combatStats.meleeRange * 1.25 + enemy.r) continue;
-        enemy.hp -= combatStats.damage * combatStats.meleePower * .75;
-        enemy.lastHitBy = owner;
+        applyEnemyDamage(enemy, combatStats.damage * combatStats.meleePower * .75, owner);
       }
     };
     const gravityWell = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
@@ -1938,8 +1941,7 @@ export default function Home() {
         enemy.x += Math.cos(angle) * pull;
         enemy.y += Math.sin(angle) * pull;
         enemy.slow = Math.max(enemy.slow, 2.6 * combatStats.gravityPower);
-        enemy.hp -= combatStats.damage * 2.3 * combatStats.gravityPower;
-        enemy.lastHitBy = owner;
+        applyEnemyDamage(enemy, combatStats.damage * 2.3 * combatStats.gravityPower, owner);
         burst(enemy.x, enemy.y, "#a58cff", 6);
       }
       addEffect({ kind: "skill", classId: "gravity", x: actor.x, y: actor.y, color: "#a58cff", radius }, 1);
@@ -1955,8 +1957,7 @@ export default function Home() {
           .sort((a, b) => dist(source, a) - dist(source, b))[0];
         if (!target) break;
         const damageScale = Math.max(.54, 1 - index * .09);
-        target.hp -= combatStats.damage * 3.15 * combatStats.lightningPower * damageScale;
-        target.lastHitBy = owner;
+        applyEnemyDamage(target, combatStats.damage * 3.15 * combatStats.lightningPower * damageScale, owner);
         target.stunned = Math.max(target.stunned || 0, .34);
         beams.push({ x1: source.x, y1: source.y, x2: target.x, y2: target.y, life: .3, width: Math.max(3, 8 - index * .6), color: index % 2 ? "#b9f8ff" : "#48dfff" });
         burst(target.x, target.y, "#48dfff", 8);
@@ -1979,8 +1980,7 @@ export default function Home() {
         const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(angle) - (enemy.y - actor.y) * Math.cos(angle));
         if (along <= 0 || along >= length || perpendicular >= enemy.r + 16) continue;
         const bossMultiplier = enemy.kind === "boss" ? 1.28 : 1;
-        enemy.hp -= combatStats.damage * 7.6 * combatStats.sniperPower * bossMultiplier;
-        enemy.lastHitBy = owner;
+        applyEnemyDamage(enemy, combatStats.damage * 7.6 * combatStats.sniperPower * bossMultiplier, owner);
         burst(enemy.x, enemy.y, "#ff6a62", 12);
       }
       addEffect({ kind: "skill", classId: "sky", x: actor.x, y: actor.y, x2, y2, color: "#ff6a62", radius: 520 }, .72);
@@ -1995,8 +1995,7 @@ export default function Home() {
         const enemyAngle = Math.atan2(enemy.y - actor.y, enemy.x - actor.x);
         const delta = Math.abs(Math.atan2(Math.sin(enemyAngle - angle), Math.cos(enemyAngle - angle)));
         if (delta > .62) continue;
-        enemy.hp -= combatStats.damage * 2.5 * combatStats.burnPower;
-        enemy.lastHitBy = owner;
+        applyEnemyDamage(enemy, combatStats.damage * 2.5 * combatStats.burnPower, owner);
         enemy.burn = Math.max(enemy.burn || 0, 5.2 * combatStats.burnPower);
         enemy.burnDamage = Math.max(enemy.burnDamage || 0, combatStats.damage * .42 * combatStats.burnPower);
         enemy.burnOwner = owner;
@@ -2010,8 +2009,7 @@ export default function Home() {
       const aimTarget = enemies.filter((enemy) => enemy.hp > 0).sort((a, b) => b.maxHp - a.maxHp)[0];
       const aimAngle = aimTarget ? Math.atan2(aimTarget.y - actor.y, aimTarget.x - actor.x) : -Math.PI / 2;
       const damageEnemy = (enemy: Enemy, amount: number) => {
-        enemy.hp -= amount;
-        enemy.lastHitBy = owner;
+        applyEnemyDamage(enemy, amount, owner);
       };
       if (classId === "assault") {
         const strikeTargets = [...enemies].sort((a, b) => b.maxHp - a.maxHp).slice(0, Math.round(combatStats.ultimateTargets));
@@ -2235,7 +2233,7 @@ export default function Home() {
       }
     };
 
-    const xpNeed = () => Math.round(10 + currentLevel * 4.4 + Math.pow(Math.max(0, currentLevel - 1), 1.34) * 1.35);
+    const xpNeed = () => Math.round(16 + currentLevel * 6.8 + Math.pow(Math.max(0, currentLevel - 1), 1.55) * 1.85);
     const sendWorld = () => {
       if (!network?.connected() || !isAuthority) return;
       void network.send({
@@ -2458,8 +2456,7 @@ export default function Home() {
         if (!livingActors.length) continue;
         if ((enemy.burn || 0) > 0) {
           enemy.burn = Math.max(0, (enemy.burn || 0) - dt);
-          enemy.hp -= (enemy.burnDamage || 0) * dt;
-          enemy.lastHitBy = enemy.burnOwner || enemy.lastHitBy;
+          applyEnemyDamage(enemy, (enemy.burnDamage || 0) * dt, enemy.burnOwner || enemy.lastHitBy);
         }
         const target = livingActors.reduce((nearest, actor) => dist(enemy, actor) < dist(enemy, nearest) ? actor : nearest);
         const targetDistance = dist(enemy, target);
@@ -2755,8 +2752,7 @@ export default function Home() {
             resolvedDamage -= absorbed;
             burst(enemy.x, enemy.y, "#70fff1", 6);
           }
-          enemy.hp -= resolvedDamage;
-          enemy.lastHitBy = shot.owner || "host";
+          applyEnemyDamage(enemy, resolvedDamage, shot.owner || "host");
           shot.hitIds = [...(shot.hitIds || []), enemy.id];
           if (shot.slow) enemy.slow = Math.max(enemy.slow, shot.slow);
           if (shot.burn) {
@@ -2769,8 +2765,7 @@ export default function Home() {
           if (shot.splash) {
             for (const nearby of nearbyEnemies(enemy.x, enemy.y, shot.splash)) {
               if (nearby === enemy || nearby.hp <= 0 || dist(enemy, nearby) > shot.splash) continue;
-              nearby.hp -= shot.damage * .38;
-              nearby.lastHitBy = shot.owner || "host";
+              applyEnemyDamage(nearby, shot.damage * .38, shot.owner || "host");
             }
             burst(enemy.x, enemy.y, "#f4c95d", 12);
           }
@@ -2781,8 +2776,7 @@ export default function Home() {
               .filter((candidate) => candidate !== enemy && candidate.hp > 0 && !shot.hitIds?.includes(candidate.id) && dist(enemy, candidate) < 145)
               .sort((a, b) => dist(enemy, a) - dist(enemy, b))[0];
             if (next) {
-              next.hp -= shot.damage * .48;
-              next.lastHitBy = shot.owner || "host";
+              applyEnemyDamage(next, shot.damage * .48, shot.owner || "host");
               const chainColor = shot.classId === "thunder" ? "#48dfff" : "#a9ef84";
               beams.push({ x1: enemy.x, y1: enemy.y, x2: next.x, y2: next.y, life: .16, width: 4, color: chainColor });
               burst(next.x, next.y, chainColor, 5);
@@ -2823,6 +2817,16 @@ export default function Home() {
             ? ENEMY_XP.boss + currentWave * 6
             : Math.round(ENEMY_XP[enemy.kind] * (enemy.elite ? 1.75 : 1));
           gems.push({x:enemy.x,y:enemy.y,value,relic:bossRelic?.id});
+          if (enemy.elite || HEALTH_PACK_ENEMY_KINDS.includes(enemy.kind)) {
+            const heal = enemy.kind === "boss"
+              ? .28
+              : enemy.kind === "commander" || enemy.kind === "rammer"
+                ? .16
+                : enemy.elite
+                  ? .14
+                  : .1;
+            gems.push({ x: enemy.x + 18, y: enemy.y - 12, value: 0, heal });
+          }
           audio?.play("kill");
           burst(enemy.x,enemy.y,enemy.color,enemy.kind === "boss" ? 46 : 10);
           impactEffect(enemy.x, enemy.y, enemy.kind === "boss" ? "#ff5b7d" : enemy.elite ? "#f4c95d" : enemy.color, enemy.kind === "boss" ? 180 : enemy.elite ? 72 : 42);
@@ -2849,7 +2853,7 @@ export default function Home() {
         const collectors = [
           ...(player.hp > 0 ? [{ actor: player, magnet: stats.magnet }] : []),
           ...(remote && remote.hp > 0 ? [{ actor: remote, magnet: remoteBuildRef.current?.magnet || 84 }] : []),
-        ];
+        ].filter((entry) => !gem.heal || entry.actor.hp < entry.actor.maxHp);
         const attractor = collectors
           .map((entry) => ({ ...entry, distance: dist(gem, entry.actor) }))
           .filter((entry) => entry.distance < entry.magnet)
@@ -2864,6 +2868,23 @@ export default function Home() {
           .filter((entry) => entry.distance < entry.actor.r + 8)
           .sort((a, b) => a.distance - b.distance)[0];
         if (collector) {
+          if (gem.heal) {
+            const before = collector.actor.hp;
+            collector.actor.hp = Math.min(
+              collector.actor.maxHp,
+              collector.actor.hp + Math.max(1, Math.round(collector.actor.maxHp * gem.heal)),
+            );
+            const restored = Math.max(0, Math.ceil(collector.actor.hp - before));
+            if (collector.actor === player) setHp(Math.ceil(player.hp));
+            else setTeammateHp(Math.ceil(collector.actor.hp));
+            addEffect({ kind: "revive", x: gem.x, y: gem.y, color: "#76f0ae", radius: 92 }, .68);
+            burst(gem.x, gem.y, "#76f0ae", 14);
+            setBossLootNotice(`✚ 战地维修包 · 回复 ${restored} 点机体完整度`);
+            gem.heal = undefined;
+            gem.value = 0;
+            audio?.play("upgrade");
+            continue;
+          }
           const earnedXp = gem.value;
           if (gem.relic) {
             const relic = BOSS_RELICS.find((entry) => entry.id === gem.relic);
@@ -2899,7 +2920,7 @@ export default function Home() {
           }
         }
       }
-      gems = gems.filter((gem) => gem.value > 0);
+      gems = gems.filter((gem) => gem.value > 0 || Boolean(gem.heal));
 
       worldClock -= dt;
       if (worldClock <= 0) {
@@ -2934,6 +2955,16 @@ export default function Home() {
       ctx.fillStyle="rgba(244,201,93,.035)";
       for(let i=0;i<24;i++){ const x=(i*193)%W,y=(i*317)%H;ctx.beginPath();ctx.arc(x,y,18+(i%4)*9,0,Math.PI*2);ctx.fill();}
       for(const g of gems){
+        if(g.heal){
+          const pulse=1+Math.sin(performance.now()/170)*.08;
+          ctx.save();ctx.translate(g.x,g.y);ctx.scale(pulse,pulse);
+          ctx.fillStyle="#b83d39";ctx.shadowColor="#76f0ae";ctx.shadowBlur=18;ctx.fillRect(-14,-14,28,28);
+          ctx.strokeStyle="#f0c1b9";ctx.lineWidth=2;ctx.strokeRect(-14,-14,28,28);
+          ctx.fillStyle="#f5eee7";ctx.fillRect(-4,-10,8,20);ctx.fillRect(-10,-4,20,8);
+          ctx.restore();
+          ctx.fillStyle="#bdf7d5";ctx.font="900 10px monospace";ctx.textAlign="center";ctx.fillText("维修包",g.x,g.y-22);
+          continue;
+        }
         const gemSize=g.relic?15:6+Math.min(7,Math.sqrt(g.value)*1.5);
         ctx.save();ctx.translate(g.x,g.y);ctx.rotate(performance.now()/600);
         ctx.fillStyle=g.relic?"#ffda6a":g.value>=10?"#f4c95d":g.value>=5?"#c7e08f":"#9ed9cc";
@@ -3512,7 +3543,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.13.1 · 随机首领轮换</div>
+        <div className="status"><i /> 版本 0.13.2 · 战场纵深</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -3634,7 +3665,7 @@ export default function Home() {
           <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>每次至少包含一项本职业强化；终极强化按普通、稀有、史诗、传说权重出现，不再每次保底。达到机制上限的强化会移出奖池，终极伤害仍可无限叠加。装配完成后恢复 18% 最大生命值。</p>
             <div className="shopWallet upgradeWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
-            <div className="upgradeGrid">{choices.map((u)=><button key={u.id} className={`${u.ultimate?"ultimateUpgrade ":""}rarity-${u.rarity||"common"}`} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?`终极 · ${RARITY_LABELS[u.rarity||"common"]}`:RARITY_LABELS[u.rarity||"common"]}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
+            <div className="upgradeGrid">{choices.map((u)=><button key={u.id} className={`${u.ultimate?"ultimateUpgrade ":""}rarity-${u.rarity||"common"}`} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?`终极 · ${RARITY_LABELS[u.rarity||"common"]}`:u.classId?`本职业 · ${RARITY_LABELS[u.rarity||"common"]}`:RARITY_LABELS[u.rarity||"common"]}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
             <button className="rerollBtn" onClick={()=>rerollUpgradeRef.current()} disabled={upgradeRerolls>=MAX_UPGRADE_REROLLS||coins<currentUpgradeRerollCost}>
               {upgradeRerolls>=MAX_UPGRADE_REROLLS?"刷新次数已用尽":`◈ ${currentUpgradeRerollCost} 刷新升级 · 剩余 ${MAX_UPGRADE_REROLLS-upgradeRerolls} 次`}
             </button>

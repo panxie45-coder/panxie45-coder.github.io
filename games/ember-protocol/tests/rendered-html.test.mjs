@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.13\.1 · 随机首领轮换/);
+  assert.match(html, /版本 0\.13\.2 · 战场纵深/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -101,6 +101,8 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /const weightedUpgradePick/);
   assert.match(page, /while \(choices\.length < 4\)/);
   assert.match(page, /const availableUltimate = ULTIMATE_UPGRADES\[classId\]\.filter\(\(upgrade\) => ultimateUpgradeAvailable\(upgrade, currentBuild\)\)/);
+  assert.match(page, /const signature = weightedUpgradePick\(CLASS_UPGRADES\[classId\], excluded\)/);
+  assert.match(page, /本职业 · \$\{RARITY_LABELS/);
   assert.match(page, /终极强化按普通、稀有、史诗、传说权重出现/);
   assert.match(page, /const ultimateUpgradeAvailable/);
   assert.match(page, /ultimatePower: \.72/);
@@ -148,7 +150,9 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /addEvolvedEnemy\("artillery", 55/);
   assert.match(page, /addEvolvedEnemy\("commander", 285/);
   assert.match(page, /const coOpScale = remote \? 1\.5 : 1;\s+const lateBossWave/);
-  assert.match(page, /Math\.pow\(lateBossWave \/ 6, 1\.45\) \* \.45/);
+  assert.match(page, /Math\.pow\(lateBossWave \/ 6, 1\.45\) \* \.5/);
+  assert.match(page, /boss: \{ hp: 3400/);
+  assert.match(page, /const bossResilience = enemy\.kind !== "boss"/);
   assert.match(page, /const upgradeRerollPrice/);
   assert.match(page, /商品价格会随波次与个人经济持续上涨/);
   assert.match(page, /高稀有度配件出现概率更低/);
@@ -213,7 +217,13 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /leech: "ranged"/);
   assert.match(page, /kind: "slash",\s+enemyKind: enemy\.kind/);
   assert.match(page, /kind: "dash", enemyKind: "rammer"/);
-  assert.match(page, /10 \+ currentLevel \* 4\.4 \+ Math\.pow/);
+  assert.match(page, /16 \+ currentLevel \* 6\.8 \+ Math\.pow/);
+  assert.match(page, /const W = 1600, H = 900/);
+  assert.match(page, /type Gem = \{ x: number; y: number; value: number; relic\?: BossRelicId; heal\?: number \}/);
+  assert.match(page, /const HEALTH_PACK_ENEMY_KINDS/);
+  assert.match(page, /gems\.push\(\{ x: enemy\.x \+ 18, y: enemy\.y - 12, value: 0, heal \}\)/);
+  assert.match(page, /entry\.actor\.hp < entry\.actor\.maxHp/);
+  assert.match(page, /战地维修包/);
   assert.match(page, /boss-variants\.png/);
   assert.match(page, /boss-projectiles\.png/);
   assert.match(page, /boss-variants-v2\.png/);
@@ -238,6 +248,7 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(css, /\.shopGrid button\.shop-rarity-legendary/);
   assert.match(css, /\.ultimateCopy em/);
   assert.match(css, /\.bossNotice/);
+  assert.match(css, /\.gameWrap\{width:min\(1680px,98vw\)/);
 
   await Promise.all([
     access(new URL("../public/game/player-mechs.png", import.meta.url)),
