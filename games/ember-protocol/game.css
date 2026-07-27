@@ -22,3 +22,66 @@ footer{height:46px;border-top:1px solid rgba(217,224,206,.1);display:flex;align-
 .upgradeGrid button.secondaryUpgrade{box-shadow:inset 0 0 24px rgba(117,230,218,.11),0 0 12px rgba(117,230,218,.05)}.upgradeGrid button.secondaryUpgrade small{color:#83ded4}.upgradeGrid button.secondaryUpgrade i{filter:drop-shadow(0 0 10px rgba(117,230,218,.35))}
 @media(min-width:821px) and (max-width:1050px){.upgradeGrid{grid-template-columns:repeat(2,1fr)}}
 .bossNotice{position:absolute;left:50%;top:16%;z-index:8;transform:translateX(-50%);padding:11px 18px;background:rgba(30,11,33,.9);border:1px solid rgba(220,112,255,.65);color:#f0c8ff;font:900 11px/1.25 monospace;letter-spacing:.08em;box-shadow:0 0 24px rgba(202,86,255,.24);pointer-events:none;animation:boss-notice 2.8s ease both}@keyframes boss-notice{0%{opacity:0;transform:translate(-50%,-10px)}12%,78%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,-8px)}}@media(max-width:820px){.bossNotice{top:24%;max-width:82%;text-align:center}}
+
+/* 0.14.5: larger typography and a responsive five-choice upgrade layout. */
+html,body{font-size:17px}
+.status{font-size:13px}
+.eyebrow{font-size:13px}
+.lede{font-size:18px}
+.actions button span,.compact span{font-size:18px}
+.actions button small,.controls{font-size:13px}
+.loadout>p,.coop p,.upgradePanel>p,.pausePanel p{font-size:16px}
+.classGrid button>small{font-size:11px}
+.classGrid button>b{font-size:25px}
+.classGrid button>span:not(.mechPreview){font-size:13px;line-height:1.55}
+.classGrid button em{font-size:11px}
+.coopLoadoutHeading small{font-size:11px}
+.coopLoadoutHeading b{font-size:21px}
+.coopLoadoutHeading>span{font-size:13px}
+.coopLoadout .classGrid button>b{font-size:18px}
+.coopLoadout .classGrid button>span:not(.mechPreview){font-size:11px}
+.modeGrid b{font-size:19px}
+.modeGrid span,.coop label,.labNote{font-size:14px}
+.joinLine input,.inviteLine input{font-size:14px}
+.networkStatus b{font-size:15px}
+.networkStatus span,.roomCode{font-size:13px}
+.stat span{font-size:12px}
+.stat b{font-size:27px}
+.levelBadge small{font-size:16px}
+.levelBadge b{font-size:30px}
+.skillDock small,.ultimateDock span small{font-size:10px}
+.skillDock b,.ultimateDock span b{font-size:12px}
+.skillDock button,.ultimateDock button{font-size:11px}
+.syncBadge,.health,.mobileHint{font-size:11px}
+.teammateHealth b{font-size:12px}
+.teammateHealth small{font-size:11px}
+.upgradePanel{width:min(1500px,98vw);max-height:94vh;overflow:auto;padding:12px}
+.upgradeGrid{grid-template-columns:repeat(5,1fr);gap:12px}
+.upgradeGrid button{min-height:260px;padding:20px}
+.upgradeGrid small{font-size:12px}
+.upgradeGrid b{font-size:24px}
+.upgradeGrid span{font-size:14px;line-height:1.55}
+.shopPanel>p{font-size:14px}
+.shopGrid>button>em{font-size:11px}
+.shopGrid b{font-size:20px}
+.shopGrid span{font-size:13px}
+.shopGrid small,.rerollBtn{font-size:14px}
+.shopWallet span,.panelVitals>span{font-size:13px}
+.panelVitals>span b{font-size:14px}
+.bossNotice{font-size:13px}
+footer{font-size:11px}
+
+@media(min-width:1051px) and (max-width:1350px){
+  .upgradeGrid{grid-template-columns:repeat(3,1fr)}
+}
+@media(min-width:821px) and (max-width:1050px){
+  .upgradeGrid{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:820px){
+  .upgradeGrid{grid-template-columns:1fr}
+  .upgradePanel{width:96vw;padding:10px}
+  .classGrid button>b{font-size:21px}
+  .classGrid button>span:not(.mechPreview){font-size:12px}
+  .skillDock b,.ultimateDock span b{font-size:11px}
+  .upgradeGrid span,.shopGrid span{font-size:13px}
+}

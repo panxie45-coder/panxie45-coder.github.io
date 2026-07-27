@@ -200,31 +200,63 @@ type NetBridge = {
 };
 
 const GAME_ASSETS = {
-  assassinProjectile: "/game/assassin-projectile.png",
-  bladeMech: "/game/blade-mech.png",
-  bossProjectiles: "/game/boss-projectiles.png",
-  bossProjectilesV2: "/game/boss-projectiles-v2.png",
-  bossVariants: "/game/boss-variants.png",
-  bossVariantsV2: "/game/boss-variants-v2.png",
-  cinderForgeMech: "/game/cinder-forge-mech.png",
-  enemyMechs: "/game/enemy-mechs.png",
-  enemyReinforcementProjectiles: "/game/enemy-reinforcement-projectiles.png",
-  enemyReinforcements: "/game/enemy-reinforcements.png",
-  enemyProjectiles: "/game/enemy-projectiles.png",
-  frostMech: "/game/frost-mech.png",
-  gravityMech: "/game/gravity-mech.png",
-  laserMech: "/game/laser-mech.png",
-  playerMechs: "/game/player-mechs.png",
-  projectileMechs: "/game/projectile-mechs.png",
-  specialistDrones: "/game/specialist-drones.png",
-  specialistProjectiles: "/game/specialist-projectiles.png",
-  supportDrones: "/game/support-drones.png",
-  skyTalonMech: "/game/sky-talon-mech.png",
-  thunderMech: "/game/thunder-mech.png",
-  v2SupportAssets: "/game/v2-support-assets.png",
-  vanguardDrones: "/game/vanguard-drones.png",
-  vanguardProjectiles: "/game/vanguard-projectiles.png",
+  assassinProjectile: "/game/assassin-projectile.webp",
+  bladeMech: "/game/blade-mech.webp",
+  bossProjectiles: "/game/boss-projectiles.webp",
+  bossProjectilesV2: "/game/boss-projectiles-v2.webp",
+  bossVariants: "/game/boss-variants.webp",
+  bossVariantsV2: "/game/boss-variants-v2.webp",
+  cinderForgeMech: "/game/cinder-forge-mech.webp",
+  enemyMechs: "/game/enemy-mechs.webp",
+  enemyReinforcementProjectiles: "/game/enemy-reinforcement-projectiles.webp",
+  enemyReinforcements: "/game/enemy-reinforcements.webp",
+  enemyProjectiles: "/game/enemy-projectiles.webp",
+  frostMech: "/game/frost-mech.webp",
+  gravityMech: "/game/gravity-mech.webp",
+  laserMech: "/game/laser-mech.webp",
+  playerMechs: "/game/player-mechs.webp",
+  projectileMechs: "/game/projectile-mechs.webp",
+  specialistDrones: "/game/specialist-drones.webp",
+  specialistProjectiles: "/game/specialist-projectiles.webp",
+  supportDrones: "/game/support-drones.webp",
+  skyTalonMech: "/game/sky-talon-mech.webp",
+  thunderMech: "/game/thunder-mech.webp",
+  v2SupportAssets: "/game/v2-support-assets.webp",
+  vanguardDrones: "/game/vanguard-drones.webp",
+  vanguardProjectiles: "/game/vanguard-projectiles.webp",
 };
+
+const GAME_IMAGE_CACHE = new Map<string, HTMLImageElement>();
+const GAME_ASSET_RETRY_LIMIT = 2;
+const fallbackPngFor = (src: string) => src.replace(/\.webp(\?.*)?$/, ".png");
+const getGameImage = (src: string) => {
+  const cached = GAME_IMAGE_CACHE.get(src);
+  if (cached) return cached;
+  const image = new Image();
+  image.decoding = "async";
+  let retries = 0;
+  let usingFallback = false;
+  const load = () => {
+    const base = usingFallback ? fallbackPngFor(src) : src;
+    image.src = retries > 0 ? `${base}?retry=${retries}` : base;
+  };
+  image.onerror = () => {
+    if (retries < GAME_ASSET_RETRY_LIMIT) {
+      retries += 1;
+      window.setTimeout(load, retries * 220);
+      return;
+    }
+    if (!usingFallback) {
+      usingFallback = true;
+      retries = 0;
+      load();
+    }
+  };
+  load();
+  GAME_IMAGE_CACHE.set(src, image);
+  return image;
+};
+const preloadGameAssets = () => Object.values(GAME_ASSETS).forEach((src) => getGameImage(src));
 
 const UPGRADES: Upgrade[] = [
   { id: "rapid", title: "余烬弹匣", desc: "射击间隔 -14%", icon: "✦" },
@@ -608,7 +640,7 @@ const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame, wave: nu
   const fullPool = [...UPGRADES, ...classPool];
   const excluded = new Set<string>();
   const choices: Upgrade[] = [];
-  while (choices.length < 4) {
+  while (choices.length < 5) {
     const choice = weightedUpgradePick(fullPool, excluded, wave);
     if (!choice) break;
     choices.push(choice);
@@ -831,23 +863,58 @@ const mechPreviewClass = (classInfo: ClassSpec) => {
   if (classInfo.id === "cinder") return "mechPreview cinderPreview";
   return `mechPreview mech-${classInfo.sprite}`;
 };
-const mechPreviewStyle = (classInfo: ClassSpec): CSSProperties => ({
-  backgroundImage: `url("${classInfo.id === "laser"
-    ? GAME_ASSETS.laserMech
-    : classInfo.id === "frost"
-      ? GAME_ASSETS.frostMech
-      : classInfo.id === "blade"
-        ? GAME_ASSETS.bladeMech
-        : classInfo.id === "gravity"
-          ? GAME_ASSETS.gravityMech
-          : classInfo.id === "thunder"
-            ? GAME_ASSETS.thunderMech
-            : classInfo.id === "sky"
-              ? GAME_ASSETS.skyTalonMech
-              : classInfo.id === "cinder"
-                ? GAME_ASSETS.cinderForgeMech
-                : GAME_ASSETS.playerMechs}")`,
+const mechPreviewAsset = (classInfo: ClassSpec) => classInfo.id === "laser"
+  ? GAME_ASSETS.laserMech
+  : classInfo.id === "frost"
+    ? GAME_ASSETS.frostMech
+    : classInfo.id === "blade"
+      ? GAME_ASSETS.bladeMech
+      : classInfo.id === "gravity"
+        ? GAME_ASSETS.gravityMech
+        : classInfo.id === "thunder"
+          ? GAME_ASSETS.thunderMech
+          : classInfo.id === "sky"
+            ? GAME_ASSETS.skyTalonMech
+            : classInfo.id === "cinder"
+              ? GAME_ASSETS.cinderForgeMech
+              : GAME_ASSETS.playerMechs;
+const mechPreviewStyle = (source: string): CSSProperties => ({
+  backgroundImage: `url("${source}")`,
 });
+const ResilientMechPreview = ({ classInfo }: { classInfo: ClassSpec }) => {
+  const primarySource = mechPreviewAsset(classInfo);
+  const [source, setSource] = useState(primarySource);
+  useEffect(() => {
+    let cancelled = false;
+    let retries = 0;
+    let candidate = primarySource;
+    const probe = new Image();
+    const loadCandidate = () => {
+      probe.src = candidate;
+    };
+    probe.onload = () => {
+      if (!cancelled) setSource(candidate);
+    };
+    probe.onerror = () => {
+      if (retries < GAME_ASSET_RETRY_LIMIT) {
+        retries += 1;
+        candidate = `${primarySource}?preview-retry=${retries}`;
+      } else if (!candidate.includes(".png")) {
+        candidate = fallbackPngFor(primarySource);
+      } else {
+        return;
+      }
+      loadCandidate();
+    };
+    loadCandidate();
+    return () => {
+      cancelled = true;
+      probe.onload = null;
+      probe.onerror = null;
+    };
+  }, [primarySource]);
+  return <span className={mechPreviewClass(classInfo)} style={mechPreviewStyle(source)} aria-hidden="true"/>;
+};
 const applyBossRelicToBuild = (source: BuildFrame, relic: BossRelicId): BuildFrame => {
   if (relic === "titan-core") {
     return {
@@ -1011,6 +1078,10 @@ export default function Home() {
   }, [wakeAudio]);
 
   useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  useEffect(() => {
+    preloadGameAssets();
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1228,54 +1299,30 @@ export default function Home() {
     const keys = new Set<string>();
     const pointer = { x: W / 2, y: H / 2, down: false };
     const audio = audioRef.current;
-    const playerSprites = new Image();
-    const laserSprite = new Image();
-    const frostSprite = new Image();
-    const bladeSprite = new Image();
-    const gravitySprite = new Image();
-    const thunderSprite = new Image();
-    const skySprite = new Image();
-    const cinderSprite = new Image();
-    const enemySprites = new Image();
-    const bossVariantSprites = new Image();
-    const bossVariantSpritesV2 = new Image();
-    const enemyReinforcementSprites = new Image();
-    const bossProjectileSprites = new Image();
-    const bossProjectileSpritesV2 = new Image();
-    const enemyReinforcementProjectiles = new Image();
-    const projectileSprites = new Image();
-    const specialistProjectiles = new Image();
-    const droneSprites = new Image();
-    const specialistDrones = new Image();
-    const vanguardDrones = new Image();
-    const vanguardProjectiles = new Image();
-    const enemyProjectiles = new Image();
-    const assassinProjectile = new Image();
-    const v2SupportAssets = new Image();
-    playerSprites.src = GAME_ASSETS.playerMechs;
-    laserSprite.src = GAME_ASSETS.laserMech;
-    frostSprite.src = GAME_ASSETS.frostMech;
-    bladeSprite.src = GAME_ASSETS.bladeMech;
-    gravitySprite.src = GAME_ASSETS.gravityMech;
-    thunderSprite.src = GAME_ASSETS.thunderMech;
-    skySprite.src = GAME_ASSETS.skyTalonMech;
-    cinderSprite.src = GAME_ASSETS.cinderForgeMech;
-    enemySprites.src = GAME_ASSETS.enemyMechs;
-    bossVariantSprites.src = GAME_ASSETS.bossVariants;
-    bossVariantSpritesV2.src = GAME_ASSETS.bossVariantsV2;
-    enemyReinforcementSprites.src = GAME_ASSETS.enemyReinforcements;
-    bossProjectileSprites.src = GAME_ASSETS.bossProjectiles;
-    bossProjectileSpritesV2.src = GAME_ASSETS.bossProjectilesV2;
-    enemyReinforcementProjectiles.src = GAME_ASSETS.enemyReinforcementProjectiles;
-    projectileSprites.src = GAME_ASSETS.projectileMechs;
-    specialistProjectiles.src = GAME_ASSETS.specialistProjectiles;
-    droneSprites.src = GAME_ASSETS.supportDrones;
-    specialistDrones.src = GAME_ASSETS.specialistDrones;
-    vanguardDrones.src = GAME_ASSETS.vanguardDrones;
-    vanguardProjectiles.src = GAME_ASSETS.vanguardProjectiles;
-    enemyProjectiles.src = GAME_ASSETS.enemyProjectiles;
-    assassinProjectile.src = GAME_ASSETS.assassinProjectile;
-    v2SupportAssets.src = GAME_ASSETS.v2SupportAssets;
+    const playerSprites = getGameImage(GAME_ASSETS.playerMechs);
+    const laserSprite = getGameImage(GAME_ASSETS.laserMech);
+    const frostSprite = getGameImage(GAME_ASSETS.frostMech);
+    const bladeSprite = getGameImage(GAME_ASSETS.bladeMech);
+    const gravitySprite = getGameImage(GAME_ASSETS.gravityMech);
+    const thunderSprite = getGameImage(GAME_ASSETS.thunderMech);
+    const skySprite = getGameImage(GAME_ASSETS.skyTalonMech);
+    const cinderSprite = getGameImage(GAME_ASSETS.cinderForgeMech);
+    const enemySprites = getGameImage(GAME_ASSETS.enemyMechs);
+    const bossVariantSprites = getGameImage(GAME_ASSETS.bossVariants);
+    const bossVariantSpritesV2 = getGameImage(GAME_ASSETS.bossVariantsV2);
+    const enemyReinforcementSprites = getGameImage(GAME_ASSETS.enemyReinforcements);
+    const bossProjectileSprites = getGameImage(GAME_ASSETS.bossProjectiles);
+    const bossProjectileSpritesV2 = getGameImage(GAME_ASSETS.bossProjectilesV2);
+    const enemyReinforcementProjectiles = getGameImage(GAME_ASSETS.enemyReinforcementProjectiles);
+    const projectileSprites = getGameImage(GAME_ASSETS.projectileMechs);
+    const specialistProjectiles = getGameImage(GAME_ASSETS.specialistProjectiles);
+    const droneSprites = getGameImage(GAME_ASSETS.supportDrones);
+    const specialistDrones = getGameImage(GAME_ASSETS.specialistDrones);
+    const vanguardDrones = getGameImage(GAME_ASSETS.vanguardDrones);
+    const vanguardProjectiles = getGameImage(GAME_ASSETS.vanguardProjectiles);
+    const enemyProjectiles = getGameImage(GAME_ASSETS.enemyProjectiles);
+    const assassinProjectile = getGameImage(GAME_ASSETS.assassinProjectile);
+    const v2SupportAssets = getGameImage(GAME_ASSETS.v2SupportAssets);
     const unsubscribeNetwork = network?.subscribe((data) => {
       if (data.t === "player" && isAuthority) {
         coOpRunEstablished = true;
@@ -4019,7 +4066,7 @@ export default function Home() {
   const currentShopRerollCost = shopRerollPrice(wave, shopRerolls, coins);
   const classSelector = <div className="classGrid">
     {CLASSES.map((item) => <button key={item.id} className={selectedClass===item.id?"selected":""} onClick={()=>selectClass(item.id)}>
-      <span className={mechPreviewClass(item)} style={mechPreviewStyle(item)} aria-hidden="true"/>
+      <ResilientMechPreview classInfo={item}/>
       <small>{item.role}</small>
       <b>{item.name}</b>
       <span><em>主技 Q</em>{item.active}</span>
@@ -4033,7 +4080,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.14.4 · 主武器与遗物概率调优</div>
+        <div className="status"><i /> 版本 0.14.5 · 字体、五选一与模型加载修复</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -4136,7 +4183,7 @@ export default function Home() {
             <i><em style={{width:`${clamp(teammateHp/Math.max(1,teammateMaxHp)*100,0,100)}%`}}/></i>
           </div>}
           <div className="skillDock">
-            <span className={mechPreviewClass(selectedClassSpec)} style={mechPreviewStyle(selectedClassSpec)} aria-hidden="true"/>
+            <ResilientMechPreview key={selectedClassSpec.id} classInfo={selectedClassSpec}/>
             <div><small>{selectedClassSpec.role}</small><b>{selectedClassSpec.active}</b></div>
             <button onClick={()=>activeSkillRef.current()} disabled={skillCooldown>0||hp<=0}>{hp<=0?"倒地":skillCooldown>0?`${skillCooldown}s`:"Q · 释放"}</button>
           </div>

@@ -41,7 +41,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.14\.4 · 主武器与遗物概率调优/);
+  assert.match(html, /版本 0\.14\.5 · 字体、五选一与模型加载修复/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -76,16 +76,28 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /eliteChance/);
   assert.match(page, /addEvolvedEnemy\("commander", 285/);
   assert.match(page, /const ENEMY_XP/);
-  assert.match(page, /projectile-mechs\.png/);
-  assert.match(page, /laser-mech\.png/);
-  assert.match(page, /frost-mech\.png/);
-  assert.match(page, /blade-mech\.png/);
-  assert.match(page, /gravity-mech\.png/);
-  assert.match(page, /vanguard-drones\.png/);
-  assert.match(page, /vanguard-projectiles\.png/);
-  assert.match(page, /specialist-drones\.png/);
-  assert.match(page, /enemy-projectiles\.png/);
-  assert.match(page, /assassin-projectile\.png/);
+  assert.match(page, /projectile-mechs\.webp/);
+  assert.match(page, /laser-mech\.webp/);
+  assert.match(page, /frost-mech\.webp/);
+  assert.match(page, /blade-mech\.webp/);
+  assert.match(page, /gravity-mech\.webp/);
+  assert.match(page, /vanguard-drones\.webp/);
+  assert.match(page, /vanguard-projectiles\.webp/);
+  assert.match(page, /specialist-drones\.webp/);
+  assert.match(page, /enemy-projectiles\.webp/);
+  assert.match(page, /assassin-projectile\.webp/);
+  assert.match(page, /const GAME_IMAGE_CACHE = new Map<string, HTMLImageElement>\(\)/);
+  assert.match(page, /const GAME_ASSET_RETRY_LIMIT = 2/);
+  assert.match(page, /const fallbackPngFor/);
+  assert.match(page, /window\.setTimeout\(load, retries \* 220\)/);
+  assert.match(page, /const preloadGameAssets/);
+  assert.match(page, /preloadGameAssets\(\)/);
+  assert.match(page, /const ResilientMechPreview/);
+  assert.match(page, /preview-retry/);
+  assert.match(page, /fallbackPngFor\(primarySource\)/);
+  assert.match(page, /<ResilientMechPreview classInfo=\{item\}\/>/);
+  assert.match(page, /const playerSprites = getGameImage\(GAME_ASSETS\.playerMechs\)/);
+  assert.doesNotMatch(page, /const playerSprites = new Image\(\)/);
   assert.match(page, /runner: "melee"/);
   assert.match(page, /crawler: "melee"/);
   assert.match(page, /brute: "melee"/);
@@ -156,7 +168,7 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /upgradeRarityWeight\(rarity, wave\) \* attackWeight/);
   assert.match(page, /weightedUpgradePick\(fullPool, excluded, wave\)/);
   assert.match(page, /rollUpgradeChoices\(build\.classId, build, currentWave\)/);
-  assert.match(page, /while \(choices\.length < 4\)/);
+  assert.match(page, /while \(choices\.length < 5\)/);
   assert.match(page, /const availableUltimate = ULTIMATE_UPGRADES\[classId\]\.filter\(\(upgrade\) => ultimateUpgradeAvailable\(upgrade, currentBuild\)\)/);
   assert.match(page, /const availableSecondary = SECONDARY_UPGRADES\[classId\]\.filter\(\(upgrade\) => secondaryUpgradeAvailable\(upgrade, currentBuild\)\)/);
   assert.doesNotMatch(page, /const signature = weightedUpgradePick\(CLASS_UPGRADES\[classId\], excluded\)/);
@@ -324,25 +336,30 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /维修包 \$\{Math\.ceil\(g\.life\)\}s/);
   assert.match(page, /entry\.actor\.hp < entry\.actor\.maxHp/);
   assert.match(page, /战地维修包/);
-  assert.match(page, /boss-variants\.png/);
-  assert.match(page, /boss-projectiles\.png/);
-  assert.match(page, /boss-variants-v2\.png/);
-  assert.match(page, /boss-projectiles-v2\.png/);
-  assert.match(page, /thunder-mech\.png/);
-  assert.match(page, /sky-talon-mech\.png/);
-  assert.match(page, /cinder-forge-mech\.png/);
-  assert.match(page, /v2-support-assets\.png/);
-  assert.match(page, /enemy-reinforcements\.png/);
-  assert.match(page, /enemy-reinforcement-projectiles\.png/);
+  assert.match(page, /boss-variants\.webp/);
+  assert.match(page, /boss-projectiles\.webp/);
+  assert.match(page, /boss-variants-v2\.webp/);
+  assert.match(page, /boss-projectiles-v2\.webp/);
+  assert.match(page, /thunder-mech\.webp/);
+  assert.match(page, /sky-talon-mech\.webp/);
+  assert.match(page, /cinder-forge-mech\.webp/);
+  assert.match(page, /v2-support-assets\.webp/);
+  assert.match(page, /enemy-reinforcements\.webp/);
+  assert.match(page, /enemy-reinforcement-projectiles\.webp/);
   assert.doesNotMatch(page, /ctx\.arc\(player\.x/);
   assert.doesNotMatch(page, /ctx\.arc\(remote\.x/);
-  assert.match(page, /player-mechs\.png/);
+  assert.match(page, /player-mechs\.webp/);
   assert.match(css, /background-size:200% 200%/);
   assert.match(css, /\.levelBadge small\{font:800 14px/);
   assert.match(css, /\.shopWallet/);
   assert.match(css, /\.panelVitals/);
   assert.match(css, /\.upgradeGrid button\.ultimateUpgrade/);
-  assert.match(css, /\.upgradeGrid\{display:grid;grid-template-columns:repeat\(4,1fr\)/);
+  assert.match(css, /\.upgradeGrid\{grid-template-columns:repeat\(5,1fr\)/);
+  assert.match(css, /html,body\{font-size:17px\}/);
+  assert.match(css, /\.classGrid button>span:not\(\.mechPreview\)\{font-size:13px/);
+  assert.match(css, /\.upgradeGrid span\{font-size:14px/);
+  assert.match(css, /\.shopGrid span\{font-size:13px\}/);
+  assert.match(css, /@media\(min-width:1051px\) and \(max-width:1350px\)/);
   assert.match(css, /@media\(min-width:821px\) and \(max-width:1050px\)\{\.upgradeGrid\{grid-template-columns:repeat\(2,1fr\)\}\}/);
   assert.match(css, /\.upgradeGrid button\.rarity-legendary/);
   assert.match(css, /\.shopGrid button\.shop-rarity-legendary/);
@@ -351,30 +368,32 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(css, /\.gameWrap\{width:min\(1680px,98vw\)/);
 
   await Promise.all([
+    access(new URL("../public/game/player-mechs.webp", import.meta.url)),
+    access(new URL("../public/game/enemy-mechs.webp", import.meta.url)),
+    access(new URL("../public/game/projectile-mechs.webp", import.meta.url)),
+    access(new URL("../public/game/laser-mech.webp", import.meta.url)),
+    access(new URL("../public/game/frost-mech.webp", import.meta.url)),
+    access(new URL("../public/game/blade-mech.webp", import.meta.url)),
+    access(new URL("../public/game/gravity-mech.webp", import.meta.url)),
+    access(new URL("../public/game/vanguard-drones.webp", import.meta.url)),
+    access(new URL("../public/game/vanguard-projectiles.webp", import.meta.url)),
+    access(new URL("../public/game/specialist-projectiles.webp", import.meta.url)),
+    access(new URL("../public/game/support-drones.webp", import.meta.url)),
+    access(new URL("../public/game/specialist-drones.webp", import.meta.url)),
+    access(new URL("../public/game/enemy-projectiles.webp", import.meta.url)),
+    access(new URL("../public/game/assassin-projectile.webp", import.meta.url)),
+    access(new URL("../public/game/boss-variants.webp", import.meta.url)),
+    access(new URL("../public/game/boss-projectiles.webp", import.meta.url)),
+    access(new URL("../public/game/boss-variants-v2.webp", import.meta.url)),
+    access(new URL("../public/game/boss-projectiles-v2.webp", import.meta.url)),
+    access(new URL("../public/game/thunder-mech.webp", import.meta.url)),
+    access(new URL("../public/game/sky-talon-mech.webp", import.meta.url)),
+    access(new URL("../public/game/cinder-forge-mech.webp", import.meta.url)),
+    access(new URL("../public/game/v2-support-assets.webp", import.meta.url)),
+    access(new URL("../public/game/enemy-reinforcements.webp", import.meta.url)),
+    access(new URL("../public/game/enemy-reinforcement-projectiles.webp", import.meta.url)),
     access(new URL("../public/game/player-mechs.png", import.meta.url)),
-    access(new URL("../public/game/enemy-mechs.png", import.meta.url)),
-    access(new URL("../public/game/projectile-mechs.png", import.meta.url)),
-    access(new URL("../public/game/laser-mech.png", import.meta.url)),
-    access(new URL("../public/game/frost-mech.png", import.meta.url)),
-    access(new URL("../public/game/blade-mech.png", import.meta.url)),
-    access(new URL("../public/game/gravity-mech.png", import.meta.url)),
-    access(new URL("../public/game/vanguard-drones.png", import.meta.url)),
-    access(new URL("../public/game/vanguard-projectiles.png", import.meta.url)),
-    access(new URL("../public/game/specialist-projectiles.png", import.meta.url)),
-    access(new URL("../public/game/support-drones.png", import.meta.url)),
-    access(new URL("../public/game/specialist-drones.png", import.meta.url)),
-    access(new URL("../public/game/enemy-projectiles.png", import.meta.url)),
-    access(new URL("../public/game/assassin-projectile.png", import.meta.url)),
     access(new URL("../public/game/boss-variants.png", import.meta.url)),
-    access(new URL("../public/game/boss-projectiles.png", import.meta.url)),
-    access(new URL("../public/game/boss-variants-v2.png", import.meta.url)),
-    access(new URL("../public/game/boss-projectiles-v2.png", import.meta.url)),
-    access(new URL("../public/game/thunder-mech.png", import.meta.url)),
-    access(new URL("../public/game/sky-talon-mech.png", import.meta.url)),
-    access(new URL("../public/game/cinder-forge-mech.png", import.meta.url)),
-    access(new URL("../public/game/v2-support-assets.png", import.meta.url)),
-    access(new URL("../public/game/enemy-reinforcements.png", import.meta.url)),
-    access(new URL("../public/game/enemy-reinforcement-projectiles.png", import.meta.url)),
     access(new URL("../public/favicon.svg", import.meta.url)),
     access(new URL("../public/og.png", import.meta.url)),
   ]);
