@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.11\.1 · 高压补给/);
+  assert.match(html, /版本 0\.12\.0 · 终极进化/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -92,6 +92,15 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /const gravityWell/);
   assert.match(page, /const dronePosition/);
   assert.match(page, /const CLASS_UPGRADES/);
+  assert.match(page, /const ULTIMATE_UPGRADES/);
+  assert.match(page, /const ultimateUpgradeAvailable/);
+  assert.match(page, /ultimatePower: \.72/);
+  assert.match(page, /id\.endsWith\("-ultimate-power"\)\) stats\.ultimatePower \*= 1\.2/);
+  assert.match(page, /stats\.ultimateTargets = Math\.min\(14/);
+  assert.match(page, /stats\.ultimateDuration = Math\.min\(5\.4/);
+  assert.match(page, /stats\.ultimateLanes = Math\.min\(4/);
+  assert.match(page, /stats\.ultimateEchoes = Math\.min\(4/);
+  assert.match(page, /stats\.ultimateRange = Math\.min\(670/);
   assert.match(page, /assault-double-storm/);
   assert.match(page, /const SHOP_ITEMS/);
   assert.match(page, /const GUARDIAN_SHIELD_MAX = 5/);
@@ -110,7 +119,8 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /coOpActive \? 84 : 68/);
   assert.match(page, /Math\.max\(\.19, \.68 - elapsed \* \.0018\)/);
   assert.match(page, /Math\.max\(\.23, \.82 - elapsed \* \.0019\)/);
-  assert.match(page, /const coOpScale = remote \? 1\.5 : 1;\s+const waveScale/);
+  assert.match(page, /const coOpScale = remote \? 1\.5 : 1;\s+const lateBossWave/);
+  assert.match(page, /Math\.pow\(lateBossWave \/ 6, 1\.45\) \* \.45/);
   assert.match(page, /const upgradeRerollPrice/);
   assert.match(page, /商品会随波次逐渐涨价/);
   assert.match(page, /刷新次数已用尽/);
@@ -124,17 +134,28 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /ultimate: \{ host: number; guest: number \}/);
   assert.match(page, /const executeUltimate/);
   assert.match(page, /const strikeTargets = \[\.\.\.enemies\]/);
-  assert.match(page, /const shieldUntil = performance\.now\(\) \+ Math\.min\(6000/);
-  assert.match(page, /for \(const offset of \[-92, 0, 92\]\)/);
-  assert.match(page, /const laneWidth = 125 \+ Math\.max\(0, along\) \* \.16/);
+  assert.match(page, /combatStats\.ultimateDuration \* 1000/);
+  assert.match(page, /const beamCount = clamp\(Math\.round\(combatStats\.ultimateLanes\), 8, 16\)/);
+  assert.match(page, /const laneCount = clamp\(Math\.round\(combatStats\.ultimateLanes\), 1, 4\)/);
+  assert.match(page, /const laneWidth = 72 \+ Math\.max\(0, along\) \* \.055/);
+  assert.match(page, /combatStats\.ultimateEchoes/);
+  assert.match(page, /const gravityRange = clamp\(combatStats\.ultimateRange, 430, 670\)/);
+  assert.match(page, /const ULTIMATE_CHARGE_SCALE/);
+  assert.match(page, /laser: \.5/);
+  assert.match(page, /const chargingClass = killer === "guest"/);
+  assert.match(page, /baseEnergyGain \* ULTIMATE_CHARGE_SCALE\[chargingClass\]/);
   assert.match(page, /const cluster = \[\.\.\.enemies\]/);
   assert.match(page, /ULTIMATE_NAMES/);
   assert.match(page, /ultimate: "天穹火雨：/);
+  assert.match(page, /ultimate: "赤曜审判：以机体为中心向四面八方发射贯穿激光"/);
   assert.match(page, /selectedClassSpec\.ultimate\.split/);
   assert.match(page, /localPaused = false;\s+elapsed = 0/);
   assert.match(page, /pausedRef\.current = false/);
   assert.match(page, /keys\.clear\(\)/);
   assert.match(page, /className="shopWallet"/);
+  assert.match(page, /className="shopWallet upgradeWallet"/);
+  assert.match(page, /当前个人金币/);
+  assert.match(page, /u\.ultimate\?"ultimateUpgrade"/);
   assert.match(page, /当前机体完整度/);
   assert.match(page, /player\.maxHp \* \.18/);
   assert.match(page, /const nearbyEnemies/);
@@ -165,6 +186,7 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(css, /\.levelBadge small\{font:800 14px/);
   assert.match(css, /\.shopWallet/);
   assert.match(css, /\.panelVitals/);
+  assert.match(css, /\.upgradeGrid button\.ultimateUpgrade/);
   assert.match(css, /\.ultimateCopy em/);
   assert.match(css, /\.bossNotice/);
 

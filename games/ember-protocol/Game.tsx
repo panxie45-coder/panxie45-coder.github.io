@@ -24,7 +24,7 @@ type EnemyKind =
 type BossVariant = "rift" | "storm" | "weaver" | "forge";
 type PlayerSide = "host" | "guest";
 type BossRelicId = "titan-core" | "overdrive-core" | "chrono-core";
-type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId };
+type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId; ultimate?: boolean };
 type ShopItem = { id: string; title: string; desc: string; icon: string; cost: number };
 type BossRelic = { id: BossRelicId; title: string; desc: string; icon: string };
 type CombatStats = {
@@ -48,6 +48,11 @@ type CombatStats = {
   frostPower: number;
   dronePower: number;
   ultimatePower: number;
+  ultimateTargets: number;
+  ultimateLanes: number;
+  ultimateDuration: number;
+  ultimateRange: number;
+  ultimateEchoes: number;
   meleeRange: number;
   meleePower: number;
   gravityPower: number;
@@ -111,6 +116,7 @@ type CombatEffect = {
   y: number;
   x2?: number;
   y2?: number;
+  count?: number;
   life: number;
   duration: number;
   color: string;
@@ -240,6 +246,41 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
   ],
 };
 
+const ULTIMATE_UPGRADES: Record<ClassId, Upgrade[]> = {
+  assault: [
+    { id: "assault-ultimate-power", classId: "assault", ultimate: true, title: "天穹增压", desc: "天穹火雨伤害 +20%，可无限叠加", icon: "✹" },
+    { id: "assault-ultimate-locks", classId: "assault", ultimate: true, title: "多重锁定", desc: "天穹火雨锁定目标 +2，最多锁定 14 个", icon: "⌖" },
+  ],
+  guardian: [
+    { id: "guardian-ultimate-power", classId: "guardian", ultimate: true, title: "壁垒震波", desc: "不灭要塞震波伤害 +20%，可无限叠加", icon: "⬢" },
+    { id: "guardian-ultimate-duration", classId: "guardian", ultimate: true, title: "持久阵地", desc: "不灭要塞持续时间 +0.5 秒，最多 5.4 秒", icon: "▣" },
+  ],
+  engineer: [
+    { id: "engineer-ultimate-power", classId: "engineer", ultimate: true, title: "蜂群超频", desc: "蜂群超载伤害 +20%，可无限叠加", icon: "✣" },
+    { id: "engineer-ultimate-locks", classId: "engineer", ultimate: true, title: "协同猎杀", desc: "蜂群锁定目标 +3，最多锁定 20 个", icon: "⌁" },
+  ],
+  phantom: [
+    { id: "phantom-ultimate-power", classId: "phantom", ultimate: true, title: "处决增幅", desc: "虚空猎杀伤害 +20%，可无限叠加", icon: "✧" },
+    { id: "phantom-ultimate-locks", classId: "phantom", ultimate: true, title: "猎杀名单", desc: "连锁处决目标 +2，最多锁定 13 个", icon: "⌖" },
+  ],
+  laser: [
+    { id: "laser-ultimate-power", classId: "laser", ultimate: true, title: "审判增压", desc: "赤曜审判伤害 +20%，可无限叠加", icon: "┃" },
+    { id: "laser-ultimate-lanes", classId: "laser", ultimate: true, title: "全向扩列", desc: "赤曜审判放射光束 +2，最多 16 束", icon: "✳" },
+  ],
+  frost: [
+    { id: "frost-ultimate-power", classId: "frost", ultimate: true, title: "永冻增压", desc: "永冻纪元伤害 +20%，可无限叠加", icon: "❄" },
+    { id: "frost-ultimate-lanes", classId: "frost", ultimate: true, title: "冰川分束", desc: "永冻纪元寒冰光束 +1，最多 4 束", icon: "〽" },
+  ],
+  blade: [
+    { id: "blade-ultimate-power", classId: "blade", ultimate: true, title: "断界增压", desc: "红莲断界伤害 +20%，可无限叠加", icon: "⚔" },
+    { id: "blade-ultimate-echoes", classId: "blade", ultimate: true, title: "残像连斩", desc: "断界追击斩 +1，最多 4 重斩击", icon: "〆" },
+  ],
+  gravity: [
+    { id: "gravity-ultimate-power", classId: "gravity", ultimate: true, title: "视界增压", desc: "事件视界伤害 +20%，可无限叠加", icon: "◉" },
+    { id: "gravity-ultimate-range", classId: "gravity", ultimate: true, title: "视界扩张", desc: "事件视界半径 +80，最多 670", icon: "◎" },
+  ],
+};
+
 const SHOP_ITEMS: ShopItem[] = [
   { id: "medkit", title: "战地医疗包", desc: "回复 36 点机体完整度", icon: "✚", cost: 18 },
   { id: "overhaul", title: "装甲大修", desc: "生命上限 +12，并修复新增部分", icon: "▣", cost: 32 },
@@ -268,6 +309,17 @@ const ULTIMATE_NAMES: Record<ClassId, string> = {
   gravity: "事件视界",
 };
 
+const ULTIMATE_CHARGE_SCALE: Record<ClassId, number> = {
+  assault: .62,
+  guardian: .55,
+  engineer: .6,
+  phantom: .72,
+  laser: .5,
+  frost: .58,
+  blade: .7,
+  gravity: .5,
+};
+
 const GUARDIAN_SHIELD_MAX = 5;
 const MIN_GUARDIAN_COOLDOWN = 7;
 const MAX_UPGRADE_REROLLS = 2;
@@ -275,9 +327,21 @@ const MAX_SHOP_REROLLS = 3;
 const shopRerollPrice = (wave: number, used: number) => 13 + Math.max(0, wave - 1) * 3 + used * 12;
 const upgradeRerollPrice = (wave: number, used: number) => 10 + Math.floor(Math.max(0, wave - 1) / 2) * 2 + used * 8;
 const shuffled = <T,>(items: T[]) => [...items].sort(() => Math.random() - .5);
-const rollUpgradeChoices = (classId: ClassId) => {
+const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
+  if (upgrade.id === "assault-ultimate-locks") return currentBuild.ultimateTargets < 14;
+  if (upgrade.id === "guardian-ultimate-duration") return currentBuild.ultimateDuration < 5.4;
+  if (upgrade.id === "engineer-ultimate-locks") return currentBuild.ultimateTargets < 20;
+  if (upgrade.id === "phantom-ultimate-locks") return currentBuild.ultimateTargets < 13;
+  if (upgrade.id === "laser-ultimate-lanes") return currentBuild.ultimateLanes < 16;
+  if (upgrade.id === "frost-ultimate-lanes") return currentBuild.ultimateLanes < 4;
+  if (upgrade.id === "blade-ultimate-echoes") return currentBuild.ultimateEchoes < 4;
+  if (upgrade.id === "gravity-ultimate-range") return currentBuild.ultimateRange < 670;
+  return true;
+};
+const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame) => {
   const signature = shuffled(CLASS_UPGRADES[classId])[0];
-  return shuffled([signature, ...shuffled(UPGRADES).slice(0, 2)]);
+  const ultimate = shuffled(ULTIMATE_UPGRADES[classId].filter((upgrade) => ultimateUpgradeAvailable(upgrade, currentBuild)))[0] || ULTIMATE_UPGRADES[classId][0];
+  return shuffled([signature, ultimate, shuffled(UPGRADES)[0]]);
 };
 const rollShopItems = (wave: number) => {
   const priceScale = 1 + Math.max(0, wave - 1) * .14;
@@ -291,7 +355,7 @@ const CLASSES: ClassSpec[] = [
   { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：免疫伤害，强化上限 5 秒", passive: "穿甲重炮：可连续贯穿多个敌人", ultimate: "不灭要塞：展开六面护盾阵地并持续修复队伍", cooldown: 14, color: "#58c7c0", sprite: 1, sheet: "core", radius: 24, renderSize: 88 },
   { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", passive: "链式脉冲：无人机弹丸会跳跃攻击", ultimate: "蜂群超载：召来轨道蜂群逐一猎杀并链式放电", cooldown: 16, color: "#92a35c", sprite: 2, sheet: "core", radius: 20, renderSize: 82 },
   { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", passive: "相位针刺：高射速、高暴击并可贯穿", ultimate: "虚空猎杀：在高威胁目标之间连续相位处决", cooldown: 9, color: "#9ec9ff", sprite: 3, sheet: "core", radius: 14, renderSize: 72 },
-  { id: "laser", name: "赤曜型", role: "贯穿激光猎手", active: "聚焦光束：发射横贯战场的高能激光", passive: "热能射线：高速弹丸可贯穿多名敌人", ultimate: "赤曜审判：展开三轨棱镜矩阵，定向贯穿战场", cooldown: 12, color: "#ff5b58", sprite: 0, sheet: "specialist", radius: 15, renderSize: 82 },
+  { id: "laser", name: "赤曜型", role: "贯穿激光猎手", active: "聚焦光束：发射横贯战场的高能激光", passive: "热能射线：高速弹丸可贯穿多名敌人", ultimate: "赤曜审判：以机体为中心向四面八方发射贯穿激光", cooldown: 12, color: "#ff5b58", sprite: 0, sheet: "specialist", radius: 15, renderSize: 82 },
   { id: "frost", name: "霜垒型", role: "冰冻攻城炮", active: "绝对零域：冻结附近敌人并造成伤害", passive: "低温弹头：命中后显著降低敌人速度", ultimate: "永冻纪元：向前推进冰川风暴，冻结整条战线", cooldown: 15, color: "#8bdcff", sprite: 1, sheet: "specialist", radius: 25, renderSize: 94 },
   { id: "blade", name: "裂锋型", role: "等离子近战", active: "磁轨冲锋：扑向目标并释放双重圆弧斩", passive: "熔断刃：近距离自动斩击并修复少量生命", ultimate: "红莲断界：沿一条战线高速突进并留下连环斩痕", cooldown: 10, color: "#ff9b43", sprite: 0, sheet: "vanguard", radius: 18, renderSize: 86 },
   { id: "gravity", name: "星渊型", role: "重力控场", active: "坍缩奇点：牵引附近敌人并引爆核心", passive: "引力弹：穿透、减速并产生小型爆炸", ultimate: "事件视界：在敌群中心制造奇点，持续牵引后坍缩", cooldown: 14, color: "#a58cff", sprite: 1, sheet: "vanguard", radius: 23, renderSize: 92 },
@@ -373,16 +437,21 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     laserPower: 1,
     frostPower: 1,
     dronePower: 1,
-    ultimatePower: 1,
+    ultimatePower: .72,
+    ultimateTargets: 6,
+    ultimateLanes: 1,
+    ultimateDuration: 3.4,
+    ultimateRange: 430,
+    ultimateEchoes: 1,
     meleeRange: 122,
     meleePower: 1,
     gravityPower: 1,
   };
   if (classId === "assault") return { ...base, maxHp: 116, damage: 46, interval: .6, projectileSpeed: 535, projectileSize: 7.5 };
-  if (classId === "guardian") return { ...base, maxHp: 155, speed: 224, damage: 78, interval: 1.05, projectileSpeed: 455, projectileSize: 10, damageReduction: .25, ultimatePower: 1.12 };
-  if (classId === "engineer") return { ...base, maxHp: 116, damage: 29, interval: .5, magnet: 118, projectileSpeed: 545, projectileSize: 6, drones: 1, repairPower: 1.15, dronePower: 1.12 };
-  if (classId === "phantom") return { ...base, maxHp: 100, speed: 302, damage: 19, interval: .24, projectileSpeed: 850, projectileSize: 4.5, critChance: .28, dashDistance: 215 };
-  if (classId === "laser") return { ...base, maxHp: 106, speed: 280, damage: 22, interval: .26, projectileSpeed: 930, projectileSize: 5, critChance: .15, laserPower: 1.12 };
+  if (classId === "guardian") return { ...base, maxHp: 155, speed: 224, damage: 78, interval: 1.05, projectileSpeed: 455, projectileSize: 10, damageReduction: .25 };
+  if (classId === "engineer") return { ...base, maxHp: 116, damage: 29, interval: .5, magnet: 118, projectileSpeed: 545, projectileSize: 6, drones: 1, repairPower: 1.15, dronePower: 1.12, ultimateTargets: 8 };
+  if (classId === "phantom") return { ...base, maxHp: 100, speed: 302, damage: 19, interval: .24, projectileSpeed: 850, projectileSize: 4.5, critChance: .28, dashDistance: 215, ultimateTargets: 5 };
+  if (classId === "laser") return { ...base, maxHp: 106, speed: 280, damage: 22, interval: .26, projectileSpeed: 930, projectileSize: 5, critChance: .15, laserPower: 1.12, ultimateLanes: 8 };
   if (classId === "frost") return { ...base, maxHp: 138, speed: 218, damage: 47, interval: .72, projectileSpeed: 500, projectileSize: 8.5, damageReduction: .12, frostPower: 1.12 };
   if (classId === "blade") return { ...base, maxHp: 132, speed: 292, damage: 66, interval: .56, projectileSpeed: 620, projectileSize: 6, damageReduction: .08, meleeRange: 132, meleePower: 1.08, repairPower: 1.05 };
   return { ...base, maxHp: 146, speed: 226, damage: 44, interval: .66, magnet: 110, projectileSpeed: 510, projectileSize: 9, damageReduction: .14, gravityPower: 1.12 };
@@ -938,7 +1007,7 @@ export default function Home() {
         localUpgradeRerolls = 0;
         setUpgradeRerolls(0);
         setLevel(data.level);
-        setChoices(rollUpgradeChoices(build.classId));
+        setChoices(rollUpgradeChoices(build.classId, build));
       }
       if (data.t === "shop-open" && !isAuthority) {
         guestCoins = data.coins;
@@ -1096,6 +1165,15 @@ export default function Home() {
         player.hp = Math.min(player.maxHp, player.hp + 22);
         stats.skillHaste = Math.max(.5, stats.skillHaste * .85);
       }
+      if (id.endsWith("-ultimate-power")) stats.ultimatePower *= 1.2;
+      if (id === "assault-ultimate-locks") stats.ultimateTargets = Math.min(14, stats.ultimateTargets + 2);
+      if (id === "guardian-ultimate-duration") stats.ultimateDuration = Math.min(5.4, stats.ultimateDuration + .5);
+      if (id === "engineer-ultimate-locks") stats.ultimateTargets = Math.min(20, stats.ultimateTargets + 3);
+      if (id === "phantom-ultimate-locks") stats.ultimateTargets = Math.min(13, stats.ultimateTargets + 2);
+      if (id === "laser-ultimate-lanes") stats.ultimateLanes = Math.min(16, stats.ultimateLanes + 2);
+      if (id === "frost-ultimate-lanes") stats.ultimateLanes = Math.min(4, stats.ultimateLanes + 1);
+      if (id === "blade-ultimate-echoes") stats.ultimateEchoes = Math.min(4, stats.ultimateEchoes + 1);
+      if (id === "gravity-ultimate-range") stats.ultimateRange = Math.min(670, stats.ultimateRange + 80);
       if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .18);
       build = { ...build, ...stats, maxHp: player.maxHp };
       ownBuildRef.current = { ...build };
@@ -1165,7 +1243,7 @@ export default function Home() {
       setLocalWallet(localWallet() - cost);
       localUpgradeRerolls += 1;
       setUpgradeRerolls(localUpgradeRerolls);
-      setChoices(rollUpgradeChoices(build.classId));
+      setChoices(rollUpgradeChoices(build.classId, build));
       audio?.play("ui");
     };
     finishShopRef.current = () => {
@@ -1324,7 +1402,8 @@ export default function Home() {
       const bossVariant = variants[(Math.max(3, currentWave) / 3 - 1) % variants.length | 0];
       const variant = BOSS_VARIANTS[bossVariant];
       const coOpScale = remote ? 1.5 : 1;
-      const waveScale = 1 + Math.max(0, currentWave - 3) * .28;
+      const lateBossWave = Math.max(0, currentWave - 3);
+      const waveScale = 1 + lateBossWave * .34 + Math.pow(lateBossWave / 6, 1.45) * .45;
       const maxHp = config.hp * variant.hp * waveScale * coOpScale;
       enemies.push({
         id: nextEnemyId++,
@@ -1543,7 +1622,7 @@ export default function Home() {
         enemy.lastHitBy = owner;
       };
       if (classId === "assault") {
-        const strikeTargets = [...enemies].sort((a, b) => b.maxHp - a.maxHp).slice(0, 10 + Math.min(4, combatStats.missileWaves));
+        const strikeTargets = [...enemies].sort((a, b) => b.maxHp - a.maxHp).slice(0, Math.round(combatStats.ultimateTargets));
         for (const target of strikeTargets) {
           addEffect({ kind: "ultimate", classId, x: target.x, y: target.y, x2: target.x, y2: target.y - 250, color, radius: 92 }, 1.25);
           beams.push({ x1: target.x, y1: target.y - 250, x2: target.x, y2: target.y, life: .46, width: 7, color: "#fff2a8" });
@@ -1554,12 +1633,12 @@ export default function Home() {
         }
       }
       if (classId === "guardian") {
-        const shieldUntil = performance.now() + Math.min(6000, 5200 * power);
+        const shieldUntil = performance.now() + Math.min(5400, combatStats.ultimateDuration * 1000);
         if (actor === player) selfShieldUntil = shieldUntil;
         else remoteShieldUntil = shieldUntil;
-        actor.hp = Math.min(actor.maxHp, actor.hp + actor.maxHp * .45);
-        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .22);
-        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + remote.maxHp * .22);
+        actor.hp = Math.min(actor.maxHp, actor.hp + actor.maxHp * .32);
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .16);
+        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + remote.maxHp * .16);
         for (const enemy of enemies) {
           const distance = dist(actor, enemy);
           if (distance > 330 || distance < 1) continue;
@@ -1567,13 +1646,14 @@ export default function Home() {
           enemy.x = clamp(enemy.x + Math.cos(angle) * 170, -80, W + 80);
           enemy.y = clamp(enemy.y + Math.sin(angle) * 170, -80, H + 80);
           enemy.slow = Math.max(enemy.slow, 2.5);
+          damageEnemy(enemy, combatStats.damage * 1.8 * power);
         }
-        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: 235 }, 2.4);
+        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: 235 }, Math.min(2.8, combatStats.ultimateDuration));
       }
       if (classId === "engineer") {
-        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 60 * power);
-        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + 60 * power);
-        const targets = [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, 18);
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 42 * combatStats.repairPower);
+        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + 42 * combatStats.repairPower);
+        const targets = [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, Math.round(combatStats.ultimateTargets));
         for (let index = 0; index < Math.max(12, targets.length * 2); index++) {
           const orbitAngle = index / Math.max(12, targets.length * 2) * Math.PI * 2;
           const origin = { x: actor.x + Math.cos(orbitAngle) * 92, y: actor.y + Math.sin(orbitAngle) * 92 };
@@ -1584,7 +1664,7 @@ export default function Home() {
         addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: 120 }, 2);
       }
       if (classId === "phantom") {
-        const marked = [...enemies].sort((a, b) => b.maxHp - a.maxHp || dist(actor, a) - dist(actor, b)).slice(0, 12);
+        const marked = [...enemies].sort((a, b) => b.maxHp - a.maxHp || dist(actor, a) - dist(actor, b)).slice(0, Math.round(combatStats.ultimateTargets));
         let previous = { x: actor.x, y: actor.y };
         for (const enemy of marked) {
           beams.push({ x1: previous.x, y1: previous.y, x2: enemy.x, y2: enemy.y, life: .5, width: 7, color: "#a78cff" });
@@ -1598,30 +1678,39 @@ export default function Home() {
       }
       if (classId === "laser") {
         const length = 1550;
-        const normalX = -Math.sin(aimAngle), normalY = Math.cos(aimAngle);
-        for (const offset of [-92, 0, 92]) {
-          const x1 = actor.x + normalX * offset, y1 = actor.y + normalY * offset;
-          const x2 = x1 + Math.cos(aimAngle) * length, y2 = y1 + Math.sin(aimAngle) * length;
+        const beamCount = clamp(Math.round(combatStats.ultimateLanes), 8, 16);
+        for (let index = 0; index < beamCount; index++) {
+          const beamAngle = aimAngle + index / beamCount * Math.PI * 2;
+          const x1 = actor.x, y1 = actor.y;
+          const x2 = x1 + Math.cos(beamAngle) * length, y2 = y1 + Math.sin(beamAngle) * length;
           beams.push({ x1, y1, x2, y2, life: .92, width: 25 * combatStats.laserPower, color: "#ff4f50" });
           for (const enemy of enemies) {
-            const along = (enemy.x - x1) * Math.cos(aimAngle) + (enemy.y - y1) * Math.sin(aimAngle);
-            const perpendicular = Math.abs((enemy.x - x1) * Math.sin(aimAngle) - (enemy.y - y1) * Math.cos(aimAngle));
+            const along = (enemy.x - x1) * Math.cos(beamAngle) + (enemy.y - y1) * Math.sin(beamAngle);
+            const perpendicular = Math.abs((enemy.x - x1) * Math.sin(beamAngle) - (enemy.y - y1) * Math.cos(beamAngle));
             if (along <= 0 || along >= length || perpendicular >= enemy.r + 25 * combatStats.laserPower) continue;
-            damageEnemy(enemy, combatStats.damage * 6.4 * combatStats.laserPower * power);
+            damageEnemy(enemy, combatStats.damage * 5.2 * combatStats.laserPower * power);
           }
         }
-        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, x2: actor.x + Math.cos(aimAngle) * length, y2: actor.y + Math.sin(aimAngle) * length, color, radius: 620 }, 1.35);
+        addEffect({ kind: "ultimate", classId, count: beamCount, x: actor.x, y: actor.y, x2: actor.x + Math.cos(aimAngle) * length, y2: actor.y + Math.sin(aimAngle) * length, color, radius: 620 }, 1.35);
       }
       if (classId === "frost") {
-        for (const enemy of enemies) {
-          const along = (enemy.x - actor.x) * Math.cos(aimAngle) + (enemy.y - actor.y) * Math.sin(aimAngle);
-          const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(aimAngle) - (enemy.y - actor.y) * Math.cos(aimAngle));
-          const laneWidth = 125 + Math.max(0, along) * .16;
-          if (along < -60 || along > 1250 || perpendicular > laneWidth + enemy.r) continue;
-          enemy.slow = Math.max(enemy.slow, 9 * combatStats.frostPower);
-          damageEnemy(enemy, combatStats.damage * 4.8 * combatStats.frostPower * power);
+        const laneCount = clamp(Math.round(combatStats.ultimateLanes), 1, 4);
+        const normalX = -Math.sin(aimAngle), normalY = Math.cos(aimAngle);
+        const laneOffsets = Array.from({ length: laneCount }, (_, index) => (index - (laneCount - 1) / 2) * 104);
+        for (const offset of laneOffsets) {
+          const laneX = actor.x + normalX * offset, laneY = actor.y + normalY * offset;
+          const endX = laneX + Math.cos(aimAngle) * 1250, endY = laneY + Math.sin(aimAngle) * 1250;
+          beams.push({ x1: laneX, y1: laneY, x2: endX, y2: endY, life: 1.15, width: 18 * combatStats.frostPower, color: "#b9efff" });
+          for (const enemy of enemies) {
+            const along = (enemy.x - laneX) * Math.cos(aimAngle) + (enemy.y - laneY) * Math.sin(aimAngle);
+            const perpendicular = Math.abs((enemy.x - laneX) * Math.sin(aimAngle) - (enemy.y - laneY) * Math.cos(aimAngle));
+            const laneWidth = 72 + Math.max(0, along) * .055;
+            if (along < -60 || along > 1250 || perpendicular > laneWidth + enemy.r) continue;
+            enemy.slow = Math.max(enemy.slow, 9 * combatStats.frostPower);
+            damageEnemy(enemy, combatStats.damage * 4.8 * combatStats.frostPower * power);
+          }
         }
-        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, x2: actor.x + Math.cos(aimAngle) * 1250, y2: actor.y + Math.sin(aimAngle) * 1250, color, radius: 310 }, 2.1);
+        addEffect({ kind: "ultimate", classId, count: laneCount, x: actor.x, y: actor.y, x2: actor.x + Math.cos(aimAngle) * 1250, y2: actor.y + Math.sin(aimAngle) * 1250, color, radius: 220 }, 2.1);
       }
       if (classId === "blade") {
         const start = { x: actor.x, y: actor.y };
@@ -1632,33 +1721,40 @@ export default function Home() {
           const along = ((enemy.x - start.x) * (end.x - start.x) + (enemy.y - start.y) * (end.y - start.y)) / lineLength;
           const perpendicular = Math.abs((enemy.x - start.x) * Math.sin(aimAngle) - (enemy.y - start.y) * Math.cos(aimAngle));
           if (along < -enemy.r || along > lineLength + enemy.r || perpendicular > 115 + enemy.r) continue;
-          damageEnemy(enemy, combatStats.damage * 7.2 * combatStats.meleePower * power);
+          const echoScale = 1 + (Math.round(combatStats.ultimateEchoes) - 1) * .42;
+          damageEnemy(enemy, combatStats.damage * 7.2 * combatStats.meleePower * power * echoScale);
           burst(enemy.x, enemy.y, "#ff9b43", 10);
         }
         actor.x = end.x;
         actor.y = end.y;
         addEffect({ kind: "dash", classId, x: start.x, y: start.y, x2: end.x, y2: end.y, color, radius: 72 }, .85);
-        addEffect({ kind: "ultimate", classId, x: start.x, y: start.y, x2: end.x, y2: end.y, color, radius: 180 }, 1.45);
+        const echoCount = clamp(Math.round(combatStats.ultimateEchoes), 1, 4);
+        const normalX = -Math.sin(aimAngle), normalY = Math.cos(aimAngle);
+        for (let index = 0; index < echoCount; index++) {
+          const offset = (index - (echoCount - 1) / 2) * 34;
+          addEffect({ kind: "ultimate", classId, x: start.x + normalX * offset, y: start.y + normalY * offset, x2: end.x + normalX * offset, y2: end.y + normalY * offset, color, radius: 180 }, 1.45 + index * .08);
+        }
         actor.hp = Math.min(actor.maxHp, actor.hp + actor.maxHp * .24);
         if (actor === player) selfShieldUntil = performance.now() + 2200;
         else remoteShieldUntil = performance.now() + 2200;
       }
       if (classId === "gravity") {
-        const cluster = [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, 22);
+        const gravityRange = clamp(combatStats.ultimateRange, 430, 670);
+        const cluster = [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, 16);
         const center = cluster.length
           ? { x: cluster.reduce((sum, enemy) => sum + enemy.x, 0) / cluster.length, y: cluster.reduce((sum, enemy) => sum + enemy.y, 0) / cluster.length }
           : { x: actor.x, y: actor.y };
         for (const enemy of enemies) {
           const distance = dist(center, enemy);
-          if (distance > 680) continue;
+          if (distance > gravityRange) continue;
           const angle = Math.atan2(center.y - enemy.y, center.x - enemy.x);
           enemy.x += Math.cos(angle) * Math.min(330, distance * .72);
           enemy.y += Math.sin(angle) * Math.min(330, distance * .72);
           enemy.slow = Math.max(enemy.slow, 7);
-          damageEnemy(enemy, combatStats.damage * (4.2 + Math.max(0, 1 - distance / 680) * 3) * combatStats.gravityPower * power);
+          damageEnemy(enemy, combatStats.damage * (4.2 + Math.max(0, 1 - distance / gravityRange) * 3) * combatStats.gravityPower * power);
           beams.push({ x1: enemy.x, y1: enemy.y, x2: center.x, y2: center.y, life: .52, width: 5, color: "#a58cff" });
         }
-        addEffect({ kind: "ultimate", classId, x: center.x, y: center.y, color, radius: 390 }, 2.2);
+        addEffect({ kind: "ultimate", classId, x: center.x, y: center.y, color, radius: gravityRange * .58 }, 2.2);
       }
       burst(actor.x, actor.y, color, classId === "guardian" || classId === "engineer" ? 26 : 40);
       setHp(Math.ceil(player.hp));
@@ -1678,7 +1774,7 @@ export default function Home() {
     const levelUp = () => {
       audio?.play("level");
       currentLevel++; setLevel(currentLevel);
-      const pool = rollUpgradeChoices(build.classId);
+      const pool = rollUpgradeChoices(build.classId, build);
       localUpgradeDone = false;
       localUpgradeRerolls = 0;
       setUpgradeRerolls(0);
@@ -2210,7 +2306,11 @@ export default function Home() {
           currentKills++;
           waveKills++;
           const killer = enemy.lastHitBy || "host";
-          const energyGain = enemy.kind === "boss" ? 30 : enemy.kind === "commander" ? 16 : enemy.elite ? 10 : 6;
+          const baseEnergyGain = enemy.kind === "boss" ? 30 : enemy.kind === "commander" ? 16 : enemy.elite ? 10 : 6;
+          const chargingClass = killer === "guest"
+            ? remoteBuildRef.current?.classId || "assault"
+            : build.classId;
+          const energyGain = baseEnergyGain * ULTIMATE_CHARGE_SCALE[chargingClass];
           if (killer === "guest") {
             guestUltimate = clamp(guestUltimate + energyGain, 0, ULTIMATE_MAX);
           } else {
@@ -2389,16 +2489,22 @@ export default function Home() {
             }
           }else if(effect.classId==="laser"){
             const endX=effect.x2??effect.x,endY=effect.y2??effect.y;
-            const angle=Math.atan2(endY-effect.y,endX-effect.x),nx=-Math.sin(angle),ny=Math.cos(angle);
+            const angle=Math.atan2(endY-effect.y,endX-effect.x),length=Math.hypot(endX-effect.x,endY-effect.y);
             ctx.lineWidth=5;
-            for(const offset of [-92,0,92]){ctx.beginPath();ctx.moveTo(effect.x+nx*offset,effect.y+ny*offset);ctx.lineTo(endX+nx*offset,endY+ny*offset);ctx.stroke();}
-            ctx.translate(effect.x,effect.y);ctx.rotate(angle);ctx.fillStyle="rgba(255,255,255,.75)";ctx.beginPath();ctx.moveTo(34,0);ctx.lineTo(-22,-24);ctx.lineTo(-22,24);ctx.closePath();ctx.fill();
+            const beamCount=clamp(effect.count??8,8,16);
+            for(let index=0;index<beamCount;index++){const beamAngle=angle+index/beamCount*Math.PI*2;ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(effect.x+Math.cos(beamAngle)*length,effect.y+Math.sin(beamAngle)*length);ctx.stroke();}
+            ctx.translate(effect.x,effect.y);ctx.rotate(progress*Math.PI);ctx.fillStyle="rgba(255,255,255,.75)";
+            for(let index=0;index<4;index++){ctx.rotate(Math.PI/2);ctx.beginPath();ctx.moveTo(36,0);ctx.lineTo(-18,-14);ctx.lineTo(-18,14);ctx.closePath();ctx.fill();}
           }else if(effect.classId==="frost"){
             const endX=effect.x2??effect.x,endY=effect.y2??effect.y;
             const angle=Math.atan2(endY-effect.y,endX-effect.x),length=Math.hypot(endX-effect.x,endY-effect.y);
             ctx.translate(effect.x,effect.y);ctx.rotate(angle);ctx.fillStyle="rgba(139,220,255,.12)";
-            ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(length,-radius);ctx.lineTo(length,radius);ctx.closePath();ctx.fill();ctx.stroke();
-            for(let index=1;index<=9;index++){const x=length*index/10,y=Math.sin(index*2.3+progress*4)*radius*.42;ctx.beginPath();ctx.moveTo(x,y-26);ctx.lineTo(x-11,y+18);ctx.lineTo(x+11,y+18);ctx.closePath();ctx.stroke();}
+            const laneCount=clamp(effect.count??1,1,4);
+            for(let lane=0;lane<laneCount;lane++){
+              const offset=(lane-(laneCount-1)/2)*104;
+              ctx.beginPath();ctx.moveTo(0,offset);ctx.lineTo(length,offset-radius*.45);ctx.lineTo(length,offset+radius*.45);ctx.closePath();ctx.fill();ctx.stroke();
+              for(let index=1;index<=9;index++){const x=length*index/10,y=offset+Math.sin(index*2.3+progress*4)*radius*.18;ctx.beginPath();ctx.moveTo(x,y-22);ctx.lineTo(x-10,y+15);ctx.lineTo(x+10,y+15);ctx.closePath();ctx.stroke();}
+            }
           }else if(effect.classId==="blade"){
             const endX=effect.x2??effect.x,endY=effect.y2??effect.y;
             const angle=Math.atan2(endY-effect.y,endX-effect.x),length=Math.hypot(endX-effect.x,endY-effect.y);
@@ -2805,7 +2911,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.11.1 · 高压补给</div>
+        <div className="status"><i /> 版本 0.12.0 · 终极进化</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -2924,9 +3030,10 @@ export default function Home() {
         </div>
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
-          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>至少包含一个职业专属强化；装配完成后恢复 18% 最大生命值。</p>
+          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>每次至少包含一项职业强化和一项终极强化；机制强化有上限，终极伤害可以无限叠加。装配完成后恢复 18% 最大生命值。</p>
+            <div className="shopWallet upgradeWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
-            <div className="upgradeGrid">{choices.map((u,i)=><button key={u.id} onClick={()=>chooseUpgrade(u)}><small>0{i+1}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
+            <div className="upgradeGrid">{choices.map((u,i)=><button key={u.id} className={u.ultimate?"ultimateUpgrade":undefined} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?"终极强化":`0${i+1}`}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
             <button className="rerollBtn" onClick={()=>rerollUpgradeRef.current()} disabled={upgradeRerolls>=MAX_UPGRADE_REROLLS||coins<currentUpgradeRerollCost}>
               {upgradeRerolls>=MAX_UPGRADE_REROLLS?"刷新次数已用尽":`◈ ${currentUpgradeRerollCost} 刷新升级 · 剩余 ${MAX_UPGRADE_REROLLS-upgradeRerolls} 次`}
             </button>
