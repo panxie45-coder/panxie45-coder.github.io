@@ -430,7 +430,7 @@ const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame) => {
     choices.push(signature);
     excluded.add(signature.id);
   }
-  while (choices.length < 3) {
+  while (choices.length < 4) {
     const choice = weightedUpgradePick(fullPool, excluded);
     if (!choice) break;
     choices.push(choice);
@@ -3129,7 +3129,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.12.2 · 补给扩容</div>
+        <div className="status"><i /> 版本 0.12.3 · 四选构筑</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>

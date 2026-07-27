@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.12\.2 · 补给扩容/);
+  assert.match(html, /版本 0\.12\.3 · 四选构筑/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -96,6 +96,7 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /type UpgradeRarity = "common" \| "rare" \| "epic" \| "legendary"/);
   assert.match(page, /const RARITY_WEIGHTS/);
   assert.match(page, /const weightedUpgradePick/);
+  assert.match(page, /while \(choices\.length < 4\)/);
   assert.match(page, /const availableUltimate = ULTIMATE_UPGRADES\[classId\]\.filter\(\(upgrade\) => ultimateUpgradeAvailable\(upgrade, currentBuild\)\)/);
   assert.match(page, /终极强化按普通、稀有、史诗、传说权重出现/);
   assert.match(page, /const ultimateUpgradeAvailable/);
@@ -218,6 +219,8 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(css, /\.shopWallet/);
   assert.match(css, /\.panelVitals/);
   assert.match(css, /\.upgradeGrid button\.ultimateUpgrade/);
+  assert.match(css, /\.upgradeGrid\{display:grid;grid-template-columns:repeat\(4,1fr\)/);
+  assert.match(css, /@media\(min-width:821px\) and \(max-width:1050px\)\{\.upgradeGrid\{grid-template-columns:repeat\(2,1fr\)\}\}/);
   assert.match(css, /\.upgradeGrid button\.rarity-legendary/);
   assert.match(css, /\.shopGrid button\.shop-rarity-legendary/);
   assert.match(css, /\.ultimateCopy em/);
