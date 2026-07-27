@@ -38,10 +38,11 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.13\.6 · 首领锁定与前期成长/);
+  assert.match(html, /版本 0\.14\.0 · 双技能机甲重装/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
+  assert.match(html, /<kbd>E<\/kbd> 副技能/);
   assert.match(html, /终极大招/);
 });
 
@@ -57,6 +58,7 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost" \| "blade" \| "gravity" \| "thunder" \| "sky" \| "cinder"/);
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
   assert.match(page, /t: "upgrade-resume"/);
+  assert.match(page, /t: "skill2"; classId: ClassId/);
   assert.match(page, /t: "gameover"; hostHp: number; guestHp: number \| null/);
   assert.match(page, /const remoteWasAlive = remote\.hp > 0/);
   assert.match(page, /reconcilePausedPeerHp\(remoteWasAlive, data\.hp, data\.build\.maxHp\)/);
@@ -111,6 +113,23 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /const thunderChain/);
   assert.match(page, /const railSnipe/);
   assert.match(page, /const incinerateCone/);
+  assert.match(page, /const executeSecondarySkill/);
+  assert.match(page, /爆破标枪/);
+  assert.match(page, /震荡壁垒/);
+  assert.match(page, /追猎蜂群/);
+  assert.match(page, /相位回刃/);
+  assert.match(page, /棱镜十字/);
+  assert.match(page, /冰狱长枪/);
+  assert.match(page, /旋刃圆舞/);
+  assert.match(page, /斥力反转/);
+  assert.match(page, /电磁脉冲/);
+  assert.match(page, /猎杀标记/);
+  assert.match(page, /熔火地雷/);
+  assert.match(page, /if \(e\.key\.toLowerCase\(\) === "e"\)/);
+  assert.match(page, /className="skillDock secondarySkillDock"/);
+  assert.match(page, /variant\?: "secondary"/);
+  assert.match(page, /skill2\?: boolean/);
+  assert.match(page, /const bladeGradient=/);
   assert.match(page, /const dronePosition/);
   assert.match(page, /const CLASS_UPGRADES/);
   assert.match(page, /const ULTIMATE_UPGRADES/);
@@ -144,15 +163,17 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /const MAX_SHOP_REROLLS = 3/);
   assert.match(page, /type ShopCategory = "补给" \| "武装" \| "防御" \| "核心"/);
   assert.match(page, /const shopRerollPrice = \(wave: number, used: number, wallet: number\)/);
-  assert.match(page, /Math\.pow\(lateWave, 1\.68\) \* 4/);
-  assert.match(page, /wallet \* \(\.07 \+ used \* \.055\)/);
+  assert.match(page, /Math\.pow\(lateWave, 1\.62\) \* 3\.1/);
+  assert.match(page, /wallet \* \(\.05 \+ used \* \.04\)/);
   assert.match(page, /const SHOP_CATEGORIES/);
   assert.match(page, /const SHOP_RARITY_WEIGHTS/);
   assert.match(page, /common: 62, rare: 26, epic: 9, legendary: 3/);
   assert.match(page, /const weightedShopPick/);
   assert.match(page, /const SHOP_RARITY_PRICE_MULTIPLIER/);
   assert.match(page, /const rollShopItems = \(wave: number, wallet: number, recentIds: string\[\] = \[\]\)/);
-  assert.match(page, /Math\.pow\(lateWave, 1\.45\) \* \.075/);
+  assert.match(page, /Math\.pow\(lateWave, 1\.45\) \* \.06/);
+  assert.match(page, /!shuffledChoices\.some\(\(item\) => item\.cost <= wallet\)/);
+  assert.match(page, /affordableCost = Math\.max\(5, Math\.floor\(wallet \/ 5\) \* 5\)/);
   assert.match(page, /id: "ultimate-amplifier"[\s\S]*rarity: "legendary"/);
   assert.match(page, /id: "signature-module"/);
   assert.match(page, /id: "multi-loader"/);
@@ -177,8 +198,8 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /boss: \{ hp: 3400/);
   assert.match(page, /const bossResilience = enemy\.kind !== "boss"/);
   assert.match(page, /const upgradeRerollPrice/);
-  assert.match(page, /商品价格会随波次与个人经济持续上涨/);
-  assert.match(page, /高稀有度配件出现概率更低/);
+  assert.match(page, /价格和刷新费已适度降低/);
+  assert.match(page, /保证每次至少有一件当前金币买得起/);
   assert.match(page, /刷新次数已用尽/);
   assert.match(page, /const spawnBoss/);
   assert.match(page, /let bossBag: BossVariant\[\] = \[\]/);

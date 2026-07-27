@@ -71,9 +71,11 @@ type ClassSpec = {
   name: string;
   role: string;
   active: string;
+  secondary: string;
   passive: string;
   ultimate: string;
   cooldown: number;
+  secondaryCooldown: number;
   color: string;
   sprite: number;
   sheet: "core" | "specialist" | "vanguard" | "expedition";
@@ -119,11 +121,14 @@ type Shot = {
   chain?: boolean;
   burn?: number;
   burnDamage?: number;
+  freeze?: number;
+  skill2?: boolean;
   hitIds?: number[];
 };
 type Beam = { x1: number; y1: number; x2: number; y2: number; life: number; width: number; color: string };
 type CombatEffect = {
   kind: "skill" | "impact" | "dash" | "revive" | "ultimate" | "slash" | "boss-phase";
+  variant?: "secondary";
   classId?: ClassId;
   enemyKind?: EnemyKind;
   bossVariant?: BossVariant;
@@ -164,6 +169,7 @@ type NetPayload =
   | { t: "build"; build: BuildFrame }
   | { t: "upgrade-done"; build: BuildFrame; hp: number }
   | { t: "skill"; classId: ClassId; x: number; y: number }
+  | { t: "skill2"; classId: ClassId; x: number; y: number }
   | { t: "ultimate"; classId: ClassId; x: number; y: number }
   | { t: "world"; frame: WorldFrame }
   | { t: "levelup"; level: number }
@@ -457,11 +463,11 @@ const MAX_SHOP_REROLLS = 3;
 const roundShopPrice = (value: number) => Math.max(5, Math.ceil(value / 5) * 5);
 const shopRerollPrice = (wave: number, used: number, wallet: number) => {
   const lateWave = Math.max(0, wave - 1);
-  const wavePrice = (22 + wave * 7 + Math.pow(lateWave, 1.68) * 4) * (1 + used * .65);
-  const economyFloor = wallet * (.07 + used * .055);
+  const wavePrice = (17 + wave * 5 + Math.pow(lateWave, 1.62) * 3.1) * (1 + used * .5);
+  const economyFloor = wallet * (.05 + used * .04);
   return roundShopPrice(Math.max(wavePrice, economyFloor));
 };
-const upgradeRerollPrice = (wave: number, used: number) => 10 + Math.floor(Math.max(0, wave - 1) / 2) * 2 + used * 8;
+const upgradeRerollPrice = (wave: number, used: number) => 8 + Math.floor(Math.max(0, wave - 1) / 2) * 2 + used * 6;
 const shuffled = <T,>(items: T[]) => [...items].sort(() => Math.random() - .5);
 const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
   if (upgrade.id === "assault-ultimate-locks") return currentBuild.ultimateTargets < 14;
@@ -504,7 +510,7 @@ const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame) => {
   return shuffled(choices);
 };
 const SHOP_CATEGORIES: ShopCategory[] = ["补给", "武装", "防御", "核心"];
-const SHOP_CATEGORY_PRICE_RATE: Record<ShopCategory, number> = { 补给: .04, 武装: .065, 防御: .06, 核心: .08 };
+const SHOP_CATEGORY_PRICE_RATE: Record<ShopCategory, number> = { 补给: .035, 武装: .055, 防御: .05, 核心: .068 };
 const SHOP_RARITY_WEIGHTS: Record<UpgradeRarity, number> = { common: 62, rare: 26, epic: 9, legendary: 3 };
 const SHOP_RARITY_PRICE_MULTIPLIER: Record<UpgradeRarity, number> = { common: 1, rare: 1.08, epic: 1.2, legendary: 1.38 };
 const weightedShopPick = (items: ShopItem[]) => {
@@ -518,7 +524,7 @@ const weightedShopPick = (items: ShopItem[]) => {
 };
 const rollShopItems = (wave: number, wallet: number, recentIds: string[] = []) => {
   const lateWave = Math.max(0, wave - 1);
-  const priceScale = 1 + lateWave * .18 + Math.pow(lateWave, 1.45) * .075;
+  const priceScale = 1 + lateWave * .15 + Math.pow(lateWave, 1.45) * .06;
   const unlocked = SHOP_ITEMS.filter((item) => (item.unlockWave || 1) <= wave);
   const recent = new Set(recentIds);
   const picked = new Set<string>();
@@ -532,7 +538,27 @@ const rollShopItems = (wave: number, wallet: number, recentIds: string[] = []) =
     const rarityPrice = item.cost * priceScale * SHOP_RARITY_PRICE_MULTIPLIER[item.rarity];
     return [{ ...item, cost: roundShopPrice(Math.max(rarityPrice, economyFloor)) }];
   });
-  return shuffled(choices);
+  const shuffledChoices = shuffled(choices);
+  if (wallet >= 5 && shuffledChoices.length && !shuffledChoices.some((item) => item.cost <= wallet)) {
+    const affordableCost = Math.max(5, Math.floor(wallet / 5) * 5);
+    const fallback = unlocked
+      .filter((item) => item.rarity === "common")
+      .sort((a, b) => a.cost - b.cost)[0];
+    if (fallback) {
+      const fallbackIndex = shuffledChoices.findIndex((item) => item.id === fallback.id);
+      const replaceIndex = fallbackIndex >= 0
+        ? fallbackIndex
+        : Math.max(0, shuffledChoices.findIndex((item) => item.category === fallback.category));
+      shuffledChoices[replaceIndex] = { ...fallback, cost: affordableCost };
+    } else {
+      const cheapestIndex = shuffledChoices.reduce(
+        (best, item, index) => item.cost < shuffledChoices[best].cost ? index : best,
+        0,
+      );
+      shuffledChoices[cheapestIndex] = { ...shuffledChoices[cheapestIndex], cost: affordableCost };
+    }
+  }
+  return shuffledChoices;
 };
 
 const WAVE_INTERVAL_SECONDS = 45;
@@ -541,17 +567,17 @@ const supplyRewardFor = (kills: number, wave: number) =>
   Math.max(8, Math.round(Math.sqrt(Math.max(0, kills)) * 3.2 + wave * 2.5));
 
 const CLASSES: ClassSpec[] = [
-  { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "爆破弹：命中产生范围爆炸", ultimate: "天穹火雨：锁定多个敌群，从空中逐点轰炸", cooldown: 10, color: "#f4c95d", sprite: 0, sheet: "core", radius: 18, renderSize: 78 },
-  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：免疫伤害，强化上限 5 秒", passive: "穿甲重炮：可连续贯穿多个敌人", ultimate: "不灭要塞：展开六面护盾阵地并持续修复队伍", cooldown: 14, color: "#58c7c0", sprite: 1, sheet: "core", radius: 24, renderSize: 88 },
-  { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", passive: "链式脉冲：无人机弹丸会跳跃攻击", ultimate: "蜂群超载：召来轨道蜂群逐一猎杀并链式放电", cooldown: 16, color: "#92a35c", sprite: 2, sheet: "core", radius: 20, renderSize: 82 },
-  { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", passive: "相位针刺：高射速、高暴击并可贯穿", ultimate: "虚空猎杀：在高威胁目标之间连续相位处决", cooldown: 9, color: "#9ec9ff", sprite: 3, sheet: "core", radius: 14, renderSize: 72 },
-  { id: "laser", name: "赤曜型", role: "贯穿激光猎手", active: "聚焦光束：发射横贯战场的高能激光", passive: "热能射线：高速弹丸可贯穿多名敌人", ultimate: "赤曜审判：以机体为中心向四面八方发射贯穿激光", cooldown: 12, color: "#ff5b58", sprite: 0, sheet: "specialist", radius: 15, renderSize: 82 },
-  { id: "frost", name: "霜垒型", role: "冰冻攻城炮", active: "绝对零域：冻结附近敌人并造成伤害", passive: "低温弹头：命中后显著降低敌人速度", ultimate: "永冻纪元：向前推进冰川风暴，冻结整条战线", cooldown: 15, color: "#8bdcff", sprite: 1, sheet: "specialist", radius: 25, renderSize: 94 },
-  { id: "blade", name: "裂锋型", role: "等离子近战", active: "磁轨冲锋：扑向目标并释放双重圆弧斩", passive: "熔断刃：近距离自动斩击并修复少量生命", ultimate: "红莲断界：沿一条战线高速突进并留下连环斩痕", cooldown: 10, color: "#ff9b43", sprite: 0, sheet: "vanguard", radius: 18, renderSize: 86 },
-  { id: "gravity", name: "星渊型", role: "重力控场", active: "坍缩奇点：牵引附近敌人并引爆核心", passive: "引力弹：穿透、减速并产生小型爆炸", ultimate: "事件视界：在敌群中心制造奇点，持续牵引后坍缩", cooldown: 14, color: "#a58cff", sprite: 1, sheet: "vanguard", radius: 23, renderSize: 92 },
-  { id: "thunder", name: "雷霆型", role: "连锁电弧控场", active: "雷链过载：自动串联附近敌人并短暂麻痹", passive: "感应雷弹：命中后电弧跳跃至附近目标", ultimate: "天罚雷域：连续标记高威胁目标并降下多轮落雷", cooldown: 12, color: "#48dfff", sprite: 0, sheet: "expedition", radius: 17, renderSize: 86 },
-  { id: "sky", name: "天隼型", role: "超远程轨道狙击", active: "贯星狙击：贯穿整条战线并重创首领", passive: "弱点照准：高伤害、高暴击、超高速贯穿弹", ultimate: "神矛阵列：轨道光矛依次点杀最高威胁目标", cooldown: 14, color: "#ff6a62", sprite: 1, sheet: "expedition", radius: 15, renderSize: 88 },
-  { id: "cinder", name: "熔炉型", role: "重装燃烧推进", active: "焚城喷流：向敌群喷出锥形烈焰并持续灼烧", passive: "熔岩弹：爆炸后点燃范围内敌人", ultimate: "炼狱推进：多道火墙横推战场并留下燃烧地带", cooldown: 13, color: "#ff8a32", sprite: 2, sheet: "expedition", radius: 26, renderSize: 98 },
+  { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", secondary: "爆破标枪：锁定高威胁目标并引爆重型弹头", passive: "爆破弹：命中产生范围爆炸", ultimate: "天穹火雨：锁定多个敌群，从空中逐点轰炸", cooldown: 10, secondaryCooldown: 8, color: "#f4c95d", sprite: 0, sheet: "core", radius: 18, renderSize: 78 },
+  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：免疫伤害，强化上限 5 秒", secondary: "震荡壁垒：击退并麻痹周围敌人", passive: "穿甲重炮：可连续贯穿多个敌人", ultimate: "不灭要塞：展开六面护盾阵地并持续修复队伍", cooldown: 14, secondaryCooldown: 11, color: "#58c7c0", sprite: 1, sheet: "core", radius: 24, renderSize: 88 },
+  { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", secondary: "追猎蜂群：无人机齐射追踪脉冲弹", passive: "链式脉冲：无人机弹丸会跳跃攻击", ultimate: "蜂群超载：召来轨道蜂群逐一猎杀并链式放电", cooldown: 16, secondaryCooldown: 10, color: "#92a35c", sprite: 2, sheet: "core", radius: 20, renderSize: 82 },
+  { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", secondary: "相位回刃：发射三枚高穿透折返刃", passive: "相位针刺：高射速、高暴击并可贯穿", ultimate: "虚空猎杀：在高威胁目标之间连续相位处决", cooldown: 9, secondaryCooldown: 7, color: "#9ec9ff", sprite: 3, sheet: "core", radius: 14, renderSize: 72 },
+  { id: "laser", name: "赤曜型", role: "贯穿激光猎手", active: "聚焦光束：发射横贯战场的高能激光", secondary: "棱镜十字：向目标交叉发射四道贯穿光束", passive: "热能射线：高速弹丸可贯穿多名敌人", ultimate: "赤曜审判：以机体为中心向四面八方发射贯穿激光", cooldown: 12, secondaryCooldown: 9, color: "#ff5b58", sprite: 0, sheet: "specialist", radius: 15, renderSize: 82 },
+  { id: "frost", name: "霜垒型", role: "冰冻攻城炮", active: "绝对零域：冻结附近敌人并造成伤害", secondary: "冰狱长枪：发射可冻结并碎裂的重型冰枪", passive: "低温弹头：命中后显著降低敌人速度", ultimate: "永冻纪元：向前推进冰川风暴，冻结整条战线", cooldown: 15, secondaryCooldown: 10, color: "#8bdcff", sprite: 1, sheet: "specialist", radius: 25, renderSize: 94 },
+  { id: "blade", name: "裂锋型", role: "等离子近战", active: "磁轨冲锋：扑向目标并释放双重圆弧斩", secondary: "旋刃圆舞：高速回旋刀身并斩击近敌", passive: "熔断刃：近距离自动斩击并修复少量生命", ultimate: "红莲断界：沿一条战线高速突进并留下连环斩痕", cooldown: 10, secondaryCooldown: 8, color: "#ff9b43", sprite: 0, sheet: "vanguard", radius: 18, renderSize: 86 },
+  { id: "gravity", name: "星渊型", role: "重力控场", active: "坍缩奇点：牵引附近敌人并引爆核心", secondary: "斥力反转：反向重力击退并重创近敌", passive: "引力弹：穿透、减速并产生小型爆炸", ultimate: "事件视界：在敌群中心制造奇点，持续牵引后坍缩", cooldown: 14, secondaryCooldown: 11, color: "#a58cff", sprite: 1, sheet: "vanguard", radius: 23, renderSize: 92 },
+  { id: "thunder", name: "雷霆型", role: "连锁电弧控场", active: "雷链过载：自动串联附近敌人并短暂麻痹", secondary: "电磁脉冲：范围麻痹并扩散多重电弧", passive: "感应雷弹：命中后电弧跳跃至附近目标", ultimate: "天罚雷域：连续标记高威胁目标并降下多轮落雷", cooldown: 12, secondaryCooldown: 9, color: "#48dfff", sprite: 0, sheet: "expedition", radius: 17, renderSize: 86 },
+  { id: "sky", name: "天隼型", role: "超远程轨道狙击", active: "贯星狙击：贯穿整条战线并重创首领", secondary: "猎杀标记：向首领或强敌降下三发轨道矛", passive: "弱点照准：高伤害、高暴击、超高速贯穿弹", ultimate: "神矛阵列：轨道光矛依次点杀最高威胁目标", cooldown: 14, secondaryCooldown: 12, color: "#ff6a62", sprite: 1, sheet: "expedition", radius: 15, renderSize: 88 },
+  { id: "cinder", name: "熔炉型", role: "重装燃烧推进", active: "焚城喷流：向敌群喷出锥形烈焰并持续灼烧", secondary: "熔火地雷：投射爆炸核心并留下持续灼烧", passive: "熔岩弹：爆炸后点燃范围内敌人", ultimate: "炼狱推进：多道火墙横推战场并留下燃烧地带", cooldown: 13, secondaryCooldown: 10, color: "#ff8a32", sprite: 2, sheet: "expedition", radius: 26, renderSize: 98 },
 ];
 
 const BOSS_VARIANTS: Record<BossVariant, { name: string; sprite: number; sheet: "core" | "v2"; color: string; hp: number; speed: number; hit: number; range: number }> = {
@@ -798,6 +824,7 @@ export default function Home() {
   const [bossLootNotice, setBossLootNotice] = useState("");
   const [selectedClass, setSelectedClass] = useState<ClassId>("assault");
   const [skillCooldown, setSkillCooldown] = useState(0);
+  const [secondarySkillCooldown, setSecondarySkillCooldown] = useState(0);
   const [waitingPeerUpgrade, setWaitingPeerUpgrade] = useState(false);
   const [sound, setSound] = useState(true);
   const [musicVolume, setMusicVolume] = useState(42);
@@ -817,6 +844,7 @@ export default function Home() {
   const resetRef = useRef<() => void>(() => {});
   const applyUpgradeRef = useRef<(id: string) => void>(() => {});
   const activeSkillRef = useRef<() => void>(() => {});
+  const secondarySkillRef = useRef<() => void>(() => {});
   const activeUltimateRef = useRef<() => void>(() => {});
   const buyShopItemRef = useRef<(id: string) => void>(() => {});
   const finishShopRef = useRef<() => void>(() => {});
@@ -855,7 +883,7 @@ export default function Home() {
   const startGame = useCallback(() => {
     wakeAudio("start");
     pausedRef.current = false;
-    setLevel(1); setXp(0); setHp(ownBuildRef.current.maxHp); setMaxHp(ownBuildRef.current.maxHp); setTeammateHp(null); setRescueProgress(0); setKills(0); setSeconds(0); setSkillCooldown(0);
+    setLevel(1); setXp(0); setHp(ownBuildRef.current.maxHp); setMaxHp(ownBuildRef.current.maxHp); setTeammateHp(null); setRescueProgress(0); setKills(0); setSeconds(0); setSkillCooldown(0); setSecondarySkillCooldown(0);
     setWave(1); setCoins(0); setUltimateEnergy(0); setShopItems(null); setSupplyReward(0); setWaitingSupply(false);
     setUpgradeRerolls(0); setShopRerolls(0); setBossLootNotice("");
     setChoices(null); setPaused(false); setView("game");
@@ -1045,7 +1073,7 @@ export default function Home() {
     let nextSurgeAt = 22, surgeRemaining = 0, surgeSpawnClock = 0;
     let active = true, localPaused = false, currentXp = 0, currentLevel = 1, currentKills = 0;
     let netClock = 0, worldClock = 0, remoteFireClock = 0, gameOverSent = false, nextEnemyId = 1;
-    let selfShieldUntil = 0, remoteShieldUntil = 0, skillReadyAt = 0, shownCooldown = -1;
+    let selfShieldUntil = 0, remoteShieldUntil = 0, skillReadyAt = 0, secondarySkillReadyAt = 0, shownCooldown = -1, shownSecondaryCooldown = -1;
     let hostReviveProgress = 0, guestReviveProgress = 0;
     let localUpgradeDone = false, waitingForRemoteUpgrade = false;
     let localUpgradeStartedAlive = false, localUpgradeStartHp = 0;
@@ -1194,6 +1222,11 @@ export default function Home() {
         triggerSkillEffect(remote, data.classId, skillStart);
         audio?.play("skill");
       }
+      if (data.t === "skill2" && isAuthority && remote) {
+        const remoteBuild = remoteBuildRef.current || makeBuild(data.classId);
+        executeSecondarySkill(remote, remoteBuild, data.classId, "guest");
+        audio?.play("skill");
+      }
       if (data.t === "ultimate" && isAuthority && remote) {
         const remoteStats = remoteBuildRef.current || makeBuild(data.classId);
         guestUltimate = 0;
@@ -1326,7 +1359,7 @@ export default function Home() {
       elapsed = 0; spawnClock = 0; fireClock = 0; nextSurgeAt = 22; surgeRemaining = 0; surgeSpawnClock = 0; currentXp = 0; currentLevel = 1; currentKills = 0;
       netClock = 0; worldClock = 0; remoteFireClock = 0; gameOverSent = false;
       nextEnemyId = 1;
-      selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; shownCooldown = -1;
+      selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; secondarySkillReadyAt = 0; shownCooldown = -1; shownSecondaryCooldown = -1;
       hostReviveProgress = 0; guestReviveProgress = 0;
       hostCoins = 0; guestCoins = 0; hostUltimate = 0; guestUltimate = 0;
       currentWave = 1; waveKills = 0; nextWaveAt = WAVE_INTERVAL_SECONDS; lastBossWave = 0;
@@ -1358,6 +1391,7 @@ export default function Home() {
       setTeammateHp(null);
       setRescueProgress(0);
       setSkillCooldown(0);
+      setSecondarySkillCooldown(0);
       setWave(1);
       setCoins(0);
       setUltimateEnergy(0);
@@ -1674,6 +1708,23 @@ export default function Home() {
       audio?.play("skill");
     };
 
+    secondarySkillRef.current = () => {
+      const now = performance.now();
+      if (player.hp <= 0 || now < secondarySkillReadyAt || localPaused || pausedRef.current) return;
+      const spec = classSpec();
+      const cooldownSeconds = Math.max(4, spec.secondaryCooldown * stats.skillHaste);
+      secondarySkillReadyAt = now + cooldownSeconds * 1000;
+      setSecondarySkillCooldown(Math.ceil((secondarySkillReadyAt - now) / 1000));
+      if (network?.role === "join") {
+        triggerSecondarySkillEffect(player, build.classId);
+        if (network.connected()) void network.send({ t: "skill2", classId: build.classId, x: player.x, y: player.y });
+        audio?.play("skill");
+        return;
+      }
+      executeSecondarySkill(player, stats, build.classId, "host");
+      audio?.play("skill");
+    };
+
     const down = (e: KeyboardEvent) => {
       keys.add(e.key.toLowerCase());
       if (e.key.toLowerCase() === "q" || e.code === "Space") {
@@ -1683,6 +1734,10 @@ export default function Home() {
       if (e.key.toLowerCase() === "r") {
         e.preventDefault();
         activeUltimateRef.current();
+      }
+      if (e.key.toLowerCase() === "e") {
+        e.preventDefault();
+        secondarySkillRef.current();
       }
       if (e.key === "Escape" && network?.role !== "join") {
         setPaused((wasPaused) => {
@@ -1843,6 +1898,26 @@ export default function Home() {
         addEffect({ kind: "dash", classId, x: start.x, y: start.y, x2: actor.x, y2: actor.y, color, radius: 34 }, .48);
       }
       burst(actor.x, actor.y, color, classId === "frost" ? 24 : 14);
+    };
+    const triggerSecondarySkillEffect = (
+      actor: Actor,
+      classId: ClassId,
+      target?: { x: number; y: number },
+      radius = 180,
+    ) => {
+      const color = CLASSES.find((entry) => entry.id === classId)?.color || "#f4c95d";
+      addEffect({
+        kind: "skill",
+        variant: "secondary",
+        classId,
+        x: actor.x,
+        y: actor.y,
+        x2: target?.x,
+        y2: target?.y,
+        color,
+        radius,
+      }, .82);
+      burst(actor.x, actor.y, color, classId === "blade" || classId === "guardian" ? 22 : 14);
     };
     const dronePosition = (actor: Actor, index: number, count: number, now = performance.now()) => {
       const angle = now / 1300 + index / Math.max(1, count) * Math.PI * 2;
@@ -2048,6 +2123,156 @@ export default function Home() {
         burst(enemy.x, enemy.y, "#ff8a32", 10);
       }
       addEffect({ kind: "skill", classId: "cinder", x: actor.x, y: actor.y, x2: actor.x + Math.cos(angle) * range, y2: actor.y + Math.sin(angle) * range, color: "#ff8a32", radius: range }, 1.05);
+    };
+    const executeSecondarySkill = (
+      actor: Actor,
+      combatStats: BuildFrame | CombatStats,
+      classId: ClassId,
+      owner: PlayerSide,
+    ) => {
+      const threats = prioritizeUltimateTargets(enemies.filter((enemy) => enemy.hp > 0), actor, 8);
+      const target = threats[0];
+      const aimAngle = target ? Math.atan2(target.y - actor.y, target.x - actor.x) : -Math.PI / 2;
+      const pushEnemies = (radius: number, distance: number, damage: number, stun = 0) => {
+        for (const enemy of enemies) {
+          const range = dist(actor, enemy);
+          if (enemy.hp <= 0 || range > radius + enemy.r || range < 1) continue;
+          const angle = Math.atan2(enemy.y - actor.y, enemy.x - actor.x);
+          enemy.x = clamp(enemy.x + Math.cos(angle) * distance, -80, W + 80);
+          enemy.y = clamp(enemy.y + Math.sin(angle) * distance, -80, H + 80);
+          if (stun > 0) enemy.stunned = Math.max(enemy.stunned || 0, stun);
+          applyEnemyDamage(enemy, damage, owner);
+          burst(enemy.x, enemy.y, classId === "guardian" ? "#75e6da" : "#a58cff", 7);
+        }
+      };
+      const damageLine = (angle: number, width: number, damage: number, color: string) => {
+        const reach = 1700;
+        for (const direction of [-1, 1]) {
+          const lineAngle = angle + (direction < 0 ? Math.PI : 0);
+          const x2 = actor.x + Math.cos(lineAngle) * reach;
+          const y2 = actor.y + Math.sin(lineAngle) * reach;
+          beams.push({ x1: actor.x, y1: actor.y, x2, y2, life: .5, width, color });
+          for (const enemy of enemies) {
+            const along = (enemy.x - actor.x) * Math.cos(lineAngle) + (enemy.y - actor.y) * Math.sin(lineAngle);
+            const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(lineAngle) - (enemy.y - actor.y) * Math.cos(lineAngle));
+            if (along > 0 && along < reach && perpendicular < enemy.r + width) applyEnemyDamage(enemy, damage, owner);
+          }
+        }
+      };
+
+      if (classId === "assault") {
+        shots.push({
+          x: actor.x, y: actor.y,
+          vx: Math.cos(aimAngle) * 720, vy: Math.sin(aimAngle) * 720,
+          r: 12, damage: combatStats.damage * 3.6, life: 2.8,
+          owner, classId, splash: 118, pierce: 1, skill2: true,
+        });
+        triggerSecondarySkillEffect(actor, classId, target, 150);
+      }
+      if (classId === "guardian") {
+        pushEnemies(255, 190, combatStats.damage * 2.2, .85);
+        if (actor === player) selfShieldUntil = Math.max(selfShieldUntil, performance.now() + 650);
+        else remoteShieldUntil = Math.max(remoteShieldUntil, performance.now() + 650);
+        triggerSecondarySkillEffect(actor, classId, undefined, 255);
+      }
+      if (classId === "engineer") {
+        const volley = Math.max(5, Math.round(combatStats.drones * 3 + 2));
+        for (let index = 0; index < volley; index++) {
+          const origin = dronePosition(actor, index, volley);
+          const prey = threats[index % Math.max(1, threats.length)];
+          const angle = prey ? Math.atan2(prey.y - origin.y, prey.x - origin.x) : index / volley * Math.PI * 2;
+          shots.push({
+            x: origin.x, y: origin.y,
+            vx: Math.cos(angle) * 780, vy: Math.sin(angle) * 780,
+            r: 6, damage: combatStats.damage * 1.5 * combatStats.dronePower, life: 2.4,
+            owner, classId, chain: true, pierce: 1, skill2: true,
+          });
+        }
+        triggerSecondarySkillEffect(actor, classId, target, 210);
+      }
+      if (classId === "phantom") {
+        for (const spread of [-.15, 0, .15]) {
+          const angle = aimAngle + spread;
+          shots.push({
+            x: actor.x, y: actor.y,
+            vx: Math.cos(angle) * 980, vy: Math.sin(angle) * 980,
+            r: 7, damage: combatStats.damage * 2.55, life: 2.2,
+            owner, classId, pierce: 4, skill2: true,
+          });
+        }
+        triggerSecondarySkillEffect(actor, classId, target, 190);
+      }
+      if (classId === "laser") {
+        damageLine(aimAngle, 11 * combatStats.laserPower, combatStats.damage * 4.2 * combatStats.laserPower, "#ff5b58");
+        damageLine(aimAngle + Math.PI / 2, 8 * combatStats.laserPower, combatStats.damage * 3.1 * combatStats.laserPower, "#ffb0a7");
+        triggerSecondarySkillEffect(actor, classId, target, 300);
+      }
+      if (classId === "frost") {
+        shots.push({
+          x: actor.x, y: actor.y,
+          vx: Math.cos(aimAngle) * 620, vy: Math.sin(aimAngle) * 620,
+          r: 14, damage: combatStats.damage * 3.35 * combatStats.frostPower, life: 3,
+          owner, classId, pierce: 2, splash: 92, slow: 6.5, freeze: 1.25, skill2: true,
+        });
+        triggerSecondarySkillEffect(actor, classId, target, 220);
+      }
+      if (classId === "blade") {
+        const range = combatStats.meleeRange * 1.55 * combatStats.meleePower;
+        for (let index = 0; index < 3; index++) {
+          const angle = aimAngle + index / 3 * Math.PI * 2;
+          addEffect({
+            kind: "slash", classId, x: actor.x, y: actor.y,
+            x2: actor.x + Math.cos(angle) * range, y2: actor.y + Math.sin(angle) * range,
+            color: "#ff9b43", radius: range,
+          }, .56);
+        }
+        for (const enemy of enemies) {
+          if (enemy.hp <= 0 || dist(actor, enemy) > range + enemy.r) continue;
+          applyEnemyDamage(enemy, combatStats.damage * 3.15 * combatStats.meleePower, owner);
+          burst(enemy.x, enemy.y, "#ff9b43", 10);
+        }
+        if (actor === player) selfShieldUntil = Math.max(selfShieldUntil, performance.now() + 700);
+        else remoteShieldUntil = Math.max(remoteShieldUntil, performance.now() + 700);
+        triggerSecondarySkillEffect(actor, classId, undefined, range);
+      }
+      if (classId === "gravity") {
+        pushEnemies(350 * combatStats.gravityPower, 245, combatStats.damage * 2.75 * combatStats.gravityPower, .35);
+        triggerSecondarySkillEffect(actor, classId, undefined, 350 * combatStats.gravityPower);
+      }
+      if (classId === "thunder") {
+        const targets = enemies
+          .filter((enemy) => enemy.hp > 0 && dist(actor, enemy) < 410)
+          .sort((a, b) => dist(actor, a) - dist(actor, b))
+          .slice(0, 10);
+        for (const [index, enemy] of targets.entries()) {
+          enemy.stunned = Math.max(enemy.stunned || 0, .7);
+          applyEnemyDamage(enemy, combatStats.damage * 2.15 * combatStats.lightningPower, owner);
+          beams.push({
+            x1: index ? targets[index - 1].x : actor.x,
+            y1: index ? targets[index - 1].y : actor.y,
+            x2: enemy.x, y2: enemy.y, life: .34, width: 6, color: "#48dfff",
+          });
+        }
+        triggerSecondarySkillEffect(actor, classId, target, 410);
+      }
+      if (classId === "sky") {
+        const marked = threats.slice(0, 3);
+        for (const enemy of marked) {
+          beams.push({ x1: enemy.x, y1: -100, x2: enemy.x, y2: enemy.y, life: .68, width: 9, color: "#fff1df" });
+          addEffect({ kind: "impact", classId, x: enemy.x, y: enemy.y, color: "#ff6a62", radius: 92 }, .52);
+          applyEnemyDamage(enemy, combatStats.damage * 4.4 * combatStats.sniperPower * (enemy.kind === "boss" ? 1.2 : 1), owner);
+        }
+        triggerSecondarySkillEffect(actor, classId, target, 330);
+      }
+      if (classId === "cinder") {
+        shots.push({
+          x: actor.x, y: actor.y,
+          vx: Math.cos(aimAngle) * 480, vy: Math.sin(aimAngle) * 480,
+          r: 16, damage: combatStats.damage * 2.7 * combatStats.burnPower, life: 3.4,
+          owner, classId, splash: 145, burn: 6.5, burnDamage: combatStats.damage * .55, skill2: true,
+        });
+        triggerSecondarySkillEffect(actor, classId, target, 240);
+      }
     };
     const executeUltimate = (actor: Actor, combatStats: BuildFrame | CombatStats, classId: ClassId, owner: PlayerSide) => {
       const power = combatStats.ultimatePower;
@@ -2339,6 +2564,11 @@ export default function Home() {
       if (cooldownRemaining !== shownCooldown) {
         shownCooldown = cooldownRemaining;
         setSkillCooldown(cooldownRemaining);
+      }
+      const secondaryCooldownRemaining = Math.max(0, Math.ceil((secondarySkillReadyAt - performance.now()) / 1000));
+      if (secondaryCooldownRemaining !== shownSecondaryCooldown) {
+        shownSecondaryCooldown = secondaryCooldownRemaining;
+        setSecondarySkillCooldown(secondaryCooldownRemaining);
       }
       if (!isAuthority) return;
 
@@ -2811,6 +3041,7 @@ export default function Home() {
           applyEnemyDamage(enemy, resolvedDamage, shot.owner || "host");
           shot.hitIds = [...(shot.hitIds || []), enemy.id];
           if (shot.slow) enemy.slow = Math.max(enemy.slow, shot.slow);
+          if (shot.freeze) enemy.frozen = Math.max(enemy.frozen || 0, shot.freeze);
           if (shot.burn) {
             const burnStats = shot.owner === "guest" ? remoteBuildRef.current : stats;
             const burnPower = burnStats?.burnPower || 1;
@@ -3190,6 +3421,27 @@ export default function Home() {
           const radius=18+effect.radius*progress;
           ctx.lineWidth=5*(1-progress)+2;
           ctx.beginPath();ctx.arc(effect.x,effect.y,radius,0,Math.PI*2);ctx.stroke();
+          if(effect.variant==="secondary"){
+            const targetX=effect.x2??effect.x,targetY=effect.y2??effect.y;
+            const sides=effect.classId==="guardian"?6:effect.classId==="frost"?8:effect.classId==="blade"?3:4;
+            ctx.save();ctx.translate(effect.x,effect.y);ctx.rotate(progress*Math.PI*2);ctx.setLineDash([10,7]);ctx.lineWidth=3;
+            ctx.beginPath();
+            for(let index=0;index<sides;index++){
+              const angle=index/sides*Math.PI*2-Math.PI/2;
+              const px=Math.cos(angle)*radius*.72,py=Math.sin(angle)*radius*.72;
+              if(index)ctx.lineTo(px,py);else ctx.moveTo(px,py);
+            }
+            ctx.closePath();ctx.stroke();ctx.setLineDash([]);
+            for(let index=0;index<sides;index++){
+              const angle=index/sides*Math.PI*2+progress*2.4;
+              ctx.fillRect(Math.cos(angle)*radius*.42-4,Math.sin(angle)*radius*.42-4,8,8);
+            }
+            ctx.restore();
+            if(effect.x2!==undefined&&effect.y2!==undefined){
+              ctx.globalAlpha=alpha*.65;ctx.setLineDash([9,8]);ctx.lineWidth=2;
+              ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(targetX,targetY);ctx.stroke();ctx.setLineDash([]);
+            }
+          }
           if(effect.classId==="assault"){
             for(let index=0;index<12;index++){
               const angle=index/12*Math.PI*2;
@@ -3323,9 +3575,15 @@ export default function Home() {
         }
         const projectileColumns=classInfo.sheet==="expedition"?3:2;
         const cellW=projectileImage.naturalWidth/projectileColumns,cellH=classInfo.sheet==="core"||classInfo.sheet==="expedition"?projectileImage.naturalHeight/2:projectileImage.naturalHeight;
-        const [drawW,drawH]=projectileDimensions[s.classId];
+        const [baseDrawW,baseDrawH]=projectileDimensions[s.classId];
+        const drawW=baseDrawW*(s.skill2?1.38:1),drawH=baseDrawH*(s.skill2?1.38:1);
         ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));
-        ctx.shadowColor=classInfo.color;ctx.shadowBlur=8;
+        ctx.shadowColor=classInfo.color;ctx.shadowBlur=s.skill2?20:8;
+        if(s.skill2){
+          ctx.strokeStyle=classInfo.color;ctx.fillStyle="rgba(255,255,255,.16)";ctx.lineWidth=2.5;
+          ctx.beginPath();ctx.moveTo(drawW*.55,0);ctx.lineTo(0,-drawH*.82);ctx.lineTo(-drawW*.55,0);ctx.lineTo(0,drawH*.82);ctx.closePath();ctx.fill();ctx.stroke();
+          ctx.globalAlpha=.8;ctx.beginPath();ctx.arc(0,0,Math.max(drawH,drawW)*.63,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=1;
+        }
         ctx.drawImage(projectileImage,(sprite%projectileColumns)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:classInfo.sheet==="expedition"?cellH:0,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
         ctx.restore();
       }
@@ -3406,6 +3664,9 @@ export default function Home() {
       }
       const drawMech = (actor: Actor, ally: boolean) => {
         const classInfo = CLASSES.find((item) => item.id === actor.classId) || CLASSES[0];
+        const bladeSwing = classInfo.id === "blade"
+          ? effects.find((effect) => effect.kind === "slash" && effect.classId === "blade" && dist(effect, actor) < 90)
+          : undefined;
         const sprite = classInfo.sprite;
         const mechImage = classInfo.id === "laser"
           ? laserSprite
@@ -3434,6 +3695,20 @@ export default function Home() {
           ctx.drawImage(mechImage,independentSprite?0:(sprite%2)*cellW,independentSprite?0:Math.floor(sprite/2)*cellH,cellW,cellH,actor.x-size/2,actor.y-size/2,size,size);
         }else{
           ctx.fillStyle=actor.color;ctx.beginPath();ctx.arc(actor.x,actor.y,actor.r,0,Math.PI*2);ctx.fill();
+        }
+        if(bladeSwing&&actor.hp>0){
+          const swingProgress=clamp(1-bladeSwing.life/bladeSwing.duration,0,1);
+          const targetAngle=Math.atan2((bladeSwing.y2??actor.y)-bladeSwing.y,(bladeSwing.x2??actor.x)-bladeSwing.x);
+          const swingAngle=targetAngle-1.28+swingProgress*2.56;
+          const bladeLength=classInfo.renderSize*.78;
+          ctx.save();ctx.translate(actor.x,actor.y);ctx.rotate(swingAngle);
+          ctx.strokeStyle="#5b3824";ctx.lineWidth=8;ctx.lineCap="round";ctx.beginPath();ctx.moveTo(actor.r*.45,0);ctx.lineTo(actor.r*.95,0);ctx.stroke();
+          const bladeGradient=ctx.createLinearGradient(actor.r*.9,0,bladeLength,0);
+          bladeGradient.addColorStop(0,"#fff8dd");bladeGradient.addColorStop(.35,"#ffc26b");bladeGradient.addColorStop(1,"rgba(255,104,35,.15)");
+          ctx.strokeStyle=bladeGradient;ctx.shadowColor="#ff8a32";ctx.shadowBlur=24;ctx.lineWidth=9;
+          ctx.beginPath();ctx.moveTo(actor.r*.88,0);ctx.lineTo(bladeLength,0);ctx.stroke();
+          ctx.strokeStyle="#ffffff";ctx.shadowBlur=8;ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(actor.r,0);ctx.lineTo(bladeLength*.94,0);ctx.stroke();
+          ctx.restore();
         }
         ctx.restore();
       };
@@ -3594,7 +3869,8 @@ export default function Home() {
       <span className={mechPreviewClass(item)} style={mechPreviewStyle(item)} aria-hidden="true"/>
       <small>{item.role}</small>
       <b>{item.name}</b>
-      <span><em>主动</em>{item.active}</span>
+      <span><em>主技 Q</em>{item.active}</span>
+      <span><em>副技 E</em>{item.secondary}</span>
       <span><em>被动</em>{item.passive}</span>
       <span><em>终极</em>{item.ultimate}</span>
     </button>)}
@@ -3604,7 +3880,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.13.6 · 首领锁定与前期成长</div>
+        <div className="status"><i /> 版本 0.14.0 · 双技能机甲重装</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -3634,14 +3910,14 @@ export default function Home() {
           <button className="primary" onClick={()=>setView("loadout")}><span>开始远征</span><small>单人 · 选择机体</small></button>
           <button className="secondary" onClick={()=>setView("coop")}><span>双人联机</span><small>房间链接 · 自动中继</small></button>
         </div>
-        <div className="controls"><span><kbd>WASD</kbd> 移动</span><span><kbd>Q / 空格</kbd> 主动技能</span><span><kbd>R</kbd> 终极大招</span><span><kbd>ESC</kbd> 暂停</span></div>
+        <div className="controls"><span><kbd>WASD</kbd> 移动</span><span><kbd>Q / 空格</kbd> 主技能</span><span><kbd>E</kbd> 副技能</span><span><kbd>R</kbd> 终极大招</span><span><kbd>ESC</kbd> 暂停</span></div>
       </section>}
 
       {view==="loadout" && <section className="loadout">
         <button className="back" onClick={()=>setView("menu")}>← 返回营地</button>
         <div className="eyebrow">FRAME SELECT · 机体整备</div>
         <h2>选择你的作战职业</h2>
-        <p>每种机体拥有独立的主动技能和被动特性，进入远征后仍可通过遗物继续塑造个人流派。</p>
+        <p>每种机体至少拥有两项独立小技能和一项被动特性，进入远征后仍可通过遗物继续塑造个人流派。</p>
         {classSelector}
         <button className="primary compact launchClass" onClick={startSelectedSolo}><span>驾驶 {selectedClassSpec.name} 出发</span></button>
       </section>}
@@ -3711,6 +3987,11 @@ export default function Home() {
             <div><small>{selectedClassSpec.role}</small><b>{selectedClassSpec.active}</b></div>
             <button onClick={()=>activeSkillRef.current()} disabled={skillCooldown>0||hp<=0}>{hp<=0?"倒地":skillCooldown>0?`${skillCooldown}s`:"Q · 释放"}</button>
           </div>
+          <div className="skillDock secondarySkillDock">
+            <span className="secondarySkillIcon" aria-hidden="true">Ⅱ</span>
+            <div><small>第二战术技能</small><b>{selectedClassSpec.secondary}</b></div>
+            <button onClick={()=>secondarySkillRef.current()} disabled={secondarySkillCooldown>0||hp<=0}>{hp<=0?"倒地":secondarySkillCooldown>0?`${secondarySkillCooldown}s`:"E · 释放"}</button>
+          </div>
           <div className={`ultimateDock ${ultimateEnergy>=100?"ready":""}`}>
             <span className="ultimateCopy"><small>终极大招</small><b>{ULTIMATE_NAMES[selectedClass]}</b><em>{selectedClassSpec.ultimate.split("：")[1]}</em></span>
             <i><em style={{width:`${clamp(ultimateEnergy,0,100)}%`}}/></i>
@@ -3736,7 +4017,7 @@ export default function Home() {
           <div className="shopPanel">
             <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波后补给</div>
             <h2>战场补给站</h2>
-            <p>本次补给周期共享结算 <b>◈ {supplyReward}</b>。补给站每两波出现一次，金币按击杀递减结算；商品价格会随波次与个人经济持续上涨，高稀有度配件出现概率更低。</p>
+            <p>本次补给周期共享结算 <b>◈ {supplyReward}</b>。补给站每两波出现一次；商品仍会随波次上涨，但价格和刷新费已适度降低，并保证每次至少有一件当前金币买得起。</p>
             <div className="shopWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="shopGrid">{shopItems.map((item)=><button key={item.id} className={`shop-rarity-${item.rarity}`} onClick={()=>buyShopItemRef.current(item.id)} disabled={coins<item.cost}>
