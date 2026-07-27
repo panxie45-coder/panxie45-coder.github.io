@@ -36,7 +36,7 @@ type UpgradeRarity = "common" | "rare" | "epic" | "legendary";
 type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId; secondary?: boolean; ultimate?: boolean; rarity?: UpgradeRarity };
 type ShopCategory = "补给" | "武装" | "防御" | "核心";
 type ShopItem = { id: string; title: string; desc: string; icon: string; cost: number; category: ShopCategory; rarity: UpgradeRarity; unlockWave?: number; priceRate?: number };
-type BossRelic = { id: BossRelicId; title: string; desc: string; icon: string };
+type BossRelic = { id: BossRelicId; title: string; desc: string; icon: string; rarity: UpgradeRarity };
 type CombatStats = {
   speed: number;
   damage: number;
@@ -421,9 +421,9 @@ const SHOP_ITEMS: ShopItem[] = [
 ];
 
 const BOSS_RELICS: BossRelic[] = [
-  { id: "titan-core", title: "泰坦残核", desc: "全队生命上限 +18、减伤 +4%", icon: "⬢" },
-  { id: "overdrive-core", title: "过载燃芯", desc: "全队伤害 +14%、射击间隔 -6%", icon: "✹" },
-  { id: "chrono-core", title: "时序结晶", desc: "全队技能冷却 -10%、移动速度 +6%", icon: "◌" },
+  { id: "titan-core", title: "泰坦残核", desc: "全队生命上限 +18、减伤 +4%", icon: "⬢", rarity: "rare" },
+  { id: "overdrive-core", title: "过载燃芯", desc: "全队伤害 +14%、射击间隔 -6%", icon: "✹", rarity: "legendary" },
+  { id: "chrono-core", title: "时序结晶", desc: "全队技能冷却 -10%、移动速度 +6%", icon: "◌", rarity: "epic" },
 ];
 
 const ULTIMATE_NAMES: Record<ClassId, string> = {
@@ -512,11 +512,36 @@ const UPGRADE_RARITY: Partial<Record<string, UpgradeRarity>> = {
 const UPGRADE_RARITY_GROWTH_CAP_WAVE = 12;
 const RARITY_WEIGHTS: Record<UpgradeRarity, number> = { common: 52, rare: 32, epic: 16, legendary: 7 };
 const RARITY_LATE_WAVE_BONUS: Record<UpgradeRarity, number> = { common: -8, rare: 10, epic: 14, legendary: 11 };
+const BASIC_ATTACK_WEIGHT_MULTIPLIER = 1.5;
+const BASIC_ATTACK_UPGRADE_IDS = new Set([
+  "rapid", "damage", "multi", "critical", "velocity",
+  "assault-warhead", "guardian-rail", "phantom-needle", "laser-prism",
+  "frost-shatter", "blade-edge", "blade-tempo", "gravity-lens",
+  "thunder-cycle", "sky-focus", "sky-penetrator", "cinder-nozzle",
+]);
 const RARITY_LABELS: Record<UpgradeRarity, string> = { common: "普通", rare: "稀有", epic: "史诗", legendary: "传说" };
 const upgradeRarity = (upgrade: Upgrade): UpgradeRarity => upgrade.rarity || UPGRADE_RARITY[upgrade.id] || "common";
 const upgradeRarityWeight = (rarity: UpgradeRarity, wave: number) => {
   const progress = Math.min(1, Math.max(0, (Math.max(1, wave) - 1) / (UPGRADE_RARITY_GROWTH_CAP_WAVE - 1)));
   return Math.max(1, RARITY_WEIGHTS[rarity] + RARITY_LATE_WAVE_BONUS[rarity] * progress);
+};
+const BOSS_RELIC_GROWTH_CAP_WAVE = 15;
+const bossRelicDropWeight = (rarity: UpgradeRarity, wave: number) => {
+  const progress = Math.min(1, Math.max(0, (Math.max(3, wave) - 3) / (BOSS_RELIC_GROWTH_CAP_WAVE - 3)));
+  if (rarity === "legendary") return 38 + progress * 10;
+  if (rarity === "epic") return 34 + progress * 6;
+  if (rarity === "rare") return 28 - progress * 12;
+  return 0;
+};
+const rollBossRelic = (wave: number) => {
+  const weighted = BOSS_RELICS.map((relic) => ({ relic, weight: bossRelicDropWeight(relic.rarity, wave) }));
+  const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const entry of weighted) {
+    roll -= entry.weight;
+    if (roll <= 0) return entry.relic;
+  }
+  return weighted[weighted.length - 1].relic;
 };
 
 const GUARDIAN_SHIELD_MAX = 5;
@@ -564,7 +589,8 @@ const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>, wave: n
   const available = items.filter((upgrade) => !excludedIds.has(upgrade.id));
   const weighted = available.map((upgrade) => {
     const rarity = upgradeRarity(upgrade);
-    return { upgrade, rarity, weight: upgradeRarityWeight(rarity, wave) };
+    const attackWeight = BASIC_ATTACK_UPGRADE_IDS.has(upgrade.id) ? BASIC_ATTACK_WEIGHT_MULTIPLIER : 1;
+    return { upgrade, rarity, weight: upgradeRarityWeight(rarity, wave) * attackWeight };
   });
   const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
   let roll = Math.random() * totalWeight;
@@ -1430,7 +1456,7 @@ export default function Home() {
         if (build.maxHp > previousMaxHp && player.hp > 0) player.hp += build.maxHp - previousMaxHp;
         setMaxHp(player.maxHp);
         setHp(Math.ceil(player.hp));
-        setBossLootNotice(relic ? `${relic.icon} ${relic.title} · ${relic.desc}` : "获得 Boss 核心");
+        setBossLootNotice(relic ? `${relic.icon} ${RARITY_LABELS[relic.rarity]}遗物 · ${relic.title} · ${relic.desc}` : "获得 Boss 核心");
       }
       if (data.t === "pause" && !isAuthority) {
         setPaused(data.paused);
@@ -3226,7 +3252,7 @@ export default function Home() {
               });
             }
           }
-          const bossRelic = enemy.kind === "boss" ? shuffled(BOSS_RELICS)[0] : null;
+          const bossRelic = enemy.kind === "boss" ? rollBossRelic(currentWave) : null;
           const value = enemy.kind === "boss"
             ? ENEMY_XP.boss + currentWave * 6
             : Math.round(ENEMY_XP[enemy.kind] * (enemy.elite ? 1.75 : 1));
@@ -3244,7 +3270,7 @@ export default function Home() {
           audio?.play("kill");
           burst(enemy.x,enemy.y,enemy.color,enemy.kind === "boss" ? 46 : 10);
           impactEffect(enemy.x, enemy.y, enemy.kind === "boss" ? "#ff5b7d" : enemy.elite ? "#f4c95d" : enemy.color, enemy.kind === "boss" ? 180 : enemy.elite ? 72 : 42);
-          if (bossRelic) setBossLootNotice(`Boss 已击破 · ${bossRelic.icon} ${bossRelic.title}等待拾取`);
+          if (bossRelic) setBossLootNotice(`Boss 已击破 · ${RARITY_LABELS[bossRelic.rarity]}遗物 ${bossRelic.icon} ${bossRelic.title}等待拾取`);
           currentKills++;
           waveKills++;
           const killer = enemy.lastHitBy || "host";
@@ -3320,7 +3346,7 @@ export default function Home() {
             }
             setMaxHp(player.maxHp);
             setHp(Math.ceil(player.hp));
-            setBossLootNotice(relic ? `${relic.icon} ${relic.title} · ${relic.desc}` : "获得 Boss 核心");
+            setBossLootNotice(relic ? `${relic.icon} ${RARITY_LABELS[relic.rarity]}遗物 · ${relic.title} · ${relic.desc}` : "获得 Boss 核心");
             if (network?.connected()) void network.send({ t: "boss-loot", relic: gem.relic });
             audio?.play("ultimate");
           }
@@ -4007,7 +4033,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.14.3 · 前期补给经济调优</div>
+        <div className="status"><i /> 版本 0.14.4 · 主武器与遗物概率调优</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -4131,7 +4157,7 @@ export default function Home() {
         </div>
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
-          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>通用、本职业、第二技能与终极强化全部参与动态稀有度抽取，仍不提供固定保底。稀有、史诗与传说强化的基础出现率已经提高，并会随波数继续增长，第 12 波达到概率上限。达到机制上限的强化会移出奖池，第二技能与终极伤害仍可无限叠加。装配完成后恢复 18% 最大生命值。</p>
+          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>基础伤害、射速、多重弹、暴击、弹速与本职业主武器强化获得 1.5 倍抽取权重；其他强化仍参与动态稀有度抽取，仍不提供固定保底。稀有、史诗与传说强化会随波数提高概率，并在第 12 波达到概率上限。达到机制上限的强化会移出奖池。装配完成后恢复 18% 最大生命值。</p>
             <div className="shopWallet upgradeWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="upgradeGrid">{choices.map((u)=><button key={u.id} className={`${u.ultimate?"ultimateUpgrade ":u.secondary?"secondaryUpgrade ":""}rarity-${u.rarity||"common"}`} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?`终极 · ${RARITY_LABELS[u.rarity||"common"]}`:u.secondary?`副技能 · ${RARITY_LABELS[u.rarity||"common"]}`:u.classId?`本职业 · ${RARITY_LABELS[u.rarity||"common"]}`:RARITY_LABELS[u.rarity||"common"]}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>

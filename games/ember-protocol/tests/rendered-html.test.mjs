@@ -41,7 +41,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.14\.3 · 前期补给经济调优/);
+  assert.match(html, /版本 0\.14\.4 · 主武器与遗物概率调优/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -141,11 +141,19 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /const RARITY_WEIGHTS/);
   assert.match(page, /const UPGRADE_RARITY_GROWTH_CAP_WAVE = 12/);
   assert.match(page, /const RARITY_LATE_WAVE_BONUS/);
+  assert.match(page, /const BASIC_ATTACK_WEIGHT_MULTIPLIER = 1\.5/);
+  assert.match(page, /const BASIC_ATTACK_UPGRADE_IDS = new Set/);
+  assert.match(page, /"rapid", "damage", "multi", "critical", "velocity"/);
+  assert.match(page, /"assault-warhead", "guardian-rail", "phantom-needle", "laser-prism"/);
+  assert.match(page, /"frost-shatter", "blade-edge", "blade-tempo", "gravity-lens"/);
+  assert.match(page, /"thunder-cycle", "sky-focus", "sky-penetrator", "cinder-nozzle"/);
   assert.match(page, /common: 52, rare: 32, epic: 16, legendary: 7/);
   assert.match(page, /common: -8, rare: 10, epic: 14, legendary: 11/);
   assert.match(page, /const upgradeRarityWeight = \(rarity: UpgradeRarity, wave: number\)/);
   assert.match(page, /RARITY_LATE_WAVE_BONUS\[rarity\] \* progress/);
   assert.match(page, /const weightedUpgradePick/);
+  assert.match(page, /BASIC_ATTACK_UPGRADE_IDS\.has\(upgrade\.id\) \? BASIC_ATTACK_WEIGHT_MULTIPLIER : 1/);
+  assert.match(page, /upgradeRarityWeight\(rarity, wave\) \* attackWeight/);
   assert.match(page, /weightedUpgradePick\(fullPool, excluded, wave\)/);
   assert.match(page, /rollUpgradeChoices\(build\.classId, build, currentWave\)/);
   assert.match(page, /while \(choices\.length < 4\)/);
@@ -156,7 +164,7 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /不提供固定保底/);
   assert.match(page, /副技能 · \$\{RARITY_LABELS/);
   assert.match(page, /本职业 · \$\{RARITY_LABELS/);
-  assert.match(page, /通用、本职业、第二技能与终极强化全部参与动态稀有度抽取/);
+  assert.match(page, /基础伤害、射速、多重弹、暴击、弹速与本职业主武器强化获得 1\.5 倍抽取权重/);
   assert.match(page, /const ultimateUpgradeAvailable/);
   assert.match(page, /const secondaryUpgradeAvailable/);
   assert.match(page, /secondaryPower: 1/);
@@ -236,6 +244,17 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /bossPhase/);
   assert.match(page, /t: "boss-loot"/);
   assert.match(page, /const BOSS_RELICS/);
+  assert.match(page, /id: "titan-core"[\s\S]*rarity: "rare"/);
+  assert.match(page, /id: "overdrive-core"[\s\S]*rarity: "legendary"/);
+  assert.match(page, /id: "chrono-core"[\s\S]*rarity: "epic"/);
+  assert.match(page, /const BOSS_RELIC_GROWTH_CAP_WAVE = 15/);
+  assert.match(page, /if \(rarity === "legendary"\) return 38 \+ progress \* 10/);
+  assert.match(page, /if \(rarity === "epic"\) return 34 \+ progress \* 6/);
+  assert.match(page, /if \(rarity === "rare"\) return 28 - progress \* 12/);
+  assert.match(page, /const rollBossRelic = \(wave: number\)/);
+  assert.match(page, /rollBossRelic\(currentWave\)/);
+  assert.doesNotMatch(page, /shuffled\(BOSS_RELICS\)\[0\]/);
+  assert.match(page, /RARITY_LABELS\[bossRelic\.rarity\]/);
   assert.match(page, /t: "shop-open"/);
   assert.match(page, /wallet: \{ host: number; guest: number \}/);
   assert.match(page, /ultimate: \{ host: number; guest: number \}/);
