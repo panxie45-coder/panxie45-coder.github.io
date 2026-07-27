@@ -24,7 +24,8 @@ type EnemyKind =
 type BossVariant = "rift" | "storm" | "weaver" | "forge";
 type PlayerSide = "host" | "guest";
 type BossRelicId = "titan-core" | "overdrive-core" | "chrono-core";
-type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId; ultimate?: boolean };
+type UpgradeRarity = "common" | "rare" | "epic" | "legendary";
+type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId; ultimate?: boolean; rarity?: UpgradeRarity };
 type ShopItem = { id: string; title: string; desc: string; icon: string; cost: number };
 type BossRelic = { id: BossRelicId; title: string; desc: string; icon: string };
 type CombatStats = {
@@ -81,6 +82,7 @@ type Enemy = Actor & {
   elite: boolean;
   cooldown: number;
   slow: number;
+  frozen?: number;
   bossPhase?: number;
   bossVariant?: BossVariant;
   barrier?: number;
@@ -320,6 +322,50 @@ const ULTIMATE_CHARGE_SCALE: Record<ClassId, number> = {
   gravity: .5,
 };
 
+const UPGRADE_RARITY: Partial<Record<string, UpgradeRarity>> = {
+  multi: "rare",
+  armor: "rare",
+  critical: "rare",
+  reactor: "rare",
+  drone: "epic",
+  "assault-double-storm": "epic",
+  "assault-saturation": "rare",
+  "guardian-fortress": "rare",
+  "guardian-plating": "epic",
+  "engineer-swarm": "epic",
+  "engineer-link": "rare",
+  "phantom-fold": "rare",
+  "phantom-needle": "rare",
+  "laser-overfocus": "rare",
+  "laser-prism": "rare",
+  "frost-zero": "rare",
+  "frost-armor": "rare",
+  "blade-vamp": "epic",
+  "blade-tempo": "rare",
+  "gravity-collapse": "rare",
+  "gravity-lens": "rare",
+  "gravity-anchor": "epic",
+  "assault-ultimate-power": "rare",
+  "assault-ultimate-locks": "rare",
+  "guardian-ultimate-power": "rare",
+  "guardian-ultimate-duration": "epic",
+  "engineer-ultimate-power": "rare",
+  "engineer-ultimate-locks": "rare",
+  "phantom-ultimate-power": "rare",
+  "phantom-ultimate-locks": "epic",
+  "laser-ultimate-power": "rare",
+  "laser-ultimate-lanes": "legendary",
+  "frost-ultimate-power": "rare",
+  "frost-ultimate-lanes": "epic",
+  "blade-ultimate-power": "rare",
+  "blade-ultimate-echoes": "legendary",
+  "gravity-ultimate-power": "rare",
+  "gravity-ultimate-range": "epic",
+};
+const RARITY_WEIGHTS: Record<UpgradeRarity, number> = { common: 60, rare: 25, epic: 10, legendary: 4 };
+const RARITY_LABELS: Record<UpgradeRarity, string> = { common: "普通", rare: "稀有", epic: "史诗", legendary: "传说" };
+const upgradeRarity = (upgrade: Upgrade): UpgradeRarity => upgrade.rarity || UPGRADE_RARITY[upgrade.id] || "common";
+
 const GUARDIAN_SHIELD_MAX = 5;
 const MIN_GUARDIAN_COOLDOWN = 7;
 const MAX_UPGRADE_REROLLS = 2;
@@ -338,10 +384,36 @@ const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) =>
   if (upgrade.id === "gravity-ultimate-range") return currentBuild.ultimateRange < 670;
   return true;
 };
+const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>) => {
+  const available = items.filter((upgrade) => !excludedIds.has(upgrade.id));
+  const weighted = available.map((upgrade) => ({ upgrade, rarity: upgradeRarity(upgrade), weight: RARITY_WEIGHTS[upgradeRarity(upgrade)] }));
+  const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const entry of weighted) {
+    roll -= entry.weight;
+    if (roll <= 0) return { ...entry.upgrade, rarity: entry.rarity };
+  }
+  const fallback = weighted[weighted.length - 1];
+  return fallback ? { ...fallback.upgrade, rarity: fallback.rarity } : null;
+};
 const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame) => {
-  const signature = shuffled(CLASS_UPGRADES[classId])[0];
-  const ultimate = shuffled(ULTIMATE_UPGRADES[classId].filter((upgrade) => ultimateUpgradeAvailable(upgrade, currentBuild)))[0] || ULTIMATE_UPGRADES[classId][0];
-  return shuffled([signature, ultimate, shuffled(UPGRADES)[0]]);
+  const availableUltimate = ULTIMATE_UPGRADES[classId].filter((upgrade) => ultimateUpgradeAvailable(upgrade, currentBuild));
+  const classPool = [...CLASS_UPGRADES[classId], ...availableUltimate];
+  const fullPool = [...UPGRADES, ...classPool];
+  const excluded = new Set<string>();
+  const choices: Upgrade[] = [];
+  const signature = weightedUpgradePick(classPool, excluded);
+  if (signature) {
+    choices.push(signature);
+    excluded.add(signature.id);
+  }
+  while (choices.length < 3) {
+    const choice = weightedUpgradePick(fullPool, excluded);
+    if (!choice) break;
+    choices.push(choice);
+    excluded.add(choice.id);
+  }
+  return shuffled(choices);
 };
 const rollShopItems = (wave: number) => {
   const priceScale = 1 + Math.max(0, wave - 1) * .14;
@@ -824,6 +896,7 @@ export default function Home() {
     const W = 1280, H = 720;
     canvas.width = W; canvas.height = H;
     let raf = 0, last = performance.now(), elapsed = 0, spawnClock = 0, fireClock = 0;
+    let nextSurgeAt = 22, surgeRemaining = 0, surgeSpawnClock = 0;
     let active = true, localPaused = false, currentXp = 0, currentLevel = 1, currentKills = 0;
     let netClock = 0, worldClock = 0, remoteFireClock = 0, remoteSeen = 0, gameOverSent = false, nextEnemyId = 1;
     let selfShieldUntil = 0, remoteShieldUntil = 0, skillReadyAt = 0, shownCooldown = -1;
@@ -1068,7 +1141,7 @@ export default function Home() {
 
     const reset = () => {
       localPaused = false;
-      elapsed = 0; spawnClock = 0; fireClock = 0; currentXp = 0; currentLevel = 1; currentKills = 0;
+      elapsed = 0; spawnClock = 0; fireClock = 0; nextSurgeAt = 22; surgeRemaining = 0; surgeSpawnClock = 0; currentXp = 0; currentLevel = 1; currentKills = 0;
       netClock = 0; worldClock = 0; remoteFireClock = 0; gameOverSent = false;
       nextEnemyId = 1;
       selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; shownCooldown = -1;
@@ -1361,23 +1434,39 @@ export default function Home() {
       const side = Math.floor(Math.random() * 4), pad = 35;
       let x = Math.random() * W, y = Math.random() * H;
       if (side === 0) y = -pad; if (side === 1) x = W + pad; if (side === 2) y = H + pad; if (side === 3) x = -pad;
-      const pool: EnemyKind[] = ["runner", "crawler", "runner"];
-      if (elapsed > 22) pool.push("artillery");
-      if (elapsed > 34) pool.push("shieldmite");
-      if (elapsed > 48) pool.push("assassin");
-      if (elapsed > 62) pool.push("sniper");
-      if (elapsed > 78) pool.push("brute");
-      if (elapsed > 88) pool.push("splitter");
-      if (elapsed > 108) pool.push("mortarwasp");
-      if (elapsed > 132) pool.push("leech");
-      if (elapsed > 165) pool.push("rammer");
-      let kind = pool[Math.floor(Math.random() * pool.length)];
-      if (elapsed > 115 && Math.random() < Math.min(.12, .035 + elapsed / 2400)) kind = "commander";
+      const candidates: Array<{ kind: EnemyKind; weight: number }> = [
+        { kind: "runner", weight: Math.max(24, 48 - elapsed * .045) },
+        { kind: "crawler", weight: Math.max(20, 38 - elapsed * .035) },
+      ];
+      const addEvolvedEnemy = (kind: EnemyKind, unlockAt: number, maxWeight: number, growthTime = 90) => {
+        if (elapsed <= unlockAt) return;
+        candidates.push({ kind, weight: maxWeight * clamp((elapsed - unlockAt) / growthTime, .08, 1) });
+      };
+      addEvolvedEnemy("artillery", 55, 13);
+      addEvolvedEnemy("shieldmite", 70, 14);
+      addEvolvedEnemy("assassin", 90, 11);
+      addEvolvedEnemy("sniper", 110, 10);
+      addEvolvedEnemy("brute", 130, 13);
+      addEvolvedEnemy("splitter", 150, 12);
+      addEvolvedEnemy("mortarwasp", 175, 10);
+      addEvolvedEnemy("leech", 205, 9);
+      addEvolvedEnemy("rammer", 240, 9);
+      addEvolvedEnemy("commander", 285, 5, 130);
+      const totalWeight = candidates.reduce((sum, entry) => sum + entry.weight, 0);
+      let enemyRoll = Math.random() * totalWeight;
+      let kind: EnemyKind = "runner";
+      for (const candidate of candidates) {
+        enemyRoll -= candidate.weight;
+        if (enemyRoll <= 0) {
+          kind = candidate.kind;
+          break;
+        }
+      }
       const config = ENEMY_DATA[kind];
       const coOpScale = remote ? 1.2 : 1;
       const eliteChance = clamp((elapsed - 48) / 620, 0, .16);
       const elite = kind === "commander" || Math.random() < eliteChance;
-      const lateScale = 1 + elapsed / 220 + Math.pow(elapsed / 650, 2);
+      const lateScale = 1 + elapsed / 185 + Math.pow(elapsed / 540, 1.7);
       const maxHp = config.hp * lateScale * coOpScale * (elite ? 1.75 : 1);
       enemies.push({
         id: nextEnemyId++,
@@ -1518,7 +1607,8 @@ export default function Home() {
       const radius = 410 * combatStats.frostPower;
       for (const enemy of enemies) {
         if (dist(actor, enemy) > radius) continue;
-        enemy.slow = Math.max(enemy.slow, 5 * combatStats.frostPower);
+        enemy.frozen = Math.max(enemy.frozen || 0, Math.min(3.2, 1.45 * combatStats.frostPower));
+        enemy.slow = Math.max(enemy.slow, 5.5 * combatStats.frostPower);
         enemy.hp -= combatStats.damage * 2.4 * combatStats.frostPower;
         enemy.lastHitBy = owner;
         burst(enemy.x, enemy.y, "#8bdcff", 7);
@@ -1706,6 +1796,7 @@ export default function Home() {
             const perpendicular = Math.abs((enemy.x - laneX) * Math.sin(aimAngle) - (enemy.y - laneY) * Math.cos(aimAngle));
             const laneWidth = 72 + Math.max(0, along) * .055;
             if (along < -60 || along > 1250 || perpendicular > laneWidth + enemy.r) continue;
+            enemy.frozen = Math.max(enemy.frozen || 0, Math.min(3.8, 1.8 * combatStats.frostPower));
             enemy.slow = Math.max(enemy.slow, 9 * combatStats.frostPower);
             damageEnemy(enemy, combatStats.damage * 4.8 * combatStats.frostPower * power);
           }
@@ -1912,14 +2003,31 @@ export default function Home() {
       }
       if (currentWave % 3 === 0 && lastBossWave !== currentWave) spawnBoss();
       const bossActive = enemies.some((enemy) => enemy.kind === "boss" && enemy.hp > 0);
-      const baseEnemyCap = Math.min(coOpActive ? 165 : 135, (coOpActive ? 84 : 68) + Math.floor(elapsed / 40) * 6);
+      const baseEnemyCap = Math.min(coOpActive ? 240 : 200, (coOpActive ? 100 : 82) + Math.floor(elapsed / 35) * 8);
       const enemyCap = bossActive ? Math.max(34, Math.floor(baseEnemyCap * .58)) : baseEnemyCap;
+      if (!bossActive && elapsed >= nextSurgeAt) {
+        surgeRemaining = Math.min(coOpActive ? 48 : 40, 14 + Math.floor(elapsed / 50) * 4 + (coOpActive ? 6 : 0));
+        nextSurgeAt += Math.max(36, 56 - elapsed * .018);
+        surgeSpawnClock = 0;
+        setBossLootNotice(`⚠ 兽潮来袭 · ${surgeRemaining} 个生命信号高速接近`);
+        audio?.play("skill");
+      }
+      if (surgeRemaining > 0 && !bossActive) {
+        surgeSpawnClock -= dt;
+        if (surgeSpawnClock <= 0) {
+          const surgeBatch = Math.min(surgeRemaining, coOpActive ? 4 : 3);
+          for (let index = 0; index < surgeBatch && enemies.length < enemyCap; index++) spawnEnemy();
+          surgeRemaining -= surgeBatch;
+          surgeSpawnClock = .24;
+        }
+      }
       spawnClock -= dt;
       if (spawnClock <= 0) {
         spawnClock = (coOpActive
-          ? Math.max(.19, .68 - elapsed * .0018)
-          : Math.max(.23, .82 - elapsed * .0019)) * (bossActive ? 1.65 : 1);
-        if (enemies.length < enemyCap) spawnEnemy();
+          ? Math.max(.17, .58 - elapsed * .00145)
+          : Math.max(.2, .7 - elapsed * .00155)) * (bossActive ? 1.65 : 1);
+        const regularBatch = Math.min(coOpActive ? 4 : 3, 1 + Math.floor(elapsed / 110) + (coOpActive && elapsed > 90 ? 1 : 0));
+        for (let index = 0; index < regularBatch && enemies.length < enemyCap; index++) spawnEnemy();
       }
 
       fireClock -= dt;
@@ -1993,6 +2101,7 @@ export default function Home() {
         const targetDistance = dist(enemy, target);
         const angle = Math.atan2(target.y-enemy.y,target.x-enemy.x);
         enemy.cooldown -= dt;
+        const canAct = (enemy.frozen || 0) <= 0;
         const ranged = ENEMY_ATTACK_MODE[enemy.kind] === "ranged";
         if (enemy.kind === "boss") {
           const hpRatio = enemy.hp / Math.max(1, enemy.maxHp);
@@ -2012,7 +2121,7 @@ export default function Home() {
                     : enemy.kind === "leech" ? 245
                       : enemy.kind === "boss" ? BOSS_VARIANTS[enemy.bossVariant || "rift"].range
                         : 0;
-        const speedScale = enemy.slow > 0 ? .52 : 1;
+        const speedScale = !canAct ? 0 : enemy.slow > 0 ? .52 : 1;
         const moveDirection = !ranged
           ? 1
           : targetDistance > preferredRange + 24
@@ -2035,7 +2144,7 @@ export default function Home() {
             audio?.play("hurt");
           }
         };
-        if (enemy.kind === "rammer" && enemy.cooldown <= 0 && targetDistance < 430 && targetDistance > 90) {
+        if (canAct && enemy.kind === "rammer" && enemy.cooldown <= 0 && targetDistance < 430 && targetDistance > 90) {
           const chargeStart = { x: enemy.x, y: enemy.y };
           enemy.x += Math.cos(angle) * 145;
           enemy.y += Math.sin(angle) * 145;
@@ -2044,8 +2153,9 @@ export default function Home() {
           burst(enemy.x, enemy.y, "#66b8ff", 12);
           if (dist(enemy, target) < enemy.r + target.r + 46) applyMeleeStrike(enemy.hit * .72, "#66b8ff", 46);
         }
+        enemy.frozen = Math.max(0, (enemy.frozen || 0) - dt);
         enemy.slow = Math.max(0, enemy.slow - dt);
-        if ((enemy.kind === "shieldmite" || enemy.kind === "splitter") && enemy.cooldown <= 0 && targetDistance < enemy.r + target.r + 78) {
+        if (canAct && (enemy.kind === "shieldmite" || enemy.kind === "splitter") && enemy.cooldown <= 0 && targetDistance < enemy.r + target.r + 78) {
           const reach = enemy.kind === "shieldmite" ? 112 : 132;
           addEffect({
             kind: "slash",
@@ -2064,7 +2174,7 @@ export default function Home() {
           );
           enemy.cooldown = ENEMY_DATA[enemy.kind].cooldown;
         }
-        if (enemy.kind === "boss" && enemy.cooldown <= 0) {
+        if (canAct && enemy.kind === "boss" && enemy.cooldown <= 0) {
           const phase = enemy.bossPhase || 1;
           const variant = enemy.bossVariant || "rift";
           if (variant === "rift") {
@@ -2110,7 +2220,7 @@ export default function Home() {
             enemy.cooldown = phase === 1 ? 2.8 : phase === 2 ? 2.15 : 1.65;
           }
           burst(enemy.x, enemy.y, BOSS_VARIANTS[variant].color, 16);
-        } else if (ranged && enemy.cooldown <= 0) {
+        } else if (canAct && ranged && enemy.cooldown <= 0) {
           const spreadCount = enemy.kind === "commander" ? 3 : enemy.kind === "assassin" || enemy.kind === "leech" ? 2 : 1;
           for (let index = 0; index < spreadCount; index++) {
             const spread = (index - (spreadCount - 1) / 2) * (enemy.kind === "assassin" ? .075 : .18);
@@ -2147,7 +2257,7 @@ export default function Home() {
           );
           enemy.cooldown = ENEMY_DATA[enemy.kind].cooldown * (enemy.elite ? .78 : 1);
         }
-        if (targetDistance < enemy.r + target.r) {
+        if (canAct && targetDistance < enemy.r + target.r) {
           const targetShield = target === player ? selfShieldUntil : remoteShieldUntil;
           const reduction = target === player ? stats.damageReduction : (remoteBuildRef.current?.damageReduction || 0);
           if (now >= targetShield) target.hp = Math.max(0, target.hp - enemy.hit * (1 - reduction) * dt);
@@ -2579,9 +2689,13 @@ export default function Home() {
             ctx.fillStyle="rgba(255,255,255,.85)";ctx.beginPath();ctx.arc(effect.x,effect.y,5+10*(1-progress),0,Math.PI*2);ctx.fill();
           }
           if(effect.classId==="frost"){
+            ctx.fillStyle="rgba(137,228,255,.16)";
+            ctx.beginPath();for(let index=0;index<8;index++){const angle=index/8*Math.PI*2-Math.PI/8,crystalRadius=radius*(index%2?.84:1),x=effect.x+Math.cos(angle)*crystalRadius,y=effect.y+Math.sin(angle)*crystalRadius;if(index)ctx.lineTo(x,y);else ctx.moveTo(x,y);}ctx.closePath();ctx.fill();ctx.stroke();
             for(let index=0;index<8;index++){
               const angle=index/8*Math.PI*2;
               ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();
+              const tipX=effect.x+Math.cos(angle)*radius,tipY=effect.y+Math.sin(angle)*radius;
+              ctx.beginPath();ctx.moveTo(tipX,tipY);ctx.lineTo(effect.x+Math.cos(angle-.2)*radius*.72,effect.y+Math.sin(angle-.2)*radius*.72);ctx.lineTo(effect.x+Math.cos(angle+.2)*radius*.72,effect.y+Math.sin(angle+.2)*radius*.72);ctx.closePath();ctx.fill();
             }
           }
           if(effect.classId==="blade"){
@@ -2705,7 +2819,13 @@ export default function Home() {
         }else if(e.kind==="shieldmite"&&(e.barrier||0)>0){
           ctx.save();ctx.strokeStyle="#72fff2";ctx.fillStyle="rgba(83,214,206,.12)";ctx.lineWidth=3;ctx.shadowColor="#53d6ce";ctx.shadowBlur=12;ctx.beginPath();ctx.arc(e.x,e.y,e.r+13,-Math.PI*.85,-Math.PI*.15);ctx.stroke();ctx.fill();ctx.restore();
         }else if(e.elite){ctx.strokeStyle="rgba(244,201,93,.85)";ctx.lineWidth=2;ctx.strokeRect(e.x-e.r-6,e.y-e.r-6,(e.r+6)*2,(e.r+6)*2);}
-        if(e.slow>0){ctx.fillStyle="#9eeaff";ctx.font="800 14px monospace";ctx.textAlign="center";ctx.fillText("✦",e.x,e.y-e.r-10);}
+        if((e.frozen||0)>0){
+          const iceRadius=e.r+10,icePulse=1+Math.sin(performance.now()/110)*.035;
+          ctx.save();ctx.translate(e.x,e.y);ctx.scale(icePulse,icePulse);ctx.fillStyle="rgba(120,222,255,.28)";ctx.strokeStyle="#b9f4ff";ctx.lineWidth=2.4;ctx.shadowColor="#75dcff";ctx.shadowBlur=18;
+          ctx.beginPath();for(let index=0;index<8;index++){const iceAngle=index/8*Math.PI*2-Math.PI/8,iceR=iceRadius*(index%2?1:.88),iceX=Math.cos(iceAngle)*iceR,iceY=Math.sin(iceAngle)*iceR;if(index)ctx.lineTo(iceX,iceY);else ctx.moveTo(iceX,iceY);}ctx.closePath();ctx.fill();ctx.stroke();
+          ctx.fillStyle="rgba(210,250,255,.92)";for(let index=0;index<6;index++){const crystalAngle=index/6*Math.PI*2+performance.now()/1800,inner=iceRadius*.72,outer=iceRadius+10+(index%2)*4;ctx.beginPath();ctx.moveTo(Math.cos(crystalAngle-.14)*inner,Math.sin(crystalAngle-.14)*inner);ctx.lineTo(Math.cos(crystalAngle)*outer,Math.sin(crystalAngle)*outer);ctx.lineTo(Math.cos(crystalAngle+.14)*inner,Math.sin(crystalAngle+.14)*inner);ctx.closePath();ctx.fill();}ctx.restore();
+          ctx.fillStyle="#e4fbff";ctx.font="900 15px monospace";ctx.textAlign="center";ctx.fillText("❄",e.x,e.y-e.r-17);
+        }else if(e.slow>0){ctx.fillStyle="#9eeaff";ctx.font="800 14px monospace";ctx.textAlign="center";ctx.fillText("✦",e.x,e.y-e.r-10);}
       }
       const activeBoss = enemies.find((enemy)=>enemy.kind==="boss"&&enemy.hp>0);
       if(activeBoss){
@@ -2911,7 +3031,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.12.0 · 终极进化</div>
+        <div className="status"><i /> 版本 0.12.1 · 兽潮构筑</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -3030,10 +3150,10 @@ export default function Home() {
         </div>
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
-          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>每次至少包含一项职业强化和一项终极强化；机制强化有上限，终极伤害可以无限叠加。装配完成后恢复 18% 最大生命值。</p>
+          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>每次至少包含一项本职业强化；终极强化按普通、稀有、史诗、传说权重出现，不再每次保底。达到机制上限的强化会移出奖池，终极伤害仍可无限叠加。装配完成后恢复 18% 最大生命值。</p>
             <div className="shopWallet upgradeWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
-            <div className="upgradeGrid">{choices.map((u,i)=><button key={u.id} className={u.ultimate?"ultimateUpgrade":undefined} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?"终极强化":`0${i+1}`}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
+            <div className="upgradeGrid">{choices.map((u)=><button key={u.id} className={`${u.ultimate?"ultimateUpgrade ":""}rarity-${u.rarity||"common"}`} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?`终极 · ${RARITY_LABELS[u.rarity||"common"]}`:RARITY_LABELS[u.rarity||"common"]}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
             <button className="rerollBtn" onClick={()=>rerollUpgradeRef.current()} disabled={upgradeRerolls>=MAX_UPGRADE_REROLLS||coins<currentUpgradeRerollCost}>
               {upgradeRerolls>=MAX_UPGRADE_REROLLS?"刷新次数已用尽":`◈ ${currentUpgradeRerollCost} 刷新升级 · 剩余 ${MAX_UPGRADE_REROLLS-upgradeRerolls} 次`}
             </button>

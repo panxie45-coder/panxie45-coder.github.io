@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.12\.0 · 终极进化/);
+  assert.match(html, /版本 0\.12\.1 · 兽潮构筑/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -51,7 +51,7 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /个人机体强化 · 独立选择/);
   assert.match(page, /waitingForRemoteUpgrade/);
   assert.match(page, /eliteChance/);
-  assert.match(page, /kind = "commander"/);
+  assert.match(page, /addEvolvedEnemy\("commander", 285/);
   assert.match(page, /const ENEMY_XP/);
   assert.match(page, /projectile-mechs\.png/);
   assert.match(page, /laser-mech\.png/);
@@ -93,6 +93,11 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /const dronePosition/);
   assert.match(page, /const CLASS_UPGRADES/);
   assert.match(page, /const ULTIMATE_UPGRADES/);
+  assert.match(page, /type UpgradeRarity = "common" \| "rare" \| "epic" \| "legendary"/);
+  assert.match(page, /const RARITY_WEIGHTS/);
+  assert.match(page, /const weightedUpgradePick/);
+  assert.match(page, /const availableUltimate = ULTIMATE_UPGRADES\[classId\]\.filter\(\(upgrade\) => ultimateUpgradeAvailable\(upgrade, currentBuild\)\)/);
+  assert.match(page, /终极强化按普通、稀有、史诗、传说权重出现/);
   assert.match(page, /const ultimateUpgradeAvailable/);
   assert.match(page, /ultimatePower: \.72/);
   assert.match(page, /id\.endsWith\("-ultimate-power"\)\) stats\.ultimatePower \*= 1\.2/);
@@ -116,9 +121,15 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /stats\.interval \*= \.94/);
   assert.match(page, /stats\.magnet \*= 1\.14/);
   assert.match(page, /localUltimate\(\) \+ 22/);
-  assert.match(page, /coOpActive \? 84 : 68/);
-  assert.match(page, /Math\.max\(\.19, \.68 - elapsed \* \.0018\)/);
-  assert.match(page, /Math\.max\(\.23, \.82 - elapsed \* \.0019\)/);
+  assert.match(page, /coOpActive \? 100 : 82/);
+  assert.match(page, /Math\.max\(\.17, \.58 - elapsed \* \.00145\)/);
+  assert.match(page, /Math\.max\(\.2, \.7 - elapsed \* \.00155\)/);
+  assert.match(page, /let nextSurgeAt = 22, surgeRemaining = 0/);
+  assert.match(page, /兽潮来袭/);
+  assert.match(page, /const regularBatch = Math\.min/);
+  assert.match(page, /Math\.pow\(elapsed \/ 540, 1\.7\)/);
+  assert.match(page, /addEvolvedEnemy\("artillery", 55/);
+  assert.match(page, /addEvolvedEnemy\("commander", 285/);
   assert.match(page, /const coOpScale = remote \? 1\.5 : 1;\s+const lateBossWave/);
   assert.match(page, /Math\.pow\(lateBossWave \/ 6, 1\.45\) \* \.45/);
   assert.match(page, /const upgradeRerollPrice/);
@@ -155,7 +166,8 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /className="shopWallet"/);
   assert.match(page, /className="shopWallet upgradeWallet"/);
   assert.match(page, /当前个人金币/);
-  assert.match(page, /u\.ultimate\?"ultimateUpgrade"/);
+  assert.match(page, /rarity-\$\{u\.rarity\|\|"common"\}/);
+  assert.match(page, /RARITY_LABELS\[u\.rarity\|\|"common"\]/);
   assert.match(page, /当前机体完整度/);
   assert.match(page, /player\.maxHp \* \.18/);
   assert.match(page, /const nearbyEnemies/);
@@ -165,6 +177,11 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /audio\?\.play\("skill"\)/);
   assert.match(page, /audio\?\.play\("ultimate"\)/);
   assert.match(page, /enemy\.slow = Math\.max/);
+  assert.match(page, /frozen\?: number/);
+  assert.match(page, /enemy\.frozen = Math\.max/);
+  assert.match(page, /const canAct = \(enemy\.frozen \|\| 0\) <= 0/);
+  assert.match(page, /else if \(canAct && ranged && enemy\.cooldown <= 0\)/);
+  assert.match(page, /const iceRadius=e\.r\+10/);
   assert.match(page, /type BossVariant = "rift" \| "storm" \| "weaver" \| "forge"/);
   assert.match(page, /shieldmite: "melee"/);
   assert.match(page, /splitter: "melee"/);
@@ -187,6 +204,7 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(css, /\.shopWallet/);
   assert.match(css, /\.panelVitals/);
   assert.match(css, /\.upgradeGrid button\.ultimateUpgrade/);
+  assert.match(css, /\.upgradeGrid button\.rarity-legendary/);
   assert.match(css, /\.ultimateCopy em/);
   assert.match(css, /\.bossNotice/);
 
