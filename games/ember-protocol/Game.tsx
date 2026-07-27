@@ -27,7 +27,7 @@ type BossVariant = "rift" | "storm" | "weaver" | "forge" | "leviathan" | "mirror
 type PlayerSide = "host" | "guest";
 type BossRelicId = "titan-core" | "overdrive-core" | "chrono-core";
 type UpgradeRarity = "common" | "rare" | "epic" | "legendary";
-type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId; ultimate?: boolean; rarity?: UpgradeRarity };
+type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId; secondary?: boolean; ultimate?: boolean; rarity?: UpgradeRarity };
 type ShopCategory = "补给" | "武装" | "防御" | "核心";
 type ShopItem = { id: string; title: string; desc: string; icon: string; cost: number; category: ShopCategory; rarity: UpgradeRarity; unlockWave?: number; priceRate?: number };
 type BossRelic = { id: BossRelicId; title: string; desc: string; icon: string };
@@ -52,6 +52,10 @@ type CombatStats = {
   laserPower: number;
   frostPower: number;
   dronePower: number;
+  secondaryPower: number;
+  secondaryArea: number;
+  secondaryProjectiles: number;
+  secondaryControl: number;
   ultimatePower: number;
   ultimateTargets: number;
   ultimateLanes: number;
@@ -289,6 +293,53 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
   ],
 };
 
+const SECONDARY_UPGRADES: Record<ClassId, Upgrade[]> = {
+  assault: [
+    { id: "assault-secondary-power", classId: "assault", secondary: true, title: "标枪增压", desc: "爆破标枪伤害 +22%，可无限叠加", icon: "➤", rarity: "rare" },
+    { id: "assault-secondary-salvo", classId: "assault", secondary: true, title: "分裂标枪", desc: "爆破标枪额外发射 1 枚，最多 3 枚", icon: "✹", rarity: "epic" },
+  ],
+  guardian: [
+    { id: "guardian-secondary-power", classId: "guardian", secondary: true, title: "壁垒增压", desc: "震荡壁垒伤害 +22%，可无限叠加", icon: "⬢", rarity: "rare" },
+    { id: "guardian-secondary-radius", classId: "guardian", secondary: true, title: "扩张力场", desc: "震荡范围与击退距离 +15%，最多强化 3 次", icon: "◉", rarity: "epic" },
+  ],
+  engineer: [
+    { id: "engineer-secondary-power", classId: "engineer", secondary: true, title: "猎群增压", desc: "追猎蜂群伤害 +22%，可无限叠加", icon: "✣", rarity: "rare" },
+    { id: "engineer-secondary-swarm", classId: "engineer", secondary: true, title: "蜂群扩列", desc: "追猎蜂群额外发射 2 枚脉冲弹，最多增加 6 枚", icon: "⌁", rarity: "epic" },
+  ],
+  phantom: [
+    { id: "phantom-secondary-power", classId: "phantom", secondary: true, title: "回刃增压", desc: "相位回刃伤害 +22%，可无限叠加", icon: "✧", rarity: "rare" },
+    { id: "phantom-secondary-blades", classId: "phantom", secondary: true, title: "裂相刃阵", desc: "相位回刃额外发射 1 枚，最多 5 枚", icon: "◇", rarity: "epic" },
+  ],
+  laser: [
+    { id: "laser-secondary-power", classId: "laser", secondary: true, title: "棱镜增压", desc: "棱镜十字伤害 +22%，可无限叠加", icon: "┃", rarity: "rare" },
+    { id: "laser-secondary-facets", classId: "laser", secondary: true, title: "多面棱镜", desc: "棱镜十字增加 1 条交叉轴，最多 4 条轴", icon: "✳", rarity: "epic" },
+  ],
+  frost: [
+    { id: "frost-secondary-power", classId: "frost", secondary: true, title: "冰枪增压", desc: "冰狱长枪伤害 +22%，可无限叠加", icon: "❄", rarity: "rare" },
+    { id: "frost-secondary-control", classId: "frost", secondary: true, title: "深寒裂解", desc: "冰枪冻结、减速与碎裂范围 +18%，最多强化 3 次", icon: "✣", rarity: "epic" },
+  ],
+  blade: [
+    { id: "blade-secondary-power", classId: "blade", secondary: true, title: "圆舞增压", desc: "旋刃圆舞伤害 +22%，可无限叠加", icon: "⚔", rarity: "rare" },
+    { id: "blade-secondary-radius", classId: "blade", secondary: true, title: "延展圆舞", desc: "旋刃圆舞范围 +15%，最多强化 3 次", icon: "〆", rarity: "epic" },
+  ],
+  gravity: [
+    { id: "gravity-secondary-power", classId: "gravity", secondary: true, title: "斥力增压", desc: "斥力反转伤害 +22%，可无限叠加", icon: "◉", rarity: "rare" },
+    { id: "gravity-secondary-radius", classId: "gravity", secondary: true, title: "反转扩域", desc: "斥力反转范围与击退距离 +15%，最多强化 3 次", icon: "◎", rarity: "epic" },
+  ],
+  thunder: [
+    { id: "thunder-secondary-power", classId: "thunder", secondary: true, title: "脉冲增压", desc: "电磁脉冲伤害 +22%，可无限叠加", icon: "ϟ", rarity: "rare" },
+    { id: "thunder-secondary-nodes", classId: "thunder", secondary: true, title: "扩散节点", desc: "电磁脉冲额外锁定 2 个目标，最多增加 6 个", icon: "⌁", rarity: "epic" },
+  ],
+  sky: [
+    { id: "sky-secondary-power", classId: "sky", secondary: true, title: "猎杀增压", desc: "猎杀标记伤害 +22%，可无限叠加", icon: "⌖", rarity: "rare" },
+    { id: "sky-secondary-locks", classId: "sky", secondary: true, title: "多重标记", desc: "猎杀标记额外降下 1 发轨道矛，最多 6 发", icon: "✦", rarity: "legendary" },
+  ],
+  cinder: [
+    { id: "cinder-secondary-power", classId: "cinder", secondary: true, title: "地雷增压", desc: "熔火地雷伤害 +22%，可无限叠加", icon: "♨", rarity: "rare" },
+    { id: "cinder-secondary-scorch", classId: "cinder", secondary: true, title: "焦土核心", desc: "熔火地雷爆炸范围与灼烧时间 +18%，最多强化 3 次", icon: "◆", rarity: "epic" },
+  ],
+};
+
 const ULTIMATE_UPGRADES: Record<ClassId, Upgrade[]> = {
   assault: [
     { id: "assault-ultimate-power", classId: "assault", ultimate: true, title: "天穹增压", desc: "天穹火雨伤害 +20%，可无限叠加", icon: "✹" },
@@ -463,11 +514,11 @@ const MAX_SHOP_REROLLS = 3;
 const roundShopPrice = (value: number) => Math.max(5, Math.ceil(value / 5) * 5);
 const shopRerollPrice = (wave: number, used: number, wallet: number) => {
   const lateWave = Math.max(0, wave - 1);
-  const wavePrice = (17 + wave * 5 + Math.pow(lateWave, 1.62) * 3.1) * (1 + used * .5);
-  const economyFloor = wallet * (.05 + used * .04);
+  const wavePrice = (14 + wave * 4 + Math.pow(lateWave, 1.58) * 2.5) * (1 + used * .42);
+  const economyFloor = wallet * (.04 + used * .032);
   return roundShopPrice(Math.max(wavePrice, economyFloor));
 };
-const upgradeRerollPrice = (wave: number, used: number) => 8 + Math.floor(Math.max(0, wave - 1) / 2) * 2 + used * 6;
+const upgradeRerollPrice = (wave: number, used: number) => 6 + Math.floor(Math.max(0, wave - 1) / 3) * 2 + used * 5;
 const shuffled = <T,>(items: T[]) => [...items].sort(() => Math.random() - .5);
 const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
   if (upgrade.id === "assault-ultimate-locks") return currentBuild.ultimateTargets < 14;
@@ -481,6 +532,20 @@ const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) =>
   if (upgrade.id === "thunder-ultimate-locks") return currentBuild.ultimateTargets < 16;
   if (upgrade.id === "sky-ultimate-locks") return currentBuild.ultimateTargets < 9;
   if (upgrade.id === "cinder-ultimate-lanes") return currentBuild.ultimateLanes < 5;
+  return true;
+};
+const secondaryUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
+  if (upgrade.id === "assault-secondary-salvo") return currentBuild.secondaryProjectiles < 2;
+  if (upgrade.id === "guardian-secondary-radius") return currentBuild.secondaryArea < 1.5;
+  if (upgrade.id === "engineer-secondary-swarm") return currentBuild.secondaryProjectiles < 6;
+  if (upgrade.id === "phantom-secondary-blades") return currentBuild.secondaryProjectiles < 2;
+  if (upgrade.id === "laser-secondary-facets") return currentBuild.secondaryProjectiles < 2;
+  if (upgrade.id === "frost-secondary-control") return currentBuild.secondaryControl < 1.6;
+  if (upgrade.id === "blade-secondary-radius") return currentBuild.secondaryArea < 1.5;
+  if (upgrade.id === "gravity-secondary-radius") return currentBuild.secondaryArea < 1.5;
+  if (upgrade.id === "thunder-secondary-nodes") return currentBuild.secondaryProjectiles < 6;
+  if (upgrade.id === "sky-secondary-locks") return currentBuild.secondaryProjectiles < 3;
+  if (upgrade.id === "cinder-secondary-scorch") return currentBuild.secondaryArea < 1.6;
   return true;
 };
 const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>) => {
@@ -497,7 +562,8 @@ const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>) => {
 };
 const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame) => {
   const availableUltimate = ULTIMATE_UPGRADES[classId].filter((upgrade) => ultimateUpgradeAvailable(upgrade, currentBuild));
-  const classPool = [...CLASS_UPGRADES[classId], ...availableUltimate];
+  const availableSecondary = SECONDARY_UPGRADES[classId].filter((upgrade) => secondaryUpgradeAvailable(upgrade, currentBuild));
+  const classPool = [...CLASS_UPGRADES[classId], ...availableSecondary, ...availableUltimate];
   const fullPool = [...UPGRADES, ...classPool];
   const excluded = new Set<string>();
   const choices: Upgrade[] = [];
@@ -510,9 +576,9 @@ const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame) => {
   return shuffled(choices);
 };
 const SHOP_CATEGORIES: ShopCategory[] = ["补给", "武装", "防御", "核心"];
-const SHOP_CATEGORY_PRICE_RATE: Record<ShopCategory, number> = { 补给: .035, 武装: .055, 防御: .05, 核心: .068 };
+const SHOP_CATEGORY_PRICE_RATE: Record<ShopCategory, number> = { 补给: .028, 武装: .045, 防御: .042, 核心: .055 };
 const SHOP_RARITY_WEIGHTS: Record<UpgradeRarity, number> = { common: 62, rare: 26, epic: 9, legendary: 3 };
-const SHOP_RARITY_PRICE_MULTIPLIER: Record<UpgradeRarity, number> = { common: 1, rare: 1.08, epic: 1.2, legendary: 1.38 };
+const SHOP_RARITY_PRICE_MULTIPLIER: Record<UpgradeRarity, number> = { common: 1, rare: 1.05, epic: 1.14, legendary: 1.28 };
 const weightedShopPick = (items: ShopItem[]) => {
   const totalWeight = items.reduce((sum, item) => sum + SHOP_RARITY_WEIGHTS[item.rarity], 0);
   let roll = Math.random() * totalWeight;
@@ -524,7 +590,7 @@ const weightedShopPick = (items: ShopItem[]) => {
 };
 const rollShopItems = (wave: number, wallet: number, recentIds: string[] = []) => {
   const lateWave = Math.max(0, wave - 1);
-  const priceScale = 1 + lateWave * .15 + Math.pow(lateWave, 1.45) * .06;
+  const priceScale = 1 + lateWave * .125 + Math.pow(lateWave, 1.42) * .05;
   const unlocked = SHOP_ITEMS.filter((item) => (item.unlockWave || 1) <= wave);
   const recent = new Set(recentIds);
   const picked = new Set<string>();
@@ -534,8 +600,8 @@ const rollShopItems = (wave: number, wallet: number, recentIds: string[] = []) =
     const item = weightedShopPick(freshItems.length ? freshItems : categoryItems);
     if (!item) return [];
     picked.add(item.id);
-    const economyFloor = wallet * (item.priceRate || SHOP_CATEGORY_PRICE_RATE[item.category]);
-    const rarityPrice = item.cost * priceScale * SHOP_RARITY_PRICE_MULTIPLIER[item.rarity];
+    const economyFloor = wallet * (item.priceRate || SHOP_CATEGORY_PRICE_RATE[item.category]) * .82;
+    const rarityPrice = item.cost * .88 * priceScale * SHOP_RARITY_PRICE_MULTIPLIER[item.rarity];
     return [{ ...item, cost: roundShopPrice(Math.max(rarityPrice, economyFloor)) }];
   });
   const shuffledChoices = shuffled(choices);
@@ -661,7 +727,11 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     laserPower: 1,
     frostPower: 1,
     dronePower: 1,
-    ultimatePower: .72,
+    secondaryPower: 1,
+    secondaryArea: 1,
+    secondaryProjectiles: 0,
+    secondaryControl: 1,
+    ultimatePower: .9,
     ultimateTargets: 6,
     ultimateLanes: 1,
     ultimateDuration: 3.4,
@@ -1472,6 +1542,24 @@ export default function Home() {
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 26);
         stats.damageReduction = Math.min(.62, stats.damageReduction + .04);
       }
+      if (id.endsWith("-secondary-power")) stats.secondaryPower *= 1.22;
+      if (id === "assault-secondary-salvo") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
+      if (id === "guardian-secondary-radius") stats.secondaryArea = Math.min(1.53, stats.secondaryArea * 1.15);
+      if (id === "engineer-secondary-swarm") stats.secondaryProjectiles = Math.min(6, stats.secondaryProjectiles + 2);
+      if (id === "phantom-secondary-blades") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
+      if (id === "laser-secondary-facets") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
+      if (id === "frost-secondary-control") {
+        stats.secondaryControl = Math.min(1.65, stats.secondaryControl * 1.18);
+        stats.secondaryArea = Math.min(1.65, stats.secondaryArea * 1.18);
+      }
+      if (id === "blade-secondary-radius") stats.secondaryArea = Math.min(1.53, stats.secondaryArea * 1.15);
+      if (id === "gravity-secondary-radius") stats.secondaryArea = Math.min(1.53, stats.secondaryArea * 1.15);
+      if (id === "thunder-secondary-nodes") stats.secondaryProjectiles = Math.min(6, stats.secondaryProjectiles + 2);
+      if (id === "sky-secondary-locks") stats.secondaryProjectiles = Math.min(3, stats.secondaryProjectiles + 1);
+      if (id === "cinder-secondary-scorch") {
+        stats.secondaryControl = Math.min(1.65, stats.secondaryControl * 1.18);
+        stats.secondaryArea = Math.min(1.65, stats.secondaryArea * 1.18);
+      }
       if (id.endsWith("-ultimate-power")) stats.ultimatePower *= 1.2;
       if (id === "assault-ultimate-locks") stats.ultimateTargets = Math.min(14, stats.ultimateTargets + 2);
       if (id === "guardian-ultimate-duration") stats.ultimateDuration = Math.min(5.4, stats.ultimateDuration + .5);
@@ -2133,6 +2221,10 @@ export default function Home() {
       const threats = prioritizeUltimateTargets(enemies.filter((enemy) => enemy.hp > 0), actor, 8);
       const target = threats[0];
       const aimAngle = target ? Math.atan2(target.y - actor.y, target.x - actor.x) : -Math.PI / 2;
+      const secondaryPower = combatStats.secondaryPower;
+      const secondaryArea = combatStats.secondaryArea;
+      const secondaryProjectiles = Math.round(combatStats.secondaryProjectiles);
+      const secondaryControl = combatStats.secondaryControl;
       const pushEnemies = (radius: number, distance: number, damage: number, stun = 0) => {
         for (const enemy of enemies) {
           const range = dist(actor, enemy);
@@ -2161,22 +2253,26 @@ export default function Home() {
       };
 
       if (classId === "assault") {
-        shots.push({
-          x: actor.x, y: actor.y,
-          vx: Math.cos(aimAngle) * 720, vy: Math.sin(aimAngle) * 720,
-          r: 12, damage: combatStats.damage * 3.6, life: 2.8,
-          owner, classId, splash: 118, pierce: 1, skill2: true,
-        });
+        const salvo = 1 + secondaryProjectiles;
+        for (let index = 0; index < salvo; index++) {
+          const angle = aimAngle + (index - (salvo - 1) / 2) * .16;
+          shots.push({
+            x: actor.x, y: actor.y,
+            vx: Math.cos(angle) * 720, vy: Math.sin(angle) * 720,
+            r: 12, damage: combatStats.damage * 3.6 * secondaryPower, life: 2.8,
+            owner, classId, splash: 118, pierce: 1, skill2: true,
+          });
+        }
         triggerSecondarySkillEffect(actor, classId, target, 150);
       }
       if (classId === "guardian") {
-        pushEnemies(255, 190, combatStats.damage * 2.2, .85);
+        pushEnemies(255 * secondaryArea, 190 * secondaryArea, combatStats.damage * 2.2 * secondaryPower, .85);
         if (actor === player) selfShieldUntil = Math.max(selfShieldUntil, performance.now() + 650);
         else remoteShieldUntil = Math.max(remoteShieldUntil, performance.now() + 650);
-        triggerSecondarySkillEffect(actor, classId, undefined, 255);
+        triggerSecondarySkillEffect(actor, classId, undefined, 255 * secondaryArea);
       }
       if (classId === "engineer") {
-        const volley = Math.max(5, Math.round(combatStats.drones * 3 + 2));
+        const volley = Math.max(5, Math.round(combatStats.drones * 3 + 2 + secondaryProjectiles));
         for (let index = 0; index < volley; index++) {
           const origin = dronePosition(actor, index, volley);
           const prey = threats[index % Math.max(1, threats.length)];
@@ -2184,40 +2280,46 @@ export default function Home() {
           shots.push({
             x: origin.x, y: origin.y,
             vx: Math.cos(angle) * 780, vy: Math.sin(angle) * 780,
-            r: 6, damage: combatStats.damage * 1.5 * combatStats.dronePower, life: 2.4,
+            r: 6, damage: combatStats.damage * 1.5 * combatStats.dronePower * secondaryPower, life: 2.4,
             owner, classId, chain: true, pierce: 1, skill2: true,
           });
         }
         triggerSecondarySkillEffect(actor, classId, target, 210);
       }
       if (classId === "phantom") {
-        for (const spread of [-.15, 0, .15]) {
-          const angle = aimAngle + spread;
+        const bladeCount = 3 + secondaryProjectiles;
+        for (let index = 0; index < bladeCount; index++) {
+          const angle = aimAngle + (index - (bladeCount - 1) / 2) * .15;
           shots.push({
             x: actor.x, y: actor.y,
             vx: Math.cos(angle) * 980, vy: Math.sin(angle) * 980,
-            r: 7, damage: combatStats.damage * 2.55, life: 2.2,
+            r: 7, damage: combatStats.damage * 2.55 * secondaryPower, life: 2.2,
             owner, classId, pierce: 4, skill2: true,
           });
         }
         triggerSecondarySkillEffect(actor, classId, target, 190);
       }
       if (classId === "laser") {
-        damageLine(aimAngle, 11 * combatStats.laserPower, combatStats.damage * 4.2 * combatStats.laserPower, "#ff5b58");
-        damageLine(aimAngle + Math.PI / 2, 8 * combatStats.laserPower, combatStats.damage * 3.1 * combatStats.laserPower, "#ffb0a7");
+        const axes = 2 + secondaryProjectiles;
+        for (let index = 0; index < axes; index++) {
+          const angle = aimAngle + index / axes * Math.PI;
+          const width = (index === 0 ? 11 : 8) * combatStats.laserPower;
+          const damage = combatStats.damage * (index === 0 ? 4.2 : 3.1) * combatStats.laserPower * secondaryPower;
+          damageLine(angle, width, damage, index % 2 ? "#ffb0a7" : "#ff5b58");
+        }
         triggerSecondarySkillEffect(actor, classId, target, 300);
       }
       if (classId === "frost") {
         shots.push({
           x: actor.x, y: actor.y,
           vx: Math.cos(aimAngle) * 620, vy: Math.sin(aimAngle) * 620,
-          r: 14, damage: combatStats.damage * 3.35 * combatStats.frostPower, life: 3,
-          owner, classId, pierce: 2, splash: 92, slow: 6.5, freeze: 1.25, skill2: true,
+          r: 14, damage: combatStats.damage * 3.35 * combatStats.frostPower * secondaryPower, life: 3,
+          owner, classId, pierce: 2, splash: 92 * secondaryArea, slow: 6.5 * secondaryControl, freeze: 1.25 * secondaryControl, skill2: true,
         });
-        triggerSecondarySkillEffect(actor, classId, target, 220);
+        triggerSecondarySkillEffect(actor, classId, target, 220 * secondaryArea);
       }
       if (classId === "blade") {
-        const range = combatStats.meleeRange * 1.55 * combatStats.meleePower;
+        const range = combatStats.meleeRange * 1.55 * combatStats.meleePower * secondaryArea;
         for (let index = 0; index < 3; index++) {
           const angle = aimAngle + index / 3 * Math.PI * 2;
           addEffect({
@@ -2228,7 +2330,7 @@ export default function Home() {
         }
         for (const enemy of enemies) {
           if (enemy.hp <= 0 || dist(actor, enemy) > range + enemy.r) continue;
-          applyEnemyDamage(enemy, combatStats.damage * 3.15 * combatStats.meleePower, owner);
+          applyEnemyDamage(enemy, combatStats.damage * 3.15 * combatStats.meleePower * secondaryPower, owner);
           burst(enemy.x, enemy.y, "#ff9b43", 10);
         }
         if (actor === player) selfShieldUntil = Math.max(selfShieldUntil, performance.now() + 700);
@@ -2236,17 +2338,18 @@ export default function Home() {
         triggerSecondarySkillEffect(actor, classId, undefined, range);
       }
       if (classId === "gravity") {
-        pushEnemies(350 * combatStats.gravityPower, 245, combatStats.damage * 2.75 * combatStats.gravityPower, .35);
-        triggerSecondarySkillEffect(actor, classId, undefined, 350 * combatStats.gravityPower);
+        const gravityRadius = 350 * combatStats.gravityPower * secondaryArea;
+        pushEnemies(gravityRadius, 245 * secondaryArea, combatStats.damage * 2.75 * combatStats.gravityPower * secondaryPower, .35);
+        triggerSecondarySkillEffect(actor, classId, undefined, gravityRadius);
       }
       if (classId === "thunder") {
         const targets = enemies
           .filter((enemy) => enemy.hp > 0 && dist(actor, enemy) < 410)
           .sort((a, b) => dist(actor, a) - dist(actor, b))
-          .slice(0, 10);
+          .slice(0, 10 + secondaryProjectiles);
         for (const [index, enemy] of targets.entries()) {
-          enemy.stunned = Math.max(enemy.stunned || 0, .7);
-          applyEnemyDamage(enemy, combatStats.damage * 2.15 * combatStats.lightningPower, owner);
+          enemy.stunned = Math.max(enemy.stunned || 0, .7 * secondaryControl);
+          applyEnemyDamage(enemy, combatStats.damage * 2.15 * combatStats.lightningPower * secondaryPower, owner);
           beams.push({
             x1: index ? targets[index - 1].x : actor.x,
             y1: index ? targets[index - 1].y : actor.y,
@@ -2256,11 +2359,11 @@ export default function Home() {
         triggerSecondarySkillEffect(actor, classId, target, 410);
       }
       if (classId === "sky") {
-        const marked = threats.slice(0, 3);
+        const marked = threats.slice(0, 3 + secondaryProjectiles);
         for (const enemy of marked) {
           beams.push({ x1: enemy.x, y1: -100, x2: enemy.x, y2: enemy.y, life: .68, width: 9, color: "#fff1df" });
           addEffect({ kind: "impact", classId, x: enemy.x, y: enemy.y, color: "#ff6a62", radius: 92 }, .52);
-          applyEnemyDamage(enemy, combatStats.damage * 4.4 * combatStats.sniperPower * (enemy.kind === "boss" ? 1.2 : 1), owner);
+          applyEnemyDamage(enemy, combatStats.damage * 4.4 * combatStats.sniperPower * secondaryPower * (enemy.kind === "boss" ? 1.2 : 1), owner);
         }
         triggerSecondarySkillEffect(actor, classId, target, 330);
       }
@@ -2268,10 +2371,10 @@ export default function Home() {
         shots.push({
           x: actor.x, y: actor.y,
           vx: Math.cos(aimAngle) * 480, vy: Math.sin(aimAngle) * 480,
-          r: 16, damage: combatStats.damage * 2.7 * combatStats.burnPower, life: 3.4,
-          owner, classId, splash: 145, burn: 6.5, burnDamage: combatStats.damage * .55, skill2: true,
+          r: 16, damage: combatStats.damage * 2.7 * combatStats.burnPower * secondaryPower, life: 3.4,
+          owner, classId, splash: 145 * secondaryArea, burn: 6.5 * secondaryControl, burnDamage: combatStats.damage * .55 * secondaryPower, skill2: true,
         });
-        triggerSecondarySkillEffect(actor, classId, target, 240);
+        triggerSecondarySkillEffect(actor, classId, target, 240 * secondaryArea);
       }
     };
     const executeUltimate = (actor: Actor, combatStats: BuildFrame | CombatStats, classId: ClassId, owner: PlayerSide) => {
@@ -3880,7 +3983,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.14.0 · 双技能机甲重装</div>
+        <div className="status"><i /> 版本 0.14.1 · 副技能成长与补给调优</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -4004,10 +4107,10 @@ export default function Home() {
         </div>
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
-          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>通用、本职业与终极强化全部按普通、稀有、史诗、传说权重随机出现，不再提供本职业保底。达到机制上限的强化会移出奖池，终极伤害仍可无限叠加。装配完成后恢复 18% 最大生命值。</p>
+          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>通用、本职业、第二技能与终极强化全部按普通、稀有、史诗、传说权重随机出现，不提供固定保底。达到机制上限的强化会移出奖池，第二技能与终极伤害仍可无限叠加。装配完成后恢复 18% 最大生命值。</p>
             <div className="shopWallet upgradeWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
-            <div className="upgradeGrid">{choices.map((u)=><button key={u.id} className={`${u.ultimate?"ultimateUpgrade ":""}rarity-${u.rarity||"common"}`} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?`终极 · ${RARITY_LABELS[u.rarity||"common"]}`:u.classId?`本职业 · ${RARITY_LABELS[u.rarity||"common"]}`:RARITY_LABELS[u.rarity||"common"]}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
+            <div className="upgradeGrid">{choices.map((u)=><button key={u.id} className={`${u.ultimate?"ultimateUpgrade ":u.secondary?"secondaryUpgrade ":""}rarity-${u.rarity||"common"}`} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?`终极 · ${RARITY_LABELS[u.rarity||"common"]}`:u.secondary?`副技能 · ${RARITY_LABELS[u.rarity||"common"]}`:u.classId?`本职业 · ${RARITY_LABELS[u.rarity||"common"]}`:RARITY_LABELS[u.rarity||"common"]}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
             <button className="rerollBtn" onClick={()=>rerollUpgradeRef.current()} disabled={upgradeRerolls>=MAX_UPGRADE_REROLLS||coins<currentUpgradeRerollCost}>
               {upgradeRerolls>=MAX_UPGRADE_REROLLS?"刷新次数已用尽":`◈ ${currentUpgradeRerollCost} 刷新升级 · 剩余 ${MAX_UPGRADE_REROLLS-upgradeRerolls} 次`}
             </button>
@@ -4017,7 +4120,7 @@ export default function Home() {
           <div className="shopPanel">
             <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波后补给</div>
             <h2>战场补给站</h2>
-            <p>本次补给周期共享结算 <b>◈ {supplyReward}</b>。补给站每两波出现一次；商品仍会随波次上涨，但价格和刷新费已适度降低，并保证每次至少有一件当前金币买得起。</p>
+            <p>本次补给周期共享结算 <b>◈ {supplyReward}</b>。补给站每两波出现一次；本轮再次降低全部商品、稀有度溢价和刷新费，并保证每次至少有一件当前金币买得起。</p>
             <div className="shopWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="shopGrid">{shopItems.map((item)=><button key={item.id} className={`shop-rarity-${item.rarity}`} onClick={()=>buyShopItemRef.current(item.id)} disabled={coins<item.cost}>
