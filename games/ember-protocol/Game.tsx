@@ -135,7 +135,7 @@ type CombatEffect = {
   color: string;
   radius: number;
 };
-type Gem = { x: number; y: number; value: number; relic?: BossRelicId; heal?: number };
+type Gem = { x: number; y: number; value: number; life: number; relic?: BossRelicId; heal?: number };
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
   elapsed: number;
@@ -492,11 +492,6 @@ const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame) => {
   const fullPool = [...UPGRADES, ...classPool];
   const excluded = new Set<string>();
   const choices: Upgrade[] = [];
-  const signature = weightedUpgradePick(CLASS_UPGRADES[classId], excluded);
-  if (signature) {
-    choices.push(signature);
-    excluded.add(signature.id);
-  }
   while (choices.length < 4) {
     const choice = weightedUpgradePick(fullPool, excluded);
     if (!choice) break;
@@ -2233,7 +2228,12 @@ export default function Home() {
       }
     };
 
-    const xpNeed = () => Math.round(16 + currentLevel * 6.8 + Math.pow(Math.max(0, currentLevel - 1), 1.55) * 1.85);
+    const xpNeed = () => Math.round(28 + currentLevel * 8.5 + Math.pow(Math.max(0, currentLevel - 1), 1.65) * 2.4);
+    const xpGainScale = () => clamp(
+      1 / (1 + Math.max(0, currentLevel - 1) * .035 + Math.max(0, currentWave - 1) * .04),
+      .32,
+      1,
+    );
     const sendWorld = () => {
       if (!network?.connected() || !isAuthority) return;
       void network.send({
@@ -2816,7 +2816,7 @@ export default function Home() {
           const value = enemy.kind === "boss"
             ? ENEMY_XP.boss + currentWave * 6
             : Math.round(ENEMY_XP[enemy.kind] * (enemy.elite ? 1.75 : 1));
-          gems.push({x:enemy.x,y:enemy.y,value,relic:bossRelic?.id});
+          gems.push({ x: enemy.x, y: enemy.y, value, life: bossRelic ? 35 : 18, relic: bossRelic?.id });
           if (enemy.elite || HEALTH_PACK_ENEMY_KINDS.includes(enemy.kind)) {
             const heal = enemy.kind === "boss"
               ? .28
@@ -2825,7 +2825,7 @@ export default function Home() {
                 : enemy.elite
                   ? .14
                   : .1;
-            gems.push({ x: enemy.x + 18, y: enemy.y - 12, value: 0, heal });
+            gems.push({ x: enemy.x + 18, y: enemy.y - 12, value: 0, life: 14, heal });
           }
           audio?.play("kill");
           burst(enemy.x,enemy.y,enemy.color,enemy.kind === "boss" ? 46 : 10);
@@ -2850,6 +2850,8 @@ export default function Home() {
       }
       enemies = enemies.filter((enemy) => enemy.hp > 0);
       for (const gem of gems) {
+        gem.life -= dt;
+        if (gem.life <= 0) continue;
         const collectors = [
           ...(player.hp > 0 ? [{ actor: player, magnet: stats.magnet }] : []),
           ...(remote && remote.hp > 0 ? [{ actor: remote, magnet: remoteBuildRef.current?.magnet || 84 }] : []),
@@ -2885,7 +2887,7 @@ export default function Home() {
             audio?.play("upgrade");
             continue;
           }
-          const earnedXp = gem.value;
+          const earnedXp = gem.value * xpGainScale();
           if (gem.relic) {
             const relic = BOSS_RELICS.find((entry) => entry.id === gem.relic);
             const previousMaxHp = build.maxHp;
@@ -2920,7 +2922,7 @@ export default function Home() {
           }
         }
       }
-      gems = gems.filter((gem) => gem.value > 0 || Boolean(gem.heal));
+      gems = gems.filter((gem) => gem.life > 0 && (gem.value > 0 || Boolean(gem.heal)));
 
       worldClock -= dt;
       if (worldClock <= 0) {
@@ -2955,18 +2957,19 @@ export default function Home() {
       ctx.fillStyle="rgba(244,201,93,.035)";
       for(let i=0;i<24;i++){ const x=(i*193)%W,y=(i*317)%H;ctx.beginPath();ctx.arc(x,y,18+(i%4)*9,0,Math.PI*2);ctx.fill();}
       for(const g of gems){
+        const dropAlpha=g.life<3?.38+Math.abs(Math.sin(performance.now()/120))*.62:1;
         if(g.heal){
           const pulse=1+Math.sin(performance.now()/170)*.08;
-          ctx.save();ctx.translate(g.x,g.y);ctx.scale(pulse,pulse);
+          ctx.save();ctx.globalAlpha=dropAlpha;ctx.translate(g.x,g.y);ctx.scale(pulse,pulse);
           ctx.fillStyle="#b83d39";ctx.shadowColor="#76f0ae";ctx.shadowBlur=18;ctx.fillRect(-14,-14,28,28);
           ctx.strokeStyle="#f0c1b9";ctx.lineWidth=2;ctx.strokeRect(-14,-14,28,28);
           ctx.fillStyle="#f5eee7";ctx.fillRect(-4,-10,8,20);ctx.fillRect(-10,-4,20,8);
           ctx.restore();
-          ctx.fillStyle="#bdf7d5";ctx.font="900 10px monospace";ctx.textAlign="center";ctx.fillText("维修包",g.x,g.y-22);
+          ctx.save();ctx.globalAlpha=dropAlpha;ctx.fillStyle="#bdf7d5";ctx.font="900 10px monospace";ctx.textAlign="center";ctx.fillText(`维修包 ${Math.ceil(g.life)}s`,g.x,g.y-22);ctx.restore();
           continue;
         }
         const gemSize=g.relic?15:6+Math.min(7,Math.sqrt(g.value)*1.5);
-        ctx.save();ctx.translate(g.x,g.y);ctx.rotate(performance.now()/600);
+        ctx.save();ctx.globalAlpha=dropAlpha;ctx.translate(g.x,g.y);ctx.rotate(performance.now()/600);
         ctx.fillStyle=g.relic?"#ffda6a":g.value>=10?"#f4c95d":g.value>=5?"#c7e08f":"#9ed9cc";
         ctx.shadowColor=ctx.fillStyle;ctx.shadowBlur=g.value>=5?12:5;
         ctx.fillRect(-gemSize,-gemSize,gemSize*2,gemSize*2);ctx.restore();
@@ -3543,7 +3546,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.13.2 · 战场纵深</div>
+        <div className="status"><i /> 版本 0.13.3 · 成长节奏重构</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -3662,7 +3665,7 @@ export default function Home() {
         </div>
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
-          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>每次至少包含一项本职业强化；终极强化按普通、稀有、史诗、传说权重出现，不再每次保底。达到机制上限的强化会移出奖池，终极伤害仍可无限叠加。装配完成后恢复 18% 最大生命值。</p>
+          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>通用、本职业与终极强化全部按普通、稀有、史诗、传说权重随机出现，不再提供本职业保底。达到机制上限的强化会移出奖池，终极伤害仍可无限叠加。装配完成后恢复 18% 最大生命值。</p>
             <div className="shopWallet upgradeWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="upgradeGrid">{choices.map((u)=><button key={u.id} className={`${u.ultimate?"ultimateUpgrade ":""}rarity-${u.rarity||"common"}`} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?`终极 · ${RARITY_LABELS[u.rarity||"common"]}`:u.classId?`本职业 · ${RARITY_LABELS[u.rarity||"common"]}`:RARITY_LABELS[u.rarity||"common"]}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>

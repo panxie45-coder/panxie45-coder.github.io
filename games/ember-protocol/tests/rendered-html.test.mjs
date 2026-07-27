@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.13\.2 · 战场纵深/);
+  assert.match(html, /版本 0\.13\.3 · 成长节奏重构/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -101,9 +101,11 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /const weightedUpgradePick/);
   assert.match(page, /while \(choices\.length < 4\)/);
   assert.match(page, /const availableUltimate = ULTIMATE_UPGRADES\[classId\]\.filter\(\(upgrade\) => ultimateUpgradeAvailable\(upgrade, currentBuild\)\)/);
-  assert.match(page, /const signature = weightedUpgradePick\(CLASS_UPGRADES\[classId\], excluded\)/);
+  assert.doesNotMatch(page, /const signature = weightedUpgradePick\(CLASS_UPGRADES\[classId\], excluded\)/);
+  assert.doesNotMatch(page, /每次至少包含一项本职业强化/);
+  assert.match(page, /不再提供本职业保底/);
   assert.match(page, /本职业 · \$\{RARITY_LABELS/);
-  assert.match(page, /终极强化按普通、稀有、史诗、传说权重出现/);
+  assert.match(page, /通用、本职业与终极强化全部按普通、稀有、史诗、传说权重随机出现/);
   assert.match(page, /const ultimateUpgradeAvailable/);
   assert.match(page, /ultimatePower: \.72/);
   assert.match(page, /id\.endsWith\("-ultimate-power"\)\) stats\.ultimatePower \*= 1\.2/);
@@ -217,11 +219,19 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /leech: "ranged"/);
   assert.match(page, /kind: "slash",\s+enemyKind: enemy\.kind/);
   assert.match(page, /kind: "dash", enemyKind: "rammer"/);
-  assert.match(page, /16 \+ currentLevel \* 6\.8 \+ Math\.pow/);
+  assert.match(page, /28 \+ currentLevel \* 8\.5 \+ Math\.pow/);
+  assert.match(page, /const xpGainScale = \(\) => clamp/);
+  assert.match(page, /currentLevel - 1\) \* \.035/);
+  assert.match(page, /currentWave - 1\) \* \.04/);
+  assert.match(page, /const earnedXp = gem\.value \* xpGainScale\(\)/);
   assert.match(page, /const W = 1600, H = 900/);
-  assert.match(page, /type Gem = \{ x: number; y: number; value: number; relic\?: BossRelicId; heal\?: number \}/);
+  assert.match(page, /type Gem = \{ x: number; y: number; value: number; life: number; relic\?: BossRelicId; heal\?: number \}/);
   assert.match(page, /const HEALTH_PACK_ENEMY_KINDS/);
-  assert.match(page, /gems\.push\(\{ x: enemy\.x \+ 18, y: enemy\.y - 12, value: 0, heal \}\)/);
+  assert.match(page, /life: bossRelic \? 35 : 18/);
+  assert.match(page, /gems\.push\(\{ x: enemy\.x \+ 18, y: enemy\.y - 12, value: 0, life: 14, heal \}\)/);
+  assert.match(page, /gem\.life -= dt/);
+  assert.match(page, /gem\.life > 0 && \(gem\.value > 0 \|\| Boolean\(gem\.heal\)\)/);
+  assert.match(page, /维修包 \$\{Math\.ceil\(g\.life\)\}s/);
   assert.match(page, /entry\.actor\.hp < entry\.actor\.maxHp/);
   assert.match(page, /战地维修包/);
   assert.match(page, /boss-variants\.png/);
