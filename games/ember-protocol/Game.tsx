@@ -7,7 +7,21 @@ import { EmberAudioEngine, type SoundCue } from "./audio";
 
 type View = "menu" | "loadout" | "game" | "coop";
 type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity";
-type EnemyKind = "runner" | "crawler" | "artillery" | "assassin" | "brute" | "commander" | "boss";
+type EnemyKind =
+  | "runner"
+  | "crawler"
+  | "artillery"
+  | "assassin"
+  | "brute"
+  | "commander"
+  | "shieldmite"
+  | "sniper"
+  | "splitter"
+  | "mortarwasp"
+  | "leech"
+  | "rammer"
+  | "boss";
+type BossVariant = "rift" | "storm" | "weaver" | "forge";
 type PlayerSide = "host" | "guest";
 type BossRelicId = "titan-core" | "overdrive-core" | "chrono-core";
 type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId };
@@ -54,7 +68,19 @@ type ClassSpec = {
   renderSize: number;
 };
 type Actor = { x: number; y: number; r: number; hp: number; maxHp: number; color: string; name?: string; classId?: ClassId };
-type Enemy = Actor & { id: number; speed: number; hit: number; kind: EnemyKind; elite: boolean; cooldown: number; slow: number; bossPhase?: number; lastHitBy?: PlayerSide };
+type Enemy = Actor & {
+  id: number;
+  speed: number;
+  hit: number;
+  kind: EnemyKind;
+  elite: boolean;
+  cooldown: number;
+  slow: number;
+  bossPhase?: number;
+  bossVariant?: BossVariant;
+  barrier?: number;
+  lastHitBy?: PlayerSide;
+};
 type Shot = {
   x: number;
   y: number;
@@ -68,6 +94,7 @@ type Shot = {
   owner?: PlayerSide;
   classId?: ClassId;
   enemyKind?: EnemyKind;
+  bossVariant?: BossVariant;
   pierce?: number;
   splash?: number;
   slow?: number;
@@ -76,8 +103,10 @@ type Shot = {
 };
 type Beam = { x1: number; y1: number; x2: number; y2: number; life: number; width: number; color: string };
 type CombatEffect = {
-  kind: "skill" | "impact" | "dash" | "revive" | "ultimate" | "slash";
+  kind: "skill" | "impact" | "dash" | "revive" | "ultimate" | "slash" | "boss-phase";
   classId?: ClassId;
+  enemyKind?: EnemyKind;
+  bossVariant?: BossVariant;
   x: number;
   y: number;
   x2?: number;
@@ -135,7 +164,11 @@ type NetBridge = {
 const GAME_ASSETS = {
   assassinProjectile: "/game/assassin-projectile.png",
   bladeMech: "/game/blade-mech.png",
+  bossProjectiles: "/game/boss-projectiles.png",
+  bossVariants: "/game/boss-variants.png",
   enemyMechs: "/game/enemy-mechs.png",
+  enemyReinforcementProjectiles: "/game/enemy-reinforcement-projectiles.png",
+  enemyReinforcements: "/game/enemy-reinforcements.png",
   enemyProjectiles: "/game/enemy-projectiles.png",
   frostMech: "/game/frost-mech.png",
   gravityMech: "/game/gravity-mech.png",
@@ -254,15 +287,22 @@ const rollShopItems = (wave: number) => {
 };
 
 const CLASSES: ClassSpec[] = [
-  { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "爆破弹：命中产生范围爆炸", ultimate: "天穹火雨：连续释放多轮强化饱和导弹", cooldown: 10, color: "#f4c95d", sprite: 0, sheet: "core", radius: 18, renderSize: 78 },
-  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：免疫伤害，强化上限 5 秒", passive: "穿甲重炮：可连续贯穿多个敌人", ultimate: "不灭要塞：修复机体、获得 6 秒屏障并震荡全场", cooldown: 14, color: "#58c7c0", sprite: 1, sheet: "core", radius: 24, renderSize: 88 },
-  { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", passive: "链式脉冲：无人机弹丸会跳跃攻击", ultimate: "蜂群超载：全队修复并发射高压链式弹幕", cooldown: 16, color: "#92a35c", sprite: 2, sheet: "core", radius: 20, renderSize: 82 },
-  { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", passive: "相位针刺：高射速、高暴击并可贯穿", ultimate: "虚空猎杀：瞬间锁定并斩击最多 16 名敌人", cooldown: 9, color: "#9ec9ff", sprite: 3, sheet: "core", radius: 14, renderSize: 72 },
-  { id: "laser", name: "赤曜型", role: "贯穿激光猎手", active: "聚焦光束：发射横贯战场的高能激光", passive: "热能射线：高速弹丸可贯穿多名敌人", ultimate: "赤曜审判：向六个方向释放超宽贯穿光束", cooldown: 12, color: "#ff5b58", sprite: 0, sheet: "specialist", radius: 15, renderSize: 82 },
-  { id: "frost", name: "霜垒型", role: "冰冻攻城炮", active: "绝对零域：冻结附近敌人并造成伤害", passive: "低温弹头：命中后显著降低敌人速度", ultimate: "永冻纪元：冰封全场并对所有敌人造成重创", cooldown: 15, color: "#8bdcff", sprite: 1, sheet: "specialist", radius: 25, renderSize: 94 },
-  { id: "blade", name: "裂锋型", role: "等离子近战", active: "磁轨冲锋：扑向目标并释放双重圆弧斩", passive: "熔断刃：近距离自动斩击并修复少量生命", ultimate: "红莲断界：连续处刑附近敌人并获得短暂减伤", cooldown: 10, color: "#ff9b43", sprite: 0, sheet: "vanguard", radius: 18, renderSize: 86 },
-  { id: "gravity", name: "星渊型", role: "重力控场", active: "坍缩奇点：牵引附近敌人并引爆核心", passive: "引力弹：穿透、减速并产生小型爆炸", ultimate: "事件视界：将全场敌人压向核心并造成三段重创", cooldown: 14, color: "#a58cff", sprite: 1, sheet: "vanguard", radius: 23, renderSize: 92 },
+  { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "爆破弹：命中产生范围爆炸", ultimate: "天穹火雨：锁定多个敌群，从空中逐点轰炸", cooldown: 10, color: "#f4c95d", sprite: 0, sheet: "core", radius: 18, renderSize: 78 },
+  { id: "guardian", name: "堡垒型", role: "重甲守卫", active: "绝对屏障：免疫伤害，强化上限 5 秒", passive: "穿甲重炮：可连续贯穿多个敌人", ultimate: "不灭要塞：展开六面护盾阵地并持续修复队伍", cooldown: 14, color: "#58c7c0", sprite: 1, sheet: "core", radius: 24, renderSize: 88 },
+  { id: "engineer", name: "技师型", role: "无人机支援", active: "修复脉冲：为全队回复生命", passive: "链式脉冲：无人机弹丸会跳跃攻击", ultimate: "蜂群超载：召来轨道蜂群逐一猎杀并链式放电", cooldown: 16, color: "#92a35c", sprite: 2, sheet: "core", radius: 20, renderSize: 82 },
+  { id: "phantom", name: "幻影型", role: "高速刺杀", active: "相位突进：瞬移并短暂无敌", passive: "相位针刺：高射速、高暴击并可贯穿", ultimate: "虚空猎杀：在高威胁目标之间连续相位处决", cooldown: 9, color: "#9ec9ff", sprite: 3, sheet: "core", radius: 14, renderSize: 72 },
+  { id: "laser", name: "赤曜型", role: "贯穿激光猎手", active: "聚焦光束：发射横贯战场的高能激光", passive: "热能射线：高速弹丸可贯穿多名敌人", ultimate: "赤曜审判：展开三轨棱镜矩阵，定向贯穿战场", cooldown: 12, color: "#ff5b58", sprite: 0, sheet: "specialist", radius: 15, renderSize: 82 },
+  { id: "frost", name: "霜垒型", role: "冰冻攻城炮", active: "绝对零域：冻结附近敌人并造成伤害", passive: "低温弹头：命中后显著降低敌人速度", ultimate: "永冻纪元：向前推进冰川风暴，冻结整条战线", cooldown: 15, color: "#8bdcff", sprite: 1, sheet: "specialist", radius: 25, renderSize: 94 },
+  { id: "blade", name: "裂锋型", role: "等离子近战", active: "磁轨冲锋：扑向目标并释放双重圆弧斩", passive: "熔断刃：近距离自动斩击并修复少量生命", ultimate: "红莲断界：沿一条战线高速突进并留下连环斩痕", cooldown: 10, color: "#ff9b43", sprite: 0, sheet: "vanguard", radius: 18, renderSize: 86 },
+  { id: "gravity", name: "星渊型", role: "重力控场", active: "坍缩奇点：牵引附近敌人并引爆核心", passive: "引力弹：穿透、减速并产生小型爆炸", ultimate: "事件视界：在敌群中心制造奇点，持续牵引后坍缩", cooldown: 14, color: "#a58cff", sprite: 1, sheet: "vanguard", radius: 23, renderSize: 92 },
 ];
+
+const BOSS_VARIANTS: Record<BossVariant, { name: string; sprite: number; color: string; hp: number; speed: number; hit: number; range: number }> = {
+  rift: { name: "裂界泰坦", sprite: 0, color: "#ff4f7c", hp: 1, speed: 1, hit: 1, range: 305 },
+  storm: { name: "雷暴航母", sprite: 1, color: "#5ca9ff", hp: .86, speed: 1.18, hit: .9, range: 385 },
+  weaver: { name: "深渊织母", sprite: 2, color: "#b37cff", hp: .92, speed: 1.24, hit: .82, range: 255 },
+  forge: { name: "熔炉巨像", sprite: 3, color: "#ff8b42", hp: 1.28, speed: .76, hit: 1.2, range: 335 },
+};
 
 const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; radius: number; color: string; cooldown: number }> = {
   runner: { hp: 24, speed: 105, hit: 6, radius: 13, color: "#e65d43", cooldown: 0 },
@@ -271,7 +311,13 @@ const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; ra
   assassin: { hp: 68, speed: 78, hit: 8, radius: 18, color: "#865bc7", cooldown: 1.9 },
   brute: { hp: 185, speed: 34, hit: 16, radius: 27, color: "#a7542a", cooldown: 0 },
   commander: { hp: 320, speed: 46, hit: 12, radius: 30, color: "#d9b24b", cooldown: 1.75 },
-  boss: { hp: 1500, speed: 42, hit: 15, radius: 48, color: "#f06b66", cooldown: 2.2 },
+  shieldmite: { hp: 96, speed: 54, hit: 8, radius: 21, color: "#53d6ce", cooldown: 2.2 },
+  sniper: { hp: 72, speed: 35, hit: 14, radius: 18, color: "#f0efed", cooldown: 3.35 },
+  splitter: { hp: 105, speed: 72, hit: 9, radius: 22, color: "#9fce39", cooldown: 2.8 },
+  mortarwasp: { hp: 84, speed: 63, hit: 11, radius: 19, color: "#efa330", cooldown: 2.7 },
+  leech: { hp: 118, speed: 52, hit: 10, radius: 21, color: "#a56cff", cooldown: 2.25 },
+  rammer: { hp: 230, speed: 48, hit: 20, radius: 29, color: "#568dc9", cooldown: 3.8 },
+  boss: { hp: 2300, speed: 42, hit: 15, radius: 48, color: "#f06b66", cooldown: 2.2 },
 };
 const ENEMY_XP: Record<EnemyKind, number> = {
   runner: 1,
@@ -280,6 +326,12 @@ const ENEMY_XP: Record<EnemyKind, number> = {
   assassin: 4,
   brute: 7,
   commander: 12,
+  shieldmite: 5,
+  sniper: 6,
+  splitter: 6,
+  mortarwasp: 7,
+  leech: 8,
+  rammer: 11,
   boss: 55,
 };
 const ENEMY_ATTACK_MODE: Record<EnemyKind, "melee" | "ranged"> = {
@@ -289,6 +341,12 @@ const ENEMY_ATTACK_MODE: Record<EnemyKind, "melee" | "ranged"> = {
   assassin: "ranged",
   brute: "melee",
   commander: "ranged",
+  shieldmite: "melee",
+  sniper: "ranged",
+  splitter: "melee",
+  mortarwasp: "ranged",
+  leech: "ranged",
+  rammer: "melee",
   boss: "ranged",
 };
 
@@ -736,6 +794,10 @@ export default function Home() {
     const bladeSprite = new Image();
     const gravitySprite = new Image();
     const enemySprites = new Image();
+    const bossVariantSprites = new Image();
+    const enemyReinforcementSprites = new Image();
+    const bossProjectileSprites = new Image();
+    const enemyReinforcementProjectiles = new Image();
     const projectileSprites = new Image();
     const specialistProjectiles = new Image();
     const droneSprites = new Image();
@@ -750,6 +812,10 @@ export default function Home() {
     bladeSprite.src = GAME_ASSETS.bladeMech;
     gravitySprite.src = GAME_ASSETS.gravityMech;
     enemySprites.src = GAME_ASSETS.enemyMechs;
+    bossVariantSprites.src = GAME_ASSETS.bossVariants;
+    enemyReinforcementSprites.src = GAME_ASSETS.enemyReinforcements;
+    bossProjectileSprites.src = GAME_ASSETS.bossProjectiles;
+    enemyReinforcementProjectiles.src = GAME_ASSETS.enemyReinforcementProjectiles;
     projectileSprites.src = GAME_ASSETS.projectileMechs;
     specialistProjectiles.src = GAME_ASSETS.specialistProjectiles;
     droneSprites.src = GAME_ASSETS.supportDrones;
@@ -1219,8 +1285,14 @@ export default function Home() {
       if (side === 0) y = -pad; if (side === 1) x = W + pad; if (side === 2) y = H + pad; if (side === 3) x = -pad;
       const pool: EnemyKind[] = ["runner", "crawler", "runner"];
       if (elapsed > 22) pool.push("artillery");
+      if (elapsed > 34) pool.push("shieldmite");
       if (elapsed > 48) pool.push("assassin");
+      if (elapsed > 62) pool.push("sniper");
       if (elapsed > 78) pool.push("brute");
+      if (elapsed > 88) pool.push("splitter");
+      if (elapsed > 108) pool.push("mortarwasp");
+      if (elapsed > 132) pool.push("leech");
+      if (elapsed > 165) pool.push("rammer");
       let kind = pool[Math.floor(Math.random() * pool.length)];
       if (elapsed > 115 && Math.random() < Math.min(.12, .035 + elapsed / 2400)) kind = "commander";
       const config = ENEMY_DATA[kind];
@@ -1243,13 +1315,17 @@ export default function Home() {
         elite,
         cooldown: config.cooldown ? Math.random() * config.cooldown : 0,
         slow: 0,
+        barrier: kind === "shieldmite" ? maxHp * .7 : undefined,
       });
     };
     const spawnBoss = () => {
       const config = ENEMY_DATA.boss;
-      const coOpScale = remote ? 1.55 : 1;
+      const variants: BossVariant[] = ["rift", "storm", "weaver", "forge"];
+      const bossVariant = variants[(Math.max(3, currentWave) / 3 - 1) % variants.length | 0];
+      const variant = BOSS_VARIANTS[bossVariant];
+      const coOpScale = remote ? 1.68 : 1;
       const waveScale = 1 + Math.max(0, currentWave - 3) * .28;
-      const maxHp = config.hp * waveScale * coOpScale;
+      const maxHp = config.hp * variant.hp * waveScale * coOpScale;
       enemies.push({
         id: nextEnemyId++,
         x: W / 2,
@@ -1257,17 +1333,18 @@ export default function Home() {
         r: config.radius,
         hp: maxHp,
         maxHp,
-        speed: config.speed + Math.min(12, currentWave * 1.2),
-        hit: config.hit * (1 + Math.min(.32, currentWave * .025)),
-        color: config.color,
+        speed: (config.speed + Math.min(12, currentWave * 1.2)) * variant.speed,
+        hit: config.hit * variant.hit * (1 + Math.min(.32, currentWave * .025)),
+        color: variant.color,
         kind: "boss",
         elite: true,
         cooldown: .8,
         slow: 0,
         bossPhase: 1,
+        bossVariant,
       });
       lastBossWave = currentWave;
-      setBossLootNotice(`⚠ 第 ${currentWave} 波 · 裂界泰坦入侵`);
+      setBossLootNotice(`⚠ 第 ${currentWave} 波 · ${variant.name}入侵`);
       audio?.play("ultimate");
     };
     const burst = (x:number,y:number,color:string,n=8) => {
@@ -1459,84 +1536,131 @@ export default function Home() {
     const executeUltimate = (actor: Actor, combatStats: BuildFrame | CombatStats, classId: ClassId, owner: PlayerSide) => {
       const power = combatStats.ultimatePower;
       const color = CLASSES.find((entry) => entry.id === classId)?.color || "#f4c95d";
-      addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: classId === "laser" ? 640 : 520 }, 1.45);
-      burst(actor.x, actor.y, color, 40);
+      const aimTarget = enemies.filter((enemy) => enemy.hp > 0).sort((a, b) => b.maxHp - a.maxHp)[0];
+      const aimAngle = aimTarget ? Math.atan2(aimTarget.y - actor.y, aimTarget.x - actor.x) : -Math.PI / 2;
+      const damageEnemy = (enemy: Enemy, amount: number) => {
+        enemy.hp -= amount;
+        enemy.lastHitBy = owner;
+      };
       if (classId === "assault") {
-        queueMissileStorm(actor, { ...combatStats, missileWaves: Math.max(3, combatStats.missileWaves + 2), missileCount: combatStats.missileCount + 6, damage: combatStats.damage * 1.35 * power }, owner);
+        const strikeTargets = [...enemies].sort((a, b) => b.maxHp - a.maxHp).slice(0, 10 + Math.min(4, combatStats.missileWaves));
+        for (const target of strikeTargets) {
+          addEffect({ kind: "ultimate", classId, x: target.x, y: target.y, x2: target.x, y2: target.y - 250, color, radius: 92 }, 1.25);
+          beams.push({ x1: target.x, y1: target.y - 250, x2: target.x, y2: target.y, life: .46, width: 7, color: "#fff2a8" });
+          for (const enemy of enemies) {
+            if (dist(target, enemy) <= 86 + enemy.r) damageEnemy(enemy, combatStats.damage * 3.25 * power);
+          }
+          burst(target.x, target.y, "#f4c95d", 18);
+        }
       }
       if (classId === "guardian") {
         const shieldUntil = performance.now() + Math.min(6000, 5200 * power);
         if (actor === player) selfShieldUntil = shieldUntil;
         else remoteShieldUntil = shieldUntil;
         actor.hp = Math.min(actor.maxHp, actor.hp + actor.maxHp * .45);
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .22);
+        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + remote.maxHp * .22);
         for (const enemy of enemies) {
-          if (dist(actor, enemy) > 560) continue;
-          enemy.hp -= combatStats.damage * 5.5 * power;
-          enemy.lastHitBy = owner;
+          const distance = dist(actor, enemy);
+          if (distance > 330 || distance < 1) continue;
+          const angle = Math.atan2(enemy.y - actor.y, enemy.x - actor.x);
+          enemy.x = clamp(enemy.x + Math.cos(angle) * 170, -80, W + 80);
+          enemy.y = clamp(enemy.y + Math.sin(angle) * 170, -80, H + 80);
+          enemy.slow = Math.max(enemy.slow, 2.5);
         }
+        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: 235 }, 2.4);
       }
       if (classId === "engineer") {
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 60 * power);
         if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + 60 * power);
-        for (let index = 0; index < 20; index++) {
-          const angle = index / 20 * Math.PI * 2;
-          shots.push({ x: actor.x, y: actor.y, vx: Math.cos(angle) * 720, vy: Math.sin(angle) * 720, r: 5, damage: combatStats.damage * 2.4 * combatStats.dronePower * power, life: 1.7, owner, classId: "engineer", chain: true, pierce: 1 });
+        const targets = [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, 18);
+        for (let index = 0; index < Math.max(12, targets.length * 2); index++) {
+          const orbitAngle = index / Math.max(12, targets.length * 2) * Math.PI * 2;
+          const origin = { x: actor.x + Math.cos(orbitAngle) * 92, y: actor.y + Math.sin(orbitAngle) * 92 };
+          const target = targets[index % Math.max(1, targets.length)];
+          const shotAngle = target ? Math.atan2(target.y - origin.y, target.x - origin.x) : orbitAngle;
+          shots.push({ x: origin.x, y: origin.y, vx: Math.cos(shotAngle) * 780, vy: Math.sin(shotAngle) * 780, r: 5, damage: combatStats.damage * 2.15 * combatStats.dronePower * power, life: 1.8, owner, classId: "engineer", chain: true, pierce: 1 });
         }
+        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: 120 }, 2);
       }
       if (classId === "phantom") {
-        for (const enemy of [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, 16)) {
-          beams.push({ x1: actor.x, y1: actor.y, x2: enemy.x, y2: enemy.y, life: .34, width: 7, color: "#a78cff" });
-          enemy.hp -= combatStats.damage * 8 * power;
-          enemy.lastHitBy = owner;
+        const marked = [...enemies].sort((a, b) => b.maxHp - a.maxHp || dist(actor, a) - dist(actor, b)).slice(0, 12);
+        let previous = { x: actor.x, y: actor.y };
+        for (const enemy of marked) {
+          beams.push({ x1: previous.x, y1: previous.y, x2: enemy.x, y2: enemy.y, life: .5, width: 7, color: "#a78cff" });
+          addEffect({ kind: "dash", classId, x: previous.x, y: previous.y, x2: enemy.x, y2: enemy.y, color, radius: 36 }, .48);
+          damageEnemy(enemy, combatStats.damage * (enemy.hp < enemy.maxHp * .35 ? 11 : 7.5) * power);
+          previous = { x: enemy.x, y: enemy.y };
         }
+        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, x2: previous.x, y2: previous.y, color, radius: 180 }, 1.5);
         if (actor === player) selfShieldUntil = performance.now() + 2600;
         else remoteShieldUntil = performance.now() + 2600;
       }
       if (classId === "laser") {
-        for (let beamIndex = 0; beamIndex < 6; beamIndex++) {
-          const angle = beamIndex / 6 * Math.PI * 2;
-          const length = 1500;
-          beams.push({ x1: actor.x, y1: actor.y, x2: actor.x + Math.cos(angle) * length, y2: actor.y + Math.sin(angle) * length, life: .7, width: 24 * combatStats.laserPower, color: "#ff4f50" });
+        const length = 1550;
+        const normalX = -Math.sin(aimAngle), normalY = Math.cos(aimAngle);
+        for (const offset of [-92, 0, 92]) {
+          const x1 = actor.x + normalX * offset, y1 = actor.y + normalY * offset;
+          const x2 = x1 + Math.cos(aimAngle) * length, y2 = y1 + Math.sin(aimAngle) * length;
+          beams.push({ x1, y1, x2, y2, life: .92, width: 25 * combatStats.laserPower, color: "#ff4f50" });
           for (const enemy of enemies) {
-            const along = (enemy.x - actor.x) * Math.cos(angle) + (enemy.y - actor.y) * Math.sin(angle);
-            const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(angle) - (enemy.y - actor.y) * Math.cos(angle));
+            const along = (enemy.x - x1) * Math.cos(aimAngle) + (enemy.y - y1) * Math.sin(aimAngle);
+            const perpendicular = Math.abs((enemy.x - x1) * Math.sin(aimAngle) - (enemy.y - y1) * Math.cos(aimAngle));
             if (along <= 0 || along >= length || perpendicular >= enemy.r + 25 * combatStats.laserPower) continue;
-            enemy.hp -= combatStats.damage * 7 * combatStats.laserPower * power;
-            enemy.lastHitBy = owner;
+            damageEnemy(enemy, combatStats.damage * 6.4 * combatStats.laserPower * power);
           }
         }
+        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, x2: actor.x + Math.cos(aimAngle) * length, y2: actor.y + Math.sin(aimAngle) * length, color, radius: 620 }, 1.35);
       }
       if (classId === "frost") {
         for (const enemy of enemies) {
+          const along = (enemy.x - actor.x) * Math.cos(aimAngle) + (enemy.y - actor.y) * Math.sin(aimAngle);
+          const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(aimAngle) - (enemy.y - actor.y) * Math.cos(aimAngle));
+          const laneWidth = 125 + Math.max(0, along) * .16;
+          if (along < -60 || along > 1250 || perpendicular > laneWidth + enemy.r) continue;
           enemy.slow = Math.max(enemy.slow, 9 * combatStats.frostPower);
-          enemy.hp -= combatStats.damage * 4.6 * combatStats.frostPower * power;
-          enemy.lastHitBy = owner;
+          damageEnemy(enemy, combatStats.damage * 4.8 * combatStats.frostPower * power);
         }
+        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, x2: actor.x + Math.cos(aimAngle) * 1250, y2: actor.y + Math.sin(aimAngle) * 1250, color, radius: 310 }, 2.1);
       }
       if (classId === "blade") {
-        const targets = [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, 18);
-        for (const enemy of targets) {
-          beams.push({ x1: actor.x, y1: actor.y, x2: enemy.x, y2: enemy.y, life: .28, width: 11, color: "#ff9b43" });
-          enemy.hp -= combatStats.damage * 6.2 * combatStats.meleePower * power;
-          enemy.lastHitBy = owner;
+        const start = { x: actor.x, y: actor.y };
+        const travel = 720;
+        const end = { x: clamp(actor.x + Math.cos(aimAngle) * travel, 34, W - 34), y: clamp(actor.y + Math.sin(aimAngle) * travel, 34, H - 34) };
+        for (const enemy of enemies) {
+          const lineLength = Math.max(1, dist(start, end));
+          const along = ((enemy.x - start.x) * (end.x - start.x) + (enemy.y - start.y) * (end.y - start.y)) / lineLength;
+          const perpendicular = Math.abs((enemy.x - start.x) * Math.sin(aimAngle) - (enemy.y - start.y) * Math.cos(aimAngle));
+          if (along < -enemy.r || along > lineLength + enemy.r || perpendicular > 115 + enemy.r) continue;
+          damageEnemy(enemy, combatStats.damage * 7.2 * combatStats.meleePower * power);
           burst(enemy.x, enemy.y, "#ff9b43", 10);
         }
+        actor.x = end.x;
+        actor.y = end.y;
+        addEffect({ kind: "dash", classId, x: start.x, y: start.y, x2: end.x, y2: end.y, color, radius: 72 }, .85);
+        addEffect({ kind: "ultimate", classId, x: start.x, y: start.y, x2: end.x, y2: end.y, color, radius: 180 }, 1.45);
         actor.hp = Math.min(actor.maxHp, actor.hp + actor.maxHp * .24);
         if (actor === player) selfShieldUntil = performance.now() + 2200;
         else remoteShieldUntil = performance.now() + 2200;
       }
       if (classId === "gravity") {
+        const cluster = [...enemies].sort((a, b) => dist(actor, a) - dist(actor, b)).slice(0, 22);
+        const center = cluster.length
+          ? { x: cluster.reduce((sum, enemy) => sum + enemy.x, 0) / cluster.length, y: cluster.reduce((sum, enemy) => sum + enemy.y, 0) / cluster.length }
+          : { x: actor.x, y: actor.y };
         for (const enemy of enemies) {
-          const angle = Math.atan2(actor.y - enemy.y, actor.x - enemy.x);
-          const distance = dist(actor, enemy);
-          enemy.x += Math.cos(angle) * Math.min(240, distance * .58);
-          enemy.y += Math.sin(angle) * Math.min(240, distance * .58);
+          const distance = dist(center, enemy);
+          if (distance > 680) continue;
+          const angle = Math.atan2(center.y - enemy.y, center.x - enemy.x);
+          enemy.x += Math.cos(angle) * Math.min(330, distance * .72);
+          enemy.y += Math.sin(angle) * Math.min(330, distance * .72);
           enemy.slow = Math.max(enemy.slow, 7);
-          enemy.hp -= combatStats.damage * 5.2 * combatStats.gravityPower * power;
-          enemy.lastHitBy = owner;
-          beams.push({ x1: enemy.x, y1: enemy.y, x2: actor.x, y2: actor.y, life: .42, width: 5, color: "#a58cff" });
+          damageEnemy(enemy, combatStats.damage * (4.2 + Math.max(0, 1 - distance / 680) * 3) * combatStats.gravityPower * power);
+          beams.push({ x1: enemy.x, y1: enemy.y, x2: center.x, y2: center.y, life: .52, width: 5, color: "#a58cff" });
         }
+        addEffect({ kind: "ultimate", classId, x: center.x, y: center.y, color, radius: 390 }, 2.2);
       }
+      burst(actor.x, actor.y, color, classId === "guardian" || classId === "engineer" ? 26 : 40);
       setHp(Math.ceil(player.hp));
       audio?.play("ultimate");
     };
@@ -1566,7 +1690,7 @@ export default function Home() {
       }
     };
 
-    const xpNeed = () => 9 + currentLevel * 4;
+    const xpNeed = () => Math.round(10 + currentLevel * 4.4 + Math.pow(Math.max(0, currentLevel - 1), 1.34) * 1.35);
     const sendWorld = () => {
       if (!network?.connected() || !isAuthority) return;
       void network.send({
@@ -1750,7 +1874,7 @@ export default function Home() {
       }
 
       for (const shot of shots) {
-        if (shot.hostile && (shot.enemyKind === "commander" || shot.enemyKind === "boss") && (shot.homing || 0) > 0) {
+        if (shot.hostile && (shot.enemyKind === "commander" || shot.enemyKind === "leech" || shot.enemyKind === "boss") && (shot.homing || 0) > 0) {
           const targets: Actor[] = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
           if (!targets.length) continue;
           const target = targets.reduce((nearest, actor) => dist(shot, actor) < dist(shot, nearest) ? actor : nearest);
@@ -1780,10 +1904,18 @@ export default function Home() {
           if (phase !== enemy.bossPhase) {
             enemy.bossPhase = phase;
             burst(enemy.x, enemy.y, phase === 2 ? "#f4c95d" : "#ff5b7d", 36);
-            addEffect({ kind: "ultimate", x: enemy.x, y: enemy.y, color: phase === 2 ? "#f4c95d" : "#ff5b7d", radius: 250 }, .95);
+            addEffect({ kind: "boss-phase", bossVariant: enemy.bossVariant || "rift", x: enemy.x, y: enemy.y, color: phase === 2 ? "#f4c95d" : "#ff5b7d", radius: 250 }, .95);
           }
         }
-        const preferredRange = enemy.kind === "artillery" ? 330 : enemy.kind === "assassin" ? 230 : enemy.kind === "commander" ? 280 : enemy.kind === "boss" ? 305 : 0;
+        const preferredRange =
+          enemy.kind === "artillery" ? 330
+            : enemy.kind === "assassin" ? 230
+              : enemy.kind === "commander" ? 280
+                : enemy.kind === "sniper" ? 465
+                  : enemy.kind === "mortarwasp" ? 360
+                    : enemy.kind === "leech" ? 245
+                      : enemy.kind === "boss" ? BOSS_VARIANTS[enemy.bossVariant || "rift"].range
+                        : 0;
         const speedScale = enemy.slow > 0 ? .52 : 1;
         const moveDirection = !ranged
           ? 1
@@ -1796,69 +1928,125 @@ export default function Home() {
           enemy.x += Math.cos(angle) * enemy.speed * speedScale * moveDirection * dt;
           enemy.y += Math.sin(angle) * enemy.speed * speedScale * moveDirection * dt;
         }
+        const applyMeleeStrike = (rawDamage: number, color: string, radius: number) => {
+          const targetShield = target === player ? selfShieldUntil : remoteShieldUntil;
+          const reduction = target === player ? stats.damageReduction : (remoteBuildRef.current?.damageReduction || 0);
+          if (now >= targetShield) target.hp = Math.max(0, target.hp - rawDamage * (1 - reduction));
+          impactEffect(target.x, target.y, color, radius);
+          burst(target.x, target.y, color, Math.ceil(radius / 4));
+          if (target === player) {
+            setHp(Math.ceil(player.hp));
+            audio?.play("hurt");
+          }
+        };
+        if (enemy.kind === "rammer" && enemy.cooldown <= 0 && targetDistance < 430 && targetDistance > 90) {
+          const chargeStart = { x: enemy.x, y: enemy.y };
+          enemy.x += Math.cos(angle) * 145;
+          enemy.y += Math.sin(angle) * 145;
+          enemy.cooldown = ENEMY_DATA.rammer.cooldown;
+          addEffect({ kind: "dash", enemyKind: "rammer", x: chargeStart.x, y: chargeStart.y, x2: enemy.x, y2: enemy.y, color: "#66b8ff", radius: 44 }, .42);
+          burst(enemy.x, enemy.y, "#66b8ff", 12);
+          if (dist(enemy, target) < enemy.r + target.r + 46) applyMeleeStrike(enemy.hit * .72, "#66b8ff", 46);
+        }
         enemy.slow = Math.max(0, enemy.slow - dt);
+        if ((enemy.kind === "shieldmite" || enemy.kind === "splitter") && enemy.cooldown <= 0 && targetDistance < enemy.r + target.r + 78) {
+          const reach = enemy.kind === "shieldmite" ? 112 : 132;
+          addEffect({
+            kind: "slash",
+            enemyKind: enemy.kind,
+            x: enemy.x,
+            y: enemy.y,
+            x2: enemy.x + Math.cos(angle) * reach,
+            y2: enemy.y + Math.sin(angle) * reach,
+            color: enemy.kind === "shieldmite" ? "#70fff1" : "#c8ef45",
+            radius: enemy.kind === "shieldmite" ? 34 : 27,
+          }, .32);
+          applyMeleeStrike(
+            enemy.hit * .72,
+            enemy.kind === "shieldmite" ? "#70fff1" : "#c8ef45",
+            enemy.kind === "shieldmite" ? 34 : 29,
+          );
+          enemy.cooldown = ENEMY_DATA[enemy.kind].cooldown;
+        }
         if (enemy.kind === "boss" && enemy.cooldown <= 0) {
           const phase = enemy.bossPhase || 1;
-          const radialCount = phase === 1 ? 10 : phase === 2 ? 14 : 18;
-          const patternOffset = elapsed * (.42 + phase * .16);
-          for (let index = 0; index < radialCount; index++) {
-            const shotAngle = patternOffset + index / radialCount * Math.PI * 2;
-            const projectileSpeed = 205 + phase * 32;
-            shots.push({
-              x: enemy.x + Math.cos(shotAngle) * (enemy.r + 8),
-              y: enemy.y + Math.sin(shotAngle) * (enemy.r + 8),
-              vx: Math.cos(shotAngle) * projectileSpeed,
-              vy: Math.sin(shotAngle) * projectileSpeed,
-              r: 7 + phase,
-              damage: enemy.hit * (phase === 3 ? .58 : .48),
-              life: 3.4,
-              hostile: true,
-              enemyKind: "boss",
-            });
+          const variant = enemy.bossVariant || "rift";
+          if (variant === "rift") {
+            const count = phase === 1 ? 10 : phase === 2 ? 14 : 18;
+            const offset = elapsed * (.42 + phase * .16);
+            for (let index = 0; index < count; index++) {
+              const shotAngle = offset + index / count * Math.PI * 2;
+              shots.push({ x: enemy.x + Math.cos(shotAngle) * (enemy.r + 8), y: enemy.y + Math.sin(shotAngle) * (enemy.r + 8), vx: Math.cos(shotAngle) * (205 + phase * 32), vy: Math.sin(shotAngle) * (205 + phase * 32), r: 8 + phase, damage: enemy.hit * (phase === 3 ? .58 : .48), life: 3.4, hostile: true, enemyKind: "boss", bossVariant: variant });
+            }
+            for (let index = 0; index < phase; index++) {
+              const shotAngle = angle + (index - (phase - 1) / 2) * .13;
+              shots.push({ x: enemy.x, y: enemy.y, vx: Math.cos(shotAngle) * (290 + phase * 24), vy: Math.sin(shotAngle) * (290 + phase * 24), r: 9, damage: enemy.hit * .72, life: 2.7, hostile: true, enemyKind: "boss", bossVariant: variant, homing: phase === 3 ? .5 : .22 });
+            }
+            enemy.cooldown = phase === 1 ? 2.25 : phase === 2 ? 1.72 : 1.28;
+          } else if (variant === "storm") {
+            const count = 3 + phase * 2;
+            for (let index = 0; index < count; index++) {
+              const shotAngle = angle + (index - (count - 1) / 2) * .105;
+              shots.push({ x: enemy.x, y: enemy.y, vx: Math.cos(shotAngle) * (390 + phase * 35), vy: Math.sin(shotAngle) * (390 + phase * 35), r: 7, damage: enemy.hit * .58, life: 2.2, hostile: true, enemyKind: "boss", bossVariant: variant, homing: .16 });
+            }
+            beams.push({ x1: enemy.x - Math.sin(angle) * 120, y1: enemy.y + Math.cos(angle) * 120, x2: enemy.x + Math.sin(angle) * 120, y2: enemy.y - Math.cos(angle) * 120, life: .34, width: 9, color: "#61d7ff" });
+            enemy.cooldown = phase === 1 ? 1.9 : phase === 2 ? 1.44 : 1.08;
+          } else if (variant === "weaver") {
+            const count = 7 + phase * 3;
+            const offset = elapsed * .85;
+            for (let index = 0; index < count; index++) {
+              const shotAngle = offset + index / count * Math.PI * 2;
+              shots.push({ x: enemy.x, y: enemy.y, vx: Math.cos(shotAngle) * (165 + phase * 20), vy: Math.sin(shotAngle) * (165 + phase * 20), r: 9, damage: enemy.hit * .5, life: 4, hostile: true, enemyKind: "boss", bossVariant: variant, homing: .7 + phase * .16 });
+            }
+            enemy.cooldown = phase === 1 ? 2.4 : phase === 2 ? 1.84 : 1.38;
+          } else {
+            const count = 1 + phase;
+            for (let index = 0; index < count; index++) {
+              const shotAngle = angle + (index - (count - 1) / 2) * .24;
+              shots.push({ x: enemy.x, y: enemy.y, vx: Math.cos(shotAngle) * (225 + phase * 18), vy: Math.sin(shotAngle) * (225 + phase * 18), r: 13, damage: enemy.hit * .84, life: 3.2, hostile: true, enemyKind: "boss", bossVariant: variant, splash: 100 + phase * 12 });
+            }
+            if (phase === 3) {
+              for (let index = 0; index < 6; index++) {
+                const shotAngle = index / 6 * Math.PI * 2;
+                shots.push({ x: enemy.x, y: enemy.y, vx: Math.cos(shotAngle) * 190, vy: Math.sin(shotAngle) * 190, r: 10, damage: enemy.hit * .46, life: 2.8, hostile: true, enemyKind: "boss", bossVariant: variant, splash: 72 });
+              }
+            }
+            enemy.cooldown = phase === 1 ? 2.8 : phase === 2 ? 2.15 : 1.65;
           }
-          for (let index = 0; index < phase; index++) {
-            const spread = (index - (phase - 1) / 2) * .13;
-            const shotAngle = angle + spread;
-            shots.push({
-              x: enemy.x + Math.cos(angle) * (enemy.r + 10),
-              y: enemy.y + Math.sin(angle) * (enemy.r + 10),
-              vx: Math.cos(shotAngle) * (290 + phase * 24),
-              vy: Math.sin(shotAngle) * (290 + phase * 24),
-              r: 8,
-              damage: enemy.hit * .72,
-              life: 2.7,
-              hostile: true,
-              enemyKind: "boss",
-              homing: phase === 3 ? .5 : .22,
-            });
-          }
-          burst(enemy.x, enemy.y, phase === 3 ? "#ff5b7d" : "#e2b8ff", 16);
-          enemy.cooldown = phase === 1 ? 2.25 : phase === 2 ? 1.72 : 1.28;
+          burst(enemy.x, enemy.y, BOSS_VARIANTS[variant].color, 16);
         } else if (ranged && enemy.cooldown <= 0) {
-          const spreadCount = enemy.kind === "commander" ? 3 : enemy.kind === "assassin" ? 2 : 1;
+          const spreadCount = enemy.kind === "commander" ? 3 : enemy.kind === "assassin" || enemy.kind === "leech" ? 2 : 1;
           for (let index = 0; index < spreadCount; index++) {
             const spread = (index - (spreadCount - 1) / 2) * (enemy.kind === "assassin" ? .075 : .18);
             const shotAngle = angle + spread;
-            const projectileSpeed = enemy.kind === "assassin" ? 490 : enemy.kind === "commander" ? 290 : 280;
+            const projectileSpeed =
+              enemy.kind === "sniper" ? 680
+                : enemy.kind === "assassin" ? 490
+                  : enemy.kind === "commander" ? 290
+                    : enemy.kind === "mortarwasp" ? 235
+                      : enemy.kind === "leech" ? 250
+                        : 280;
             const lateRangedDamage = 1 + Math.min(.55, elapsed / 900);
+            const damageScale = enemy.kind === "assassin" ? .58 : enemy.kind === "leech" ? .68 : enemy.kind === "mortarwasp" ? .82 : 1;
             shots.push({
               x: enemy.x + Math.cos(angle) * (enemy.r + 8),
               y: enemy.y + Math.sin(angle) * (enemy.r + 8),
               vx: Math.cos(shotAngle) * projectileSpeed,
               vy: Math.sin(shotAngle) * projectileSpeed,
-              r: enemy.kind === "commander" ? 7 : enemy.kind === "assassin" ? 4 : 6,
-              damage: enemy.hit * (enemy.kind === "assassin" ? .58 : 1) * lateRangedDamage,
-              life: enemy.kind === "assassin" ? 1.7 : 2.4,
+              r: enemy.kind === "commander" ? 7 : enemy.kind === "assassin" || enemy.kind === "sniper" ? 4 : enemy.kind === "mortarwasp" ? 9 : 6,
+              damage: enemy.hit * damageScale * lateRangedDamage,
+              life: enemy.kind === "assassin" ? 1.7 : enemy.kind === "sniper" ? 1.45 : enemy.kind === "mortarwasp" ? 3.1 : 2.4,
               hostile: true,
               enemyKind: enemy.kind,
-              homing: enemy.kind === "commander" ? .75 : undefined,
-              splash: enemy.kind === "artillery" ? 68 : undefined,
+              homing: enemy.kind === "commander" ? .75 : enemy.kind === "leech" ? .66 : undefined,
+              splash: enemy.kind === "artillery" ? 68 : enemy.kind === "mortarwasp" ? 92 : undefined,
             });
           }
+          if (enemy.kind === "leech") enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * .025);
           burst(
             enemy.x + Math.cos(angle) * (enemy.r + 5),
             enemy.y + Math.sin(angle) * (enemy.r + 5),
-            enemy.kind === "artillery" ? "#ff9a4d" : enemy.kind === "assassin" ? "#a36cff" : "#e2b8ff",
+            enemy.kind === "artillery" || enemy.kind === "mortarwasp" ? "#ff9a4d" : enemy.kind === "assassin" || enemy.kind === "leech" ? "#a36cff" : enemy.kind === "sniper" ? "#ff625e" : "#e2b8ff",
             enemy.kind === "commander" ? 7 : 4,
           );
           enemy.cooldown = ENEMY_DATA[enemy.kind].cooldown * (enemy.elite ? .78 : 1);
@@ -1900,9 +2088,20 @@ export default function Home() {
             if (shot.life <= 0 || dist(shot, target) >= shot.r + target.r) continue;
             const targetShield = target === player ? selfShieldUntil : remoteShieldUntil;
             const reduction = target === player ? stats.damageReduction : (remoteBuildRef.current?.damageReduction || 0);
+            const hostileImpactColor =
+              shot.enemyKind === "boss" ? BOSS_VARIANTS[shot.bossVariant || "rift"].color
+                : shot.enemyKind === "shieldmite" ? "#70fff1"
+                  : shot.enemyKind === "sniper" ? "#ff625e"
+                    : shot.enemyKind === "splitter" ? "#c8ef45"
+                      : shot.enemyKind === "mortarwasp" ? "#ff9a4d"
+                        : shot.enemyKind === "leech" ? "#b06cff"
+                          : shot.enemyKind === "rammer" ? "#66b8ff"
+                            : shot.enemyKind === "assassin" ? "#a36cff"
+                              : shot.enemyKind === "commander" ? "#d99aff"
+                                : "#ff9a4d";
             if (now >= targetShield) target.hp = Math.max(0, target.hp - shot.damage * (1 - reduction));
             if (shot.splash) {
-              burst(target.x, target.y, "#ff9a4d", 14);
+              burst(target.x, target.y, hostileImpactColor, 14);
               for (const nearby of possibleTargets) {
                 if (nearby === target || dist(target, nearby) > shot.splash) continue;
                 const nearbyShield = nearby === player ? selfShieldUntil : remoteShieldUntil;
@@ -1910,17 +2109,20 @@ export default function Home() {
                 if (now >= nearbyShield) nearby.hp = Math.max(0, nearby.hp - shot.damage * .55 * (1 - nearbyReduction));
                 if (nearby === player) setHp(Math.ceil(player.hp));
               }
-            } else if (shot.enemyKind === "assassin") {
-              burst(target.x, target.y, "#a36cff", 7);
-            } else if (shot.enemyKind === "commander") {
-              burst(target.x, target.y, "#d99aff", 10);
-            } else if (shot.enemyKind === "boss") {
-              burst(target.x, target.y, "#ff5b7d", 14);
+            } else {
+              burst(
+                target.x,
+                target.y,
+                hostileImpactColor,
+                shot.enemyKind === "boss" ? 14
+                  : shot.enemyKind === "commander" || shot.enemyKind === "rammer" ? 10
+                    : 7,
+              );
             }
             impactEffect(
               target.x,
               target.y,
-              shot.enemyKind === "assassin" ? "#a36cff" : shot.enemyKind === "commander" ? "#d99aff" : shot.enemyKind === "boss" ? "#ff5b7d" : "#ff9a4d",
+              hostileImpactColor,
               shot.splash ? 58 : shot.enemyKind === "boss" ? 42 : 28,
             );
             if (target === player) {
@@ -1934,7 +2136,14 @@ export default function Home() {
         }
         for (const enemy of nearbyEnemies(shot.x, shot.y, shot.r + 46)) {
           if (shot.life <= 0 || enemy.hp <= 0 || shot.hitIds?.includes(enemy.id) || dist(shot,enemy) >= shot.r + enemy.r) continue;
-          enemy.hp -= shot.damage;
+          let resolvedDamage = shot.damage;
+          if (enemy.kind === "shieldmite" && (enemy.barrier || 0) > 0) {
+            const absorbed = Math.min(enemy.barrier || 0, shot.damage * .78);
+            enemy.barrier = Math.max(0, (enemy.barrier || 0) - shot.damage);
+            resolvedDamage -= absorbed;
+            burst(enemy.x, enemy.y, "#70fff1", 6);
+          }
+          enemy.hp -= resolvedDamage;
           enemy.lastHitBy = shot.owner || "host";
           shot.hitIds = [...(shot.hitIds || []), enemy.id];
           if (shot.slow) enemy.slow = Math.max(enemy.slow, shot.slow);
@@ -1968,6 +2177,27 @@ export default function Home() {
       }
       for (const enemy of enemies) {
         if (enemy.hp <= 0) {
+          if (enemy.kind === "splitter") {
+            for (const offset of [-1, 1]) {
+              const childConfig = ENEMY_DATA.runner;
+              const childHp = childConfig.hp * (1 + elapsed / 260);
+              enemies.push({
+                id: nextEnemyId++,
+                x: enemy.x + offset * 18,
+                y: enemy.y + (Math.random() - .5) * 20,
+                r: childConfig.radius * .82,
+                hp: childHp,
+                maxHp: childHp,
+                speed: childConfig.speed * 1.18,
+                hit: childConfig.hit,
+                color: "#b8ee4f",
+                kind: "runner",
+                elite: false,
+                cooldown: 0,
+                slow: 0,
+              });
+            }
+          }
           const bossRelic = enemy.kind === "boss" ? shuffled(BOSS_RELICS)[0] : null;
           const value = enemy.kind === "boss"
             ? ENEMY_XP.boss + currentWave * 6
@@ -2110,6 +2340,12 @@ export default function Home() {
           ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(effect.x2??effect.x,effect.y2??effect.y);ctx.stroke();
           ctx.globalAlpha=alpha*.85;ctx.strokeStyle="#ffffff";ctx.lineWidth=3;
           ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(effect.x2??effect.x,effect.y2??effect.y);ctx.stroke();
+          if(effect.enemyKind==="rammer"&&enemyReinforcementProjectiles.complete&&enemyReinforcementProjectiles.naturalWidth){
+            const endX=effect.x2??effect.x,endY=effect.y2??effect.y,angle=Math.atan2(endY-effect.y,endX-effect.x);
+            const cellW=enemyReinforcementProjectiles.naturalWidth/3,cellH=enemyReinforcementProjectiles.naturalHeight/2;
+            ctx.save();ctx.translate((effect.x+endX)/2,(effect.y+endY)/2);ctx.rotate(angle);ctx.globalAlpha=alpha*.9;
+            ctx.drawImage(enemyReinforcementProjectiles,2*cellW,cellH,cellW,cellH,-92,-34,184,68);ctx.restore();
+          }
         }
         if(effect.kind==="revive"){
           const radius=24+effect.radius*progress;
@@ -2122,23 +2358,91 @@ export default function Home() {
         }
         if(effect.kind==="ultimate"){
           const radius=36+effect.radius*Math.sin(progress*Math.PI/2);
-          ctx.lineWidth=10*(1-progress)+3;
-          ctx.beginPath();ctx.arc(effect.x,effect.y,radius,0,Math.PI*2);ctx.stroke();
-          ctx.globalAlpha=alpha*.62;
-          ctx.beginPath();ctx.arc(effect.x,effect.y,radius*.72,0,Math.PI*2);ctx.stroke();
-          for(let index=0;index<12;index++){
-            const angle=index/12*Math.PI*2+progress*.8;
-            ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*radius*.3,effect.y+Math.sin(angle)*radius*.3);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();
+          if(effect.classId==="assault"){
+            ctx.lineWidth=3;ctx.setLineDash([10,7]);ctx.beginPath();ctx.arc(effect.x,effect.y,radius*.72,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+            ctx.beginPath();ctx.moveTo(effect.x-radius,effect.y);ctx.lineTo(effect.x+radius,effect.y);ctx.moveTo(effect.x,effect.y-radius);ctx.lineTo(effect.x,effect.y+radius);ctx.stroke();
+            const missileY=(effect.y2??effect.y-220)+(effect.y-(effect.y2??effect.y-220))*progress;
+            ctx.fillStyle="#fff2a8";ctx.beginPath();ctx.moveTo(effect.x,missileY+22);ctx.lineTo(effect.x-9,missileY-12);ctx.lineTo(effect.x+9,missileY-12);ctx.closePath();ctx.fill();
+          }else if(effect.classId==="guardian"){
+            ctx.translate(effect.x,effect.y);ctx.rotate(progress*.45);
+            ctx.fillStyle="rgba(95,224,214,.12)";ctx.lineWidth=6;
+            ctx.beginPath();
+            for(let index=0;index<6;index++){const angle=index/6*Math.PI*2;const px=Math.cos(angle)*radius,py=Math.sin(angle)*radius;if(index)ctx.lineTo(px,py);else ctx.moveTo(px,py);}
+            ctx.closePath();ctx.fill();ctx.stroke();
+            for(let index=0;index<6;index++){const angle=index/6*Math.PI*2;ctx.save();ctx.rotate(angle);ctx.strokeRect(radius*.56,-28,radius*.34,56);ctx.restore();}
+          }else if(effect.classId==="engineer"){
+            ctx.translate(effect.x,effect.y);
+            for(let index=0;index<10;index++){
+              const angle=index/10*Math.PI*2+progress*5;
+              const orbit=radius*(.48+.08*(index%2));
+              const x=Math.cos(angle)*orbit,y=Math.sin(angle)*orbit;
+              ctx.save();ctx.translate(x,y);ctx.rotate(angle+Math.PI/2);ctx.fillStyle=index%2?"#d9ffb8":"#92ff78";ctx.fillRect(-8,-5,16,10);ctx.fillRect(-14,-2,28,4);ctx.restore();
+              ctx.globalAlpha=alpha*.42;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(x,y);ctx.stroke();ctx.globalAlpha=alpha;
+            }
+            ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,radius*.62,0,Math.PI*2);ctx.stroke();
+          }else if(effect.classId==="phantom"){
+            const endX=effect.x2??effect.x,endY=effect.y2??effect.y;
+            ctx.lineWidth=7;ctx.setLineDash([24,14]);ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(endX,endY);ctx.stroke();ctx.setLineDash([]);
+            for(let index=0;index<7;index++){
+              const t=(index+progress)/7,x=effect.x+(endX-effect.x)*t,y=effect.y+(endY-effect.y)*t;
+              ctx.save();ctx.translate(x,y);ctx.rotate(progress*Math.PI*2+index);ctx.strokeRect(-11,-11,22,22);ctx.restore();
+            }
+          }else if(effect.classId==="laser"){
+            const endX=effect.x2??effect.x,endY=effect.y2??effect.y;
+            const angle=Math.atan2(endY-effect.y,endX-effect.x),nx=-Math.sin(angle),ny=Math.cos(angle);
+            ctx.lineWidth=5;
+            for(const offset of [-92,0,92]){ctx.beginPath();ctx.moveTo(effect.x+nx*offset,effect.y+ny*offset);ctx.lineTo(endX+nx*offset,endY+ny*offset);ctx.stroke();}
+            ctx.translate(effect.x,effect.y);ctx.rotate(angle);ctx.fillStyle="rgba(255,255,255,.75)";ctx.beginPath();ctx.moveTo(34,0);ctx.lineTo(-22,-24);ctx.lineTo(-22,24);ctx.closePath();ctx.fill();
+          }else if(effect.classId==="frost"){
+            const endX=effect.x2??effect.x,endY=effect.y2??effect.y;
+            const angle=Math.atan2(endY-effect.y,endX-effect.x),length=Math.hypot(endX-effect.x,endY-effect.y);
+            ctx.translate(effect.x,effect.y);ctx.rotate(angle);ctx.fillStyle="rgba(139,220,255,.12)";
+            ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(length,-radius);ctx.lineTo(length,radius);ctx.closePath();ctx.fill();ctx.stroke();
+            for(let index=1;index<=9;index++){const x=length*index/10,y=Math.sin(index*2.3+progress*4)*radius*.42;ctx.beginPath();ctx.moveTo(x,y-26);ctx.lineTo(x-11,y+18);ctx.lineTo(x+11,y+18);ctx.closePath();ctx.stroke();}
+          }else if(effect.classId==="blade"){
+            const endX=effect.x2??effect.x,endY=effect.y2??effect.y;
+            const angle=Math.atan2(endY-effect.y,endX-effect.x),length=Math.hypot(endX-effect.x,endY-effect.y);
+            ctx.translate(effect.x,effect.y);ctx.rotate(angle);ctx.lineWidth=12*(1-progress)+4;
+            ctx.beginPath();ctx.moveTo(0,-32);ctx.lineTo(length,32);ctx.stroke();ctx.strokeStyle="#fff4d6";ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,-22);ctx.lineTo(length,22);ctx.stroke();
+            for(let index=1;index<7;index++){ctx.strokeStyle=effect.color;ctx.lineWidth=5;ctx.beginPath();ctx.arc(length*index/7,0,70+index*8,-1.05,1.05);ctx.stroke();}
+          }else if(effect.classId==="gravity"){
+            ctx.translate(effect.x,effect.y);ctx.fillStyle="rgba(3,1,10,.92)";ctx.beginPath();ctx.arc(0,0,26+radius*.18,0,Math.PI*2);ctx.fill();
+            ctx.lineWidth=6;for(let ring=1;ring<=4;ring++){ctx.beginPath();ctx.ellipse(0,0,radius*(.2*ring),radius*(.08+.045*ring),progress*3+ring*.4,0,Math.PI*2);ctx.stroke();}
+            for(let index=0;index<10;index++){const angle=index/10*Math.PI*2-progress*4;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(Math.cos(angle)*radius,Math.sin(angle)*radius);ctx.quadraticCurveTo(Math.cos(angle+1.2)*radius*.48,Math.sin(angle+1.2)*radius*.48,0,0);ctx.stroke();}
+          }else{
+            ctx.lineWidth=8*(1-progress)+3;ctx.beginPath();ctx.arc(effect.x,effect.y,radius,0,Math.PI*2);ctx.stroke();
+          }
+        }
+        if(effect.kind==="boss-phase"){
+          const radius=30+effect.radius*progress;
+          ctx.lineWidth=7*(1-progress)+2;
+          if(effect.bossVariant==="storm"){
+            for(let index=0;index<8;index++){const angle=index/8*Math.PI*2;ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(effect.x+Math.cos(angle)*radius*.55,effect.y+Math.sin(angle)*radius);ctx.lineTo(effect.x+Math.cos(angle+.18)*radius,effect.y+Math.sin(angle+.18)*radius*.72);ctx.stroke();}
+          }else if(effect.bossVariant==="weaver"){
+            for(let index=0;index<6;index++){const angle=index/6*Math.PI*2+progress*2;ctx.beginPath();ctx.arc(effect.x+Math.cos(angle)*radius*.35,effect.y+Math.sin(angle)*radius*.35,radius*.42,angle,angle+Math.PI);ctx.stroke();}
+          }else if(effect.bossVariant==="forge"){
+            ctx.fillStyle="rgba(255,113,38,.18)";ctx.fillRect(effect.x-radius,effect.y-radius*.32,radius*2,radius*.64);
+            for(let index=0;index<5;index++){const x=effect.x-radius+index*radius*.5;ctx.beginPath();ctx.moveTo(x,effect.y+radius*.35);ctx.lineTo(x+radius*.2,effect.y-radius*.35);ctx.stroke();}
+          }else{
+            for(let index=0;index<6;index++){const angle=index/6*Math.PI*2+progress;ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*radius*.25,effect.y+Math.sin(angle)*radius*.25);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();}
           }
         }
         if(effect.kind==="slash"){
           const angle=Math.atan2((effect.y2??effect.y)-effect.y,(effect.x2??effect.x)-effect.x);
           const radius=effect.radius*(.72+.28*progress);
-          ctx.translate(effect.x,effect.y);ctx.rotate(angle);
-          ctx.lineWidth=18*(1-progress)+4;
-          ctx.beginPath();ctx.arc(0,0,radius,-.76,.76);ctx.stroke();
-          ctx.strokeStyle="rgba(255,255,255,.9)";ctx.lineWidth=3;
-          ctx.beginPath();ctx.arc(0,0,radius,-.7,.7);ctx.stroke();
+          if((effect.enemyKind==="shieldmite"||effect.enemyKind==="splitter")&&enemyReinforcementProjectiles.complete&&enemyReinforcementProjectiles.naturalWidth){
+            const cellW=enemyReinforcementProjectiles.naturalWidth/3,cellH=enemyReinforcementProjectiles.naturalHeight/2;
+            const sprite=effect.enemyKind==="shieldmite"?0:2;
+            const endX=effect.x2??effect.x,endY=effect.y2??effect.y;
+            ctx.translate((effect.x+endX)/2,(effect.y+endY)/2);ctx.rotate(angle);ctx.globalAlpha=alpha*.92;
+            ctx.drawImage(enemyReinforcementProjectiles,(sprite%3)*cellW,Math.floor(sprite/3)*cellH,cellW,cellH,-66,-38,132,76);
+          }else{
+            ctx.translate(effect.x,effect.y);ctx.rotate(angle);
+            ctx.lineWidth=18*(1-progress)+4;
+            ctx.beginPath();ctx.arc(0,0,radius,-.76,.76);ctx.stroke();
+            ctx.strokeStyle="rgba(255,255,255,.9)";ctx.lineWidth=3;
+            ctx.beginPath();ctx.arc(0,0,radius,-.7,.7);ctx.stroke();
+          }
         }
         if(effect.kind==="skill"){
           const radius=18+effect.radius*progress;
@@ -2206,10 +2510,25 @@ export default function Home() {
       for(const s of shots){
         if(s.hostile){
           if(s.enemyKind==="boss"){
-            ctx.save();ctx.translate(s.x,s.y);ctx.rotate(performance.now()/320);
-            ctx.fillStyle="#4d173f";ctx.strokeStyle="#ff6a9c";ctx.lineWidth=3;ctx.shadowColor="#ff5b7d";ctx.shadowBlur=16;
-            ctx.beginPath();ctx.arc(0,0,s.r+3,0,Math.PI*2);ctx.fill();ctx.stroke();
-            ctx.strokeStyle="#ffd2e5";ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(0,0,s.r+7,0,Math.PI*1.35);ctx.stroke();ctx.restore();
+            const variant=s.bossVariant||"rift",sprite=BOSS_VARIANTS[variant].sprite;
+            if(bossProjectileSprites.complete&&bossProjectileSprites.naturalWidth){
+              const cellW=bossProjectileSprites.naturalWidth/2,cellH=bossProjectileSprites.naturalHeight/2;
+              const drawW=variant==="forge"?72:variant==="weaver"?64:74,drawH=variant==="weaver"?52:38;
+              ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));ctx.shadowColor=BOSS_VARIANTS[variant].color;ctx.shadowBlur=18;
+              ctx.drawImage(bossProjectileSprites,(sprite%2)*cellW,Math.floor(sprite/2)*cellH,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);ctx.restore();
+            }else{
+              ctx.save();ctx.translate(s.x,s.y);ctx.fillStyle=BOSS_VARIANTS[variant].color;ctx.beginPath();ctx.arc(0,0,s.r+3,0,Math.PI*2);ctx.fill();ctx.restore();
+            }
+            continue;
+          }
+          const reinforcementProjectileIndex: Partial<Record<EnemyKind,number>>={sniper:1,mortarwasp:3,leech:4};
+          const reinforcementProjectile=reinforcementProjectileIndex[s.enemyKind||"runner"];
+          if(reinforcementProjectile!==undefined&&enemyReinforcementProjectiles.complete&&enemyReinforcementProjectiles.naturalWidth){
+            const cellW=enemyReinforcementProjectiles.naturalWidth/3,cellH=enemyReinforcementProjectiles.naturalHeight/2;
+            const drawSizes:Record<number,[number,number]>={1:[60,18],3:[48,30],4:[45,40]};
+            const [drawW,drawH]=drawSizes[reinforcementProjectile];
+            ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));ctx.shadowColor=s.enemyKind==="leech"?"#b76cff":s.enemyKind==="mortarwasp"?"#ff9a4d":s.enemyKind==="sniper"?"#ff645f":"#72d9ff";ctx.shadowBlur=12;
+            ctx.drawImage(enemyReinforcementProjectiles,(reinforcementProjectile%3)*cellW,Math.floor(reinforcementProjectile/3)*cellH,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);ctx.restore();
             continue;
           }
           if(s.enemyKind==="assassin"&&assassinProjectile.complete&&assassinProjectile.naturalWidth){
@@ -2245,38 +2564,52 @@ export default function Home() {
         ctx.drawImage(projectileImage,(sprite%2)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:0,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
         ctx.restore();
       }
-      const enemySpriteIndex: Record<EnemyKind, number> = { runner: 0, crawler: 1, artillery: 2, assassin: 3, brute: 4, commander: 5, boss: 5 };
+      const enemySpriteIndex: Partial<Record<EnemyKind, number>> = { runner: 0, crawler: 1, artillery: 2, assassin: 3, brute: 4, commander: 5 };
+      const reinforcementEnemyIndex: Partial<Record<EnemyKind, number>> = { shieldmite: 0, sniper: 1, splitter: 2, mortarwasp: 3, leech: 4, rammer: 5 };
       for(const e of enemies){
-        const sprite = enemySpriteIndex[e.kind];
-        const cellW = enemySprites.naturalWidth / 3, cellH = enemySprites.naturalHeight / 2;
-        const size = e.r * (e.kind==="boss"?5.15:4.25);
+        const sprite = enemySpriteIndex[e.kind]??0;
+        const reinforcementSprite = reinforcementEnemyIndex[e.kind];
+        const size = e.r * (e.kind==="boss"?5.35:reinforcementSprite!==undefined?4.55:4.25);
         const visualTargets = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
         const visualTarget = visualTargets.length ? visualTargets.reduce((nearest, actor) => dist(e, actor) < dist(e, nearest) ? actor : nearest) : player;
         ctx.save();
         ctx.translate(e.x,e.y);
         ctx.rotate(Math.atan2(visualTarget.y-e.y,visualTarget.x-e.x)-Math.PI/2);
-        if(e.kind==="boss"){ctx.shadowColor=e.bossPhase===3?"#ff4f7c":"#c277ff";ctx.shadowBlur=34;}
+        if(e.kind==="boss"){ctx.shadowColor=BOSS_VARIANTS[e.bossVariant||"rift"].color;ctx.shadowBlur=34;}
         else if(e.elite){ctx.shadowColor="#f4c95d";ctx.shadowBlur=18;}
-        if(enemySprites.complete&&enemySprites.naturalWidth){
+        if(e.kind==="boss"&&bossVariantSprites.complete&&bossVariantSprites.naturalWidth){
+          const bossSprite=BOSS_VARIANTS[e.bossVariant||"rift"].sprite,cellW=bossVariantSprites.naturalWidth/2,cellH=bossVariantSprites.naturalHeight/2;
+          ctx.drawImage(bossVariantSprites,(bossSprite%2)*cellW,Math.floor(bossSprite/2)*cellH,cellW,cellH,-size/2,-size/2,size,size);
+        }else if(reinforcementSprite!==undefined&&enemyReinforcementSprites.complete&&enemyReinforcementSprites.naturalWidth){
+          const cellW=enemyReinforcementSprites.naturalWidth/3,cellH=enemyReinforcementSprites.naturalHeight/2;
+          ctx.drawImage(enemyReinforcementSprites,(reinforcementSprite%3)*cellW,Math.floor(reinforcementSprite/3)*cellH,cellW,cellH,-size/2,-size/2,size,size);
+        }else if(enemySprites.complete&&enemySprites.naturalWidth){
+          const cellW=enemySprites.naturalWidth/3,cellH=enemySprites.naturalHeight/2;
           ctx.drawImage(enemySprites,(sprite%3)*cellW,Math.floor(sprite/3)*cellH,cellW,cellH,-size/2,-size/2,size,size);
         }else{
           ctx.fillStyle=e.color;ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();
         }
         ctx.restore();
         if(e.kind==="boss"){
-          ctx.save();ctx.translate(e.x,e.y);ctx.rotate(performance.now()/900);ctx.strokeStyle=e.bossPhase===3?"#ff5b7d":"#b78cff";ctx.lineWidth=4;ctx.shadowColor=ctx.strokeStyle;ctx.shadowBlur=14;
-          ctx.beginPath();for(let index=0;index<6;index++){const angle=index/6*Math.PI*2;const radius=e.r+18;const px=Math.cos(angle)*radius,py=Math.sin(angle)*radius;if(index)ctx.lineTo(px,py);else ctx.moveTo(px,py);}ctx.closePath();ctx.stroke();ctx.restore();
+          const variant=e.bossVariant||"rift",variantColor=BOSS_VARIANTS[variant].color;
+          ctx.save();ctx.translate(e.x,e.y);ctx.rotate(performance.now()/(variant==="storm"?520:900));ctx.strokeStyle=variantColor;ctx.lineWidth=4;ctx.shadowColor=variantColor;ctx.shadowBlur=14;
+          if(variant==="weaver"){for(let index=0;index<3;index++){ctx.beginPath();ctx.ellipse(0,0,e.r+18+index*8,e.r*.48+index*5,index*.7,0,Math.PI*2);ctx.stroke();}}
+          else{ctx.beginPath();const sides=variant==="forge"?4:variant==="storm"?8:6;for(let index=0;index<sides;index++){const angle=index/sides*Math.PI*2;const radius=e.r+18;const px=Math.cos(angle)*radius,py=Math.sin(angle)*radius;if(index)ctx.lineTo(px,py);else ctx.moveTo(px,py);}ctx.closePath();ctx.stroke();}
+          ctx.restore();
+        }else if(e.kind==="shieldmite"&&(e.barrier||0)>0){
+          ctx.save();ctx.strokeStyle="#72fff2";ctx.fillStyle="rgba(83,214,206,.12)";ctx.lineWidth=3;ctx.shadowColor="#53d6ce";ctx.shadowBlur=12;ctx.beginPath();ctx.arc(e.x,e.y,e.r+13,-Math.PI*.85,-Math.PI*.15);ctx.stroke();ctx.fill();ctx.restore();
         }else if(e.elite){ctx.strokeStyle="rgba(244,201,93,.85)";ctx.lineWidth=2;ctx.strokeRect(e.x-e.r-6,e.y-e.r-6,(e.r+6)*2,(e.r+6)*2);}
         if(e.slow>0){ctx.fillStyle="#9eeaff";ctx.font="800 14px monospace";ctx.textAlign="center";ctx.fillText("✦",e.x,e.y-e.r-10);}
       }
       const activeBoss = enemies.find((enemy)=>enemy.kind==="boss"&&enemy.hp>0);
       if(activeBoss){
         const bossRatio=clamp(activeBoss.hp/Math.max(1,activeBoss.maxHp),0,1);
+        const bossInfo=BOSS_VARIANTS[activeBoss.bossVariant||"rift"];
         ctx.save();ctx.fillStyle="rgba(11,12,18,.88)";ctx.fillRect(W/2-270,20,540,44);
-        ctx.strokeStyle=activeBoss.bossPhase===3?"#ff5b7d":"#a58cff";ctx.lineWidth=2;ctx.strokeRect(W/2-270,20,540,44);
+        ctx.strokeStyle=bossInfo.color;ctx.lineWidth=2;ctx.strokeRect(W/2-270,20,540,44);
         ctx.fillStyle="#35213e";ctx.fillRect(W/2-250,47,500,7);
-        ctx.fillStyle=activeBoss.bossPhase===3?"#ff5b7d":"#a58cff";ctx.fillRect(W/2-250,47,500*bossRatio,7);
-        ctx.fillStyle="#f2e9ff";ctx.font="900 13px monospace";ctx.textAlign="left";ctx.fillText(`BOSS · 裂界泰坦 · PHASE ${activeBoss.bossPhase||1}`,W/2-250,39);
+        ctx.fillStyle=bossInfo.color;ctx.fillRect(W/2-250,47,500*bossRatio,7);
+        ctx.fillStyle="#f2e9ff";ctx.font="900 13px monospace";ctx.textAlign="left";ctx.fillText(`BOSS · ${bossInfo.name} · PHASE ${activeBoss.bossPhase||1}`,W/2-250,39);
         ctx.textAlign="right";ctx.fillText(`${Math.ceil(activeBoss.hp)} / ${Math.ceil(activeBoss.maxHp)}`,W/2+250,39);ctx.restore();
       }
       const drawMech = (actor: Actor, ally: boolean) => {
@@ -2472,7 +2805,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.10.0 · 泰坦入侵</div>
+        <div className="status"><i /> 版本 0.11.0 · 异种围城</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>

@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.10\.0 · 泰坦入侵/);
+  assert.match(html, /版本 0\.11\.0 · 异种围城/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -82,7 +82,7 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /正在观战/);
   assert.match(page, /队友机体/);
   assert.match(page, /entry\.distance < entry\.magnet/);
-  assert.match(page, /kind: "skill" \| "impact" \| "dash" \| "revive" \| "ultimate" \| "slash"/);
+  assert.match(page, /kind: "skill" \| "impact" \| "dash" \| "revive" \| "ultimate" \| "slash" \| "boss-phase"/);
   assert.match(page, /effect\.classId==="assault"/);
   assert.match(page, /effect\.classId==="frost"/);
   assert.match(page, /const fireLaser/);
@@ -112,6 +112,11 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /wallet: \{ host: number; guest: number \}/);
   assert.match(page, /ultimate: \{ host: number; guest: number \}/);
   assert.match(page, /const executeUltimate/);
+  assert.match(page, /const strikeTargets = \[\.\.\.enemies\]/);
+  assert.match(page, /const shieldUntil = performance\.now\(\) \+ Math\.min\(6000/);
+  assert.match(page, /for \(const offset of \[-92, 0, 92\]\)/);
+  assert.match(page, /const laneWidth = 125 \+ Math\.max\(0, along\) \* \.16/);
+  assert.match(page, /const cluster = \[\.\.\.enemies\]/);
   assert.match(page, /ULTIMATE_NAMES/);
   assert.match(page, /ultimate: "天穹火雨：/);
   assert.match(page, /selectedClassSpec\.ultimate\.split/);
@@ -128,6 +133,20 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /audio\?\.play\("skill"\)/);
   assert.match(page, /audio\?\.play\("ultimate"\)/);
   assert.match(page, /enemy\.slow = Math\.max/);
+  assert.match(page, /type BossVariant = "rift" \| "storm" \| "weaver" \| "forge"/);
+  assert.match(page, /shieldmite: "melee"/);
+  assert.match(page, /splitter: "melee"/);
+  assert.match(page, /rammer: "melee"/);
+  assert.match(page, /sniper: "ranged"/);
+  assert.match(page, /mortarwasp: "ranged"/);
+  assert.match(page, /leech: "ranged"/);
+  assert.match(page, /kind: "slash",\s+enemyKind: enemy\.kind/);
+  assert.match(page, /kind: "dash", enemyKind: "rammer"/);
+  assert.match(page, /10 \+ currentLevel \* 4\.4 \+ Math\.pow/);
+  assert.match(page, /boss-variants\.png/);
+  assert.match(page, /boss-projectiles\.png/);
+  assert.match(page, /enemy-reinforcements\.png/);
+  assert.match(page, /enemy-reinforcement-projectiles\.png/);
   assert.doesNotMatch(page, /ctx\.arc\(player\.x/);
   assert.doesNotMatch(page, /ctx\.arc\(remote\.x/);
   assert.match(page, /player-mechs\.png/);
@@ -153,6 +172,10 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
     access(new URL("../public/game/specialist-drones.png", import.meta.url)),
     access(new URL("../public/game/enemy-projectiles.png", import.meta.url)),
     access(new URL("../public/game/assassin-projectile.png", import.meta.url)),
+    access(new URL("../public/game/boss-variants.png", import.meta.url)),
+    access(new URL("../public/game/boss-projectiles.png", import.meta.url)),
+    access(new URL("../public/game/enemy-reinforcements.png", import.meta.url)),
+    access(new URL("../public/game/enemy-reinforcement-projectiles.png", import.meta.url)),
     access(new URL("../public/favicon.svg", import.meta.url)),
     access(new URL("../public/og.png", import.meta.url)),
   ]);
