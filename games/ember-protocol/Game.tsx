@@ -241,14 +241,14 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
 };
 
 const SHOP_ITEMS: ShopItem[] = [
-  { id: "medkit", title: "战地医疗包", desc: "回复 55 点机体完整度", icon: "✚", cost: 10 },
-  { id: "overhaul", title: "装甲大修", desc: "生命上限 +18，并完全修复新增部分", icon: "▣", cost: 18 },
-  { id: "ammo", title: "高能弹药", desc: "本局伤害永久 +12%", icon: "◆", cost: 16 },
-  { id: "coolant", title: "冷却液", desc: "射击间隔永久 -9%", icon: "❉", cost: 15 },
-  { id: "collector", title: "磁力扩展器", desc: "拾取范围永久 +22%", icon: "◉", cost: 11 },
-  { id: "drone-kit", title: "无人机组装包", desc: "增加 1 架本职业无人机", icon: "✣", cost: 24 },
-  { id: "reactor-cell", title: "反应堆电池", desc: "主动技能冷却永久 -10%", icon: "◌", cost: 18 },
-  { id: "ult-battery", title: "终极电容", desc: "立即补充 35% 终极能量", icon: "✦", cost: 13 },
+  { id: "medkit", title: "战地医疗包", desc: "回复 36 点机体完整度", icon: "✚", cost: 18 },
+  { id: "overhaul", title: "装甲大修", desc: "生命上限 +12，并修复新增部分", icon: "▣", cost: 32 },
+  { id: "ammo", title: "高能弹药", desc: "本局伤害永久 +8%", icon: "◆", cost: 29 },
+  { id: "coolant", title: "冷却液", desc: "射击间隔永久 -6%", icon: "❉", cost: 27 },
+  { id: "collector", title: "磁力扩展器", desc: "拾取范围永久 +14%", icon: "◉", cost: 21 },
+  { id: "drone-kit", title: "无人机组装包", desc: "增加 1 架本职业无人机", icon: "✣", cost: 42 },
+  { id: "reactor-cell", title: "反应堆电池", desc: "主动技能冷却永久 -7%", icon: "◌", cost: 33 },
+  { id: "ult-battery", title: "终极电容", desc: "立即补充 22% 终极能量", icon: "✦", cost: 23 },
 ];
 
 const BOSS_RELICS: BossRelic[] = [
@@ -272,7 +272,7 @@ const GUARDIAN_SHIELD_MAX = 5;
 const MIN_GUARDIAN_COOLDOWN = 7;
 const MAX_UPGRADE_REROLLS = 2;
 const MAX_SHOP_REROLLS = 3;
-const shopRerollPrice = (wave: number, used: number) => 8 + Math.max(0, wave - 1) * 2 + used * 9;
+const shopRerollPrice = (wave: number, used: number) => 13 + Math.max(0, wave - 1) * 3 + used * 12;
 const upgradeRerollPrice = (wave: number, used: number) => 10 + Math.floor(Math.max(0, wave - 1) / 2) * 2 + used * 8;
 const shuffled = <T,>(items: T[]) => [...items].sort(() => Math.random() - .5);
 const rollUpgradeChoices = (classId: ClassId) => {
@@ -280,7 +280,7 @@ const rollUpgradeChoices = (classId: ClassId) => {
   return shuffled([signature, ...shuffled(UPGRADES).slice(0, 2)]);
 };
 const rollShopItems = (wave: number) => {
-  const priceScale = 1 + Math.max(0, wave - 1) * .12;
+  const priceScale = 1 + Math.max(0, wave - 1) * .14;
   return shuffled(SHOP_ITEMS)
     .slice(0, 4)
     .map((item) => ({ ...item, cost: Math.max(item.cost, Math.round(item.cost * priceScale)) }));
@@ -1130,17 +1130,17 @@ export default function Home() {
       const item = shopStock.find((entry) => entry.id === id);
       if (!item || localWallet() < item.cost) return;
       setLocalWallet(localWallet() - item.cost);
-      if (id === "medkit" && player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 55);
+      if (id === "medkit" && player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 36);
       if (id === "overhaul") {
-        player.maxHp += 18;
-        player.hp = Math.min(player.maxHp, player.hp + 18);
+        player.maxHp += 12;
+        player.hp = Math.min(player.maxHp, player.hp + 12);
       }
-      if (id === "ammo") stats.damage *= 1.12;
-      if (id === "coolant") stats.interval *= .91;
-      if (id === "collector") stats.magnet *= 1.22;
+      if (id === "ammo") stats.damage *= 1.08;
+      if (id === "coolant") stats.interval *= .94;
+      if (id === "collector") stats.magnet *= 1.14;
       if (id === "drone-kit") stats.drones += 1;
-      if (id === "reactor-cell") stats.skillHaste = Math.max(.5, stats.skillHaste * .9);
-      if (id === "ult-battery") setLocalUltimate(localUltimate() + 35);
+      if (id === "reactor-cell") stats.skillHaste = Math.max(.5, stats.skillHaste * .93);
+      if (id === "ult-battery") setLocalUltimate(localUltimate() + 22);
       build = { ...build, ...stats, maxHp: player.maxHp };
       ownBuildRef.current = { ...build };
       setHp(Math.ceil(player.hp));
@@ -1816,13 +1816,13 @@ export default function Home() {
       }
       if (currentWave % 3 === 0 && lastBossWave !== currentWave) spawnBoss();
       const bossActive = enemies.some((enemy) => enemy.kind === "boss" && enemy.hp > 0);
-      const baseEnemyCap = Math.min(coOpActive ? 150 : 120, (coOpActive ? 64 : 50) + Math.floor(elapsed / 40) * 6);
+      const baseEnemyCap = Math.min(coOpActive ? 165 : 135, (coOpActive ? 84 : 68) + Math.floor(elapsed / 40) * 6);
       const enemyCap = bossActive ? Math.max(34, Math.floor(baseEnemyCap * .58)) : baseEnemyCap;
       spawnClock -= dt;
       if (spawnClock <= 0) {
         spawnClock = (coOpActive
-          ? Math.max(.2, .93 - elapsed * .0024)
-          : Math.max(.25, 1.1 - elapsed * .0025)) * (bossActive ? 1.65 : 1);
+          ? Math.max(.19, .68 - elapsed * .0018)
+          : Math.max(.23, .82 - elapsed * .0019)) * (bossActive ? 1.65 : 1);
         if (enemies.length < enemyCap) spawnEnemy();
       }
 
@@ -2805,7 +2805,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.11.0 · 异种围城</div>
+        <div className="status"><i /> 版本 0.11.1 · 高压补给</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>

@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.11\.0 · 异种围城/);
+  assert.match(html, /版本 0\.11\.1 · 高压补给/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -100,6 +100,16 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /const MAX_UPGRADE_REROLLS = 2/);
   assert.match(page, /const MAX_SHOP_REROLLS = 3/);
   assert.match(page, /const shopRerollPrice/);
+  assert.match(page, /cost: 18 \},\s+\{ id: "overhaul"/);
+  assert.match(page, /cost: 42 \},\s+\{ id: "reactor-cell"/);
+  assert.match(page, /player\.hp \+ 36/);
+  assert.match(page, /stats\.damage \*= 1\.08/);
+  assert.match(page, /stats\.interval \*= \.94/);
+  assert.match(page, /stats\.magnet \*= 1\.14/);
+  assert.match(page, /localUltimate\(\) \+ 22/);
+  assert.match(page, /coOpActive \? 84 : 68/);
+  assert.match(page, /Math\.max\(\.19, \.68 - elapsed \* \.0018\)/);
+  assert.match(page, /Math\.max\(\.23, \.82 - elapsed \* \.0019\)/);
   assert.match(page, /const upgradeRerollPrice/);
   assert.match(page, /商品会随波次逐渐涨价/);
   assert.match(page, /刷新次数已用尽/);
