@@ -1044,6 +1044,8 @@ export default function Home() {
     let localUpgradeDone = false, waitingForRemoteUpgrade = false;
     let hostCoins = 0, guestCoins = 0, hostUltimate = 0, guestUltimate = 0;
     let currentWave = 1, waveKills = 0, nextSupplyAt = 45, lastBossWave = 0;
+    let bossBag: BossVariant[] = [];
+    let previousBossVariant: BossVariant | null = null;
     let localUpgradeRerolls = 0, localShopRerolls = 0;
     let shopStock: ShopItem[] = [];
     let recentShopIds: string[] = [];
@@ -1305,6 +1307,8 @@ export default function Home() {
       hostReviveProgress = 0; guestReviveProgress = 0;
       hostCoins = 0; guestCoins = 0; hostUltimate = 0; guestUltimate = 0;
       currentWave = 1; waveKills = 0; nextSupplyAt = 45; lastBossWave = 0;
+      bossBag = [];
+      previousBossVariant = null;
       localUpgradeRerolls = 0; localShopRerolls = 0; shopStock = []; recentShopIds = [];
       localShopDone = false; remoteShopDone = false; pendingMissileWaves = [];
       localUpgradeDone = false; waitingForRemoteUpgrade = false;
@@ -1713,8 +1717,15 @@ export default function Home() {
     };
     const spawnBoss = () => {
       const config = ENEMY_DATA.boss;
-      const variants: BossVariant[] = ["rift", "storm", "leviathan", "weaver", "mirror", "forge", "warden"];
-      const bossVariant = variants[(Math.max(3, currentWave) / 3 - 1) % variants.length | 0];
+      if (!bossBag.length) {
+        bossBag = shuffled<BossVariant>(["rift", "storm", "leviathan", "weaver", "mirror", "forge", "warden"]);
+        const nextIndex = bossBag.length - 1;
+        if (previousBossVariant && bossBag[nextIndex] === previousBossVariant && bossBag.length > 1) {
+          [bossBag[0], bossBag[nextIndex]] = [bossBag[nextIndex], bossBag[0]];
+        }
+      }
+      const bossVariant = bossBag.pop() || "rift";
+      previousBossVariant = bossVariant;
       const variant = BOSS_VARIANTS[bossVariant];
       const coOpScale = remote ? 1.5 : 1;
       const lateBossWave = Math.max(0, currentWave - 3);
@@ -3501,7 +3512,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.13.0 · 远征机群</div>
+        <div className="status"><i /> 版本 0.13.1 · 随机首领轮换</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>

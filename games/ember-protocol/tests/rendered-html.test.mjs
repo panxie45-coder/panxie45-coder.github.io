@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.13\.0 · 远征机群/);
+  assert.match(html, /版本 0\.13\.1 · 随机首领轮换/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -154,6 +154,10 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /高稀有度配件出现概率更低/);
   assert.match(page, /刷新次数已用尽/);
   assert.match(page, /const spawnBoss/);
+  assert.match(page, /let bossBag: BossVariant\[\] = \[\]/);
+  assert.match(page, /bossBag = shuffled<BossVariant>/);
+  assert.match(page, /const bossVariant = bossBag\.pop\(\) \|\| "rift"/);
+  assert.match(page, /previousBossVariant = bossVariant/);
   assert.match(page, /currentWave % 3 === 0/);
   assert.match(page, /bossPhase/);
   assert.match(page, /t: "boss-loot"/);
