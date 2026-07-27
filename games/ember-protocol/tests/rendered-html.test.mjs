@@ -42,7 +42,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.14\.6 · 主副技能共享冷却缩减/);
+  assert.match(html, /版本 0\.14\.7 · 前五波与天穹锁定增强/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -187,7 +187,10 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /id\.endsWith\("-secondary-power"\)\) stats\.secondaryPower \*= 1\.22/);
   assert.match(page, /ultimatePower: \.9/);
   assert.match(page, /id\.endsWith\("-ultimate-power"\)\) stats\.ultimatePower \*= 1\.2/);
-  assert.match(page, /stats\.ultimateTargets = Math\.min\(14/);
+  assert.match(page, /const ASSAULT_ULTIMATE_TARGET_CAP = 20/);
+  assert.match(page, /最多锁定 20 个/);
+  assert.match(page, /currentBuild\.ultimateTargets < ASSAULT_ULTIMATE_TARGET_CAP/);
+  assert.match(page, /stats\.ultimateTargets = Math\.min\(ASSAULT_ULTIMATE_TARGET_CAP, stats\.ultimateTargets \+ 2\)/);
   assert.match(page, /stats\.ultimateDuration = Math\.min\(5\.4/);
   assert.match(page, /stats\.ultimateLanes = Math\.min\(4/);
   assert.match(page, /stats\.ultimateEchoes = Math\.min\(4/);
@@ -433,10 +436,12 @@ test("prioritizes bosses for every offensive ultimate and boosts only early-wave
     "runner",
   );
 
-  assert.equal(earlyWaveXpMultiplier(1), 1.8);
-  assert.equal(earlyWaveXpMultiplier(2), 1.55);
-  assert.equal(earlyWaveXpMultiplier(3), 1.3);
-  assert.equal(earlyWaveXpMultiplier(4), 1);
+  assert.equal(earlyWaveXpMultiplier(1), 2.25);
+  assert.equal(earlyWaveXpMultiplier(2), 1.95);
+  assert.equal(earlyWaveXpMultiplier(3), 1.7);
+  assert.equal(earlyWaveXpMultiplier(4), 1.5);
+  assert.equal(earlyWaveXpMultiplier(5), 1.3);
+  assert.equal(earlyWaveXpMultiplier(6), 1);
   assert.equal(earlyWaveXpMultiplier(12), 1);
 
   assert.equal(FIRST_SHOP_WAVE, 3);

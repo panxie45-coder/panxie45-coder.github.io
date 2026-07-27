@@ -379,10 +379,11 @@ const SECONDARY_UPGRADES: Record<ClassId, Upgrade[]> = {
   ],
 };
 
+const ASSAULT_ULTIMATE_TARGET_CAP = 20;
 const ULTIMATE_UPGRADES: Record<ClassId, Upgrade[]> = {
   assault: [
     { id: "assault-ultimate-power", classId: "assault", ultimate: true, title: "天穹增压", desc: "天穹火雨伤害 +20%，可无限叠加", icon: "✹" },
-    { id: "assault-ultimate-locks", classId: "assault", ultimate: true, title: "多重锁定", desc: "天穹火雨锁定目标 +2，最多锁定 14 个", icon: "⌖" },
+    { id: "assault-ultimate-locks", classId: "assault", ultimate: true, title: "多重锁定", desc: "天穹火雨锁定目标 +2，最多锁定 20 个", icon: "⌖" },
   ],
   guardian: [
     { id: "guardian-ultimate-power", classId: "guardian", ultimate: true, title: "壁垒震波", desc: "不灭要塞震波伤害 +20%，可无限叠加", icon: "⬢" },
@@ -591,7 +592,7 @@ const shopRerollPrice = (wave: number, used: number, wallet: number) => {
 const upgradeRerollPrice = (wave: number, used: number) => 4 + Math.floor(Math.max(0, wave - 1) / 4) + used * 3;
 const shuffled = <T,>(items: T[]) => [...items].sort(() => Math.random() - .5);
 const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
-  if (upgrade.id === "assault-ultimate-locks") return currentBuild.ultimateTargets < 14;
+  if (upgrade.id === "assault-ultimate-locks") return currentBuild.ultimateTargets < ASSAULT_ULTIMATE_TARGET_CAP;
   if (upgrade.id === "guardian-ultimate-duration") return currentBuild.ultimateDuration < 5.4;
   if (upgrade.id === "engineer-ultimate-locks") return currentBuild.ultimateTargets < 20;
   if (upgrade.id === "phantom-ultimate-locks") return currentBuild.ultimateTargets < 13;
@@ -1659,7 +1660,7 @@ export default function Home() {
         stats.secondaryArea = Math.min(1.65, stats.secondaryArea * 1.18);
       }
       if (id.endsWith("-ultimate-power")) stats.ultimatePower *= 1.2;
-      if (id === "assault-ultimate-locks") stats.ultimateTargets = Math.min(14, stats.ultimateTargets + 2);
+      if (id === "assault-ultimate-locks") stats.ultimateTargets = Math.min(ASSAULT_ULTIMATE_TARGET_CAP, stats.ultimateTargets + 2);
       if (id === "guardian-ultimate-duration") stats.ultimateDuration = Math.min(5.4, stats.ultimateDuration + .5);
       if (id === "engineer-ultimate-locks") stats.ultimateTargets = Math.min(20, stats.ultimateTargets + 3);
       if (id === "phantom-ultimate-locks") stats.ultimateTargets = Math.min(13, stats.ultimateTargets + 2);
@@ -4081,7 +4082,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.14.6 · 主副技能共享冷却缩减</div>
+        <div className="status"><i /> 版本 0.14.7 · 前五波与天穹锁定增强</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>

@@ -29,9 +29,11 @@ export const prioritizeUltimateTargets = (enemies, origin, limit) =>
  * @param {number} wave
  */
 export const earlyWaveXpMultiplier = (wave) => {
-  if (wave <= 1) return 1.8;
-  if (wave === 2) return 1.55;
-  if (wave === 3) return 1.3;
+  if (wave <= 1) return 2.25;
+  if (wave === 2) return 1.95;
+  if (wave === 3) return 1.7;
+  if (wave === 4) return 1.5;
+  if (wave === 5) return 1.3;
   return 1;
 };
 
