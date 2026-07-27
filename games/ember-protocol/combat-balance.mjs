@@ -56,3 +56,14 @@ export const supplyRewardFor = (kills, wave) => {
   const earlyWaveBonus = Math.max(0, 42 - Math.max(0, wave - FIRST_SHOP_WAVE) * 7);
   return Math.max(12, Math.round(Math.sqrt(Math.max(0, kills)) * 3.2 + wave * 2.5 + earlyWaveBonus));
 };
+
+/**
+ * Every cooldown-reduction upgrade applies to both tactical skills (Q and E).
+ * Individual skills may still keep a safety floor for balance.
+ *
+ * @param {number} baseCooldown
+ * @param {number} skillHaste
+ * @param {number} minimum
+ */
+export const skillCooldownFor = (baseCooldown, skillHaste, minimum = 4) =>
+  Math.max(minimum, baseCooldown * skillHaste);

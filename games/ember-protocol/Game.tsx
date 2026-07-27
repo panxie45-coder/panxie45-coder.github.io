@@ -9,6 +9,7 @@ import {
   earlyWaveXpMultiplier,
   FIRST_SHOP_WAVE,
   prioritizeUltimateTargets,
+  skillCooldownFor,
   supplyRewardFor,
 } from "./combat-balance.mjs";
 import { reconcilePausedPeerHp, teamRunDefeated } from "./team-state.mjs";
@@ -268,7 +269,7 @@ const UPGRADES: Upgrade[] = [
   { id: "armor", title: "偏转装甲", desc: "受到伤害 -8%", icon: "⬢" },
   { id: "critical", title: "弱点演算", desc: "暴击率 +8%", icon: "◈" },
   { id: "velocity", title: "磁轨加速器", desc: "弹速 +18%，弹体更大", icon: "➤" },
-  { id: "reactor", title: "过载反应炉", desc: "主动技能冷却 -15%", icon: "⌬" },
+  { id: "reactor", title: "过载反应炉", desc: "主技能与副技能冷却 -15%", icon: "⌬" },
   { id: "drone", title: "蜂群协议", desc: "增加 1 架当前职业专属无人机", icon: "✣" },
   { id: "repair", title: "纳米修复", desc: "立即回复 35 点生命", icon: "✚" },
 ];
@@ -292,12 +293,12 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
   phantom: [
     { id: "phantom-fold", classId: "phantom", title: "折跃增程", desc: "相位突进距离 +70", icon: "➟" },
     { id: "phantom-needle", classId: "phantom", title: "虚空针簇", desc: "暴击率 +12%，伤害 +12%", icon: "✧" },
-    { id: "phantom-cycle", classId: "phantom", title: "相位回路", desc: "主动技能冷却 -22%", icon: "◌" },
+    { id: "phantom-cycle", classId: "phantom", title: "相位回路", desc: "主技能与副技能冷却 -22%", icon: "◌" },
   ],
   laser: [
     { id: "laser-overfocus", classId: "laser", title: "超焦透镜", desc: "聚焦光束伤害与宽度 +30%", icon: "┃" },
     { id: "laser-prism", classId: "laser", title: "分光棱镜", desc: "弹丸伤害 +16%，额外一发弹丸", icon: "◇" },
-    { id: "laser-capacitor", classId: "laser", title: "赤曜电容", desc: "主动技能冷却 -20%", icon: "◎" },
+    { id: "laser-capacitor", classId: "laser", title: "赤曜电容", desc: "主技能与副技能冷却 -20%", icon: "◎" },
   ],
   frost: [
     { id: "frost-zero", classId: "frost", title: "绝对零芯", desc: "冻结范围、伤害和减速时长 +28%", icon: "❄" },
@@ -312,12 +313,12 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
   gravity: [
     { id: "gravity-collapse", classId: "gravity", title: "坍缩增幅", desc: "奇点范围与伤害 +28%", icon: "◉" },
     { id: "gravity-lens", classId: "gravity", title: "引力透镜", desc: "炮弹伤害 +18%，额外穿透 1 名敌人", icon: "◌" },
-    { id: "gravity-anchor", classId: "gravity", title: "事件锚点", desc: "生命上限 +22，主动技能冷却 -15%", icon: "⬢" },
+    { id: "gravity-anchor", classId: "gravity", title: "事件锚点", desc: "生命上限 +22，主技能与副技能冷却 -15%", icon: "⬢" },
   ],
   thunder: [
     { id: "thunder-capacitor", classId: "thunder", title: "雷核增压", desc: "连锁闪电伤害与跳跃距离 +25%", icon: "ϟ" },
     { id: "thunder-network", classId: "thunder", title: "并联电弧", desc: "主动技能额外锁定 2 个目标", icon: "⌁" },
-    { id: "thunder-cycle", classId: "thunder", title: "超导回路", desc: "射击间隔 -10%，主动技能冷却 -12%", icon: "◎" },
+    { id: "thunder-cycle", classId: "thunder", title: "超导回路", desc: "射击间隔 -10%，主技能与副技能冷却 -12%", icon: "◎" },
   ],
   sky: [
     { id: "sky-focus", classId: "sky", title: "天穹焦镜", desc: "轨道狙击与暴击伤害 +24%", icon: "⌖" },
@@ -442,11 +443,11 @@ const SHOP_ITEMS: ShopItem[] = [
   { id: "servo", title: "矢量伺服器", desc: "移动速度永久 +7%", icon: "➜", cost: 52, category: "防御", rarity: "common" },
   { id: "armor-plate", title: "偏转复合甲", desc: "受到的伤害永久 -4%", icon: "⬢", cost: 74, category: "防御", rarity: "rare", unlockWave: 2 },
   { id: "adaptive-hull", title: "自适应机壳", desc: "生命上限 +8、减伤 +2%，并修复 16 点", icon: "◇", cost: 88, category: "防御", rarity: "rare", unlockWave: 4, priceRate: .075 },
-  { id: "evasion-drive", title: "闪避推进器", desc: "移动速度 +5%，减伤 +2%，技能冷却 -3%", icon: "〽", cost: 96, category: "防御", rarity: "epic", unlockWave: 6, priceRate: .08 },
+  { id: "evasion-drive", title: "闪避推进器", desc: "移动速度 +5%，减伤 +2%，主/副技能冷却 -3%", icon: "〽", cost: 96, category: "防御", rarity: "epic", unlockWave: 6, priceRate: .08 },
 
   { id: "collector", title: "磁力扩展器", desc: "拾取范围永久 +14%", icon: "◉", cost: 44, category: "核心", rarity: "common" },
   { id: "drone-kit", title: "无人机组装包", desc: "增加 1 架本职业无人机", icon: "✣", cost: 108, category: "核心", rarity: "epic", unlockWave: 2, priceRate: .095 },
-  { id: "reactor-cell", title: "反应堆电池", desc: "主动技能冷却永久 -7%", icon: "◌", cost: 82, category: "核心", rarity: "rare", unlockWave: 3 },
+  { id: "reactor-cell", title: "反应堆电池", desc: "主技能与副技能冷却永久 -7%", icon: "◌", cost: 82, category: "核心", rarity: "rare", unlockWave: 3 },
   { id: "drone-overclock", title: "蜂群超频芯片", desc: "无人机伤害永久 +20%", icon: "✥", cost: 90, category: "核心", rarity: "rare", unlockWave: 4 },
   { id: "signature-module", title: "职业校准模组", desc: "强化当前机甲的独特主动或被动机制", icon: "◎", cost: 102, category: "核心", rarity: "epic", unlockWave: 5, priceRate: .09 },
   { id: "ultimate-amplifier", title: "终极增幅核心", desc: "终极大招伤害永久 +12%", icon: "✹", cost: 122, category: "核心", rarity: "legendary", unlockWave: 7, priceRate: .105 },
@@ -455,7 +456,7 @@ const SHOP_ITEMS: ShopItem[] = [
 const BOSS_RELICS: BossRelic[] = [
   { id: "titan-core", title: "泰坦残核", desc: "全队生命上限 +18、减伤 +4%", icon: "⬢", rarity: "rare" },
   { id: "overdrive-core", title: "过载燃芯", desc: "全队伤害 +14%、射击间隔 -6%", icon: "✹", rarity: "legendary" },
-  { id: "chrono-core", title: "时序结晶", desc: "全队技能冷却 -10%、移动速度 +6%", icon: "◌", rarity: "epic" },
+  { id: "chrono-core", title: "时序结晶", desc: "全队主/副技能冷却 -10%、移动速度 +6%", icon: "◌", rarity: "epic" },
 ];
 
 const ULTIMATE_NAMES: Record<ClassId, string> = {
@@ -1845,7 +1846,7 @@ export default function Home() {
       const spec = classSpec();
       const skillStart = { x: player.x, y: player.y };
       const minimumCooldown = spec.id === "guardian" ? MIN_GUARDIAN_COOLDOWN : 4;
-      const cooldownSeconds = Math.max(minimumCooldown, spec.cooldown * stats.skillHaste);
+      const cooldownSeconds = skillCooldownFor(spec.cooldown, stats.skillHaste, minimumCooldown);
       skillReadyAt = now + cooldownSeconds * 1000;
       setSkillCooldown(Math.ceil((skillReadyAt - now) / 1000));
       if (network?.role === "join") {
@@ -1897,7 +1898,7 @@ export default function Home() {
       const now = performance.now();
       if (player.hp <= 0 || now < secondarySkillReadyAt || localPaused || pausedRef.current) return;
       const spec = classSpec();
-      const cooldownSeconds = Math.max(4, spec.secondaryCooldown * stats.skillHaste);
+      const cooldownSeconds = skillCooldownFor(spec.secondaryCooldown, stats.skillHaste);
       secondarySkillReadyAt = now + cooldownSeconds * 1000;
       setSecondarySkillCooldown(Math.ceil((secondarySkillReadyAt - now) / 1000));
       if (network?.role === "join") {
@@ -4080,7 +4081,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.14.5 · 字体、五选一与模型加载修复</div>
+        <div className="status"><i /> 版本 0.14.6 · 主副技能共享冷却缩减</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>

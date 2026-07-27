@@ -10,6 +10,7 @@ import {
   earlyWaveXpMultiplier,
   FIRST_SHOP_WAVE,
   prioritizeUltimateTargets,
+  skillCooldownFor,
   supplyRewardFor,
 } from "../combat-balance.mjs";
 
@@ -41,7 +42,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.14\.5 · 字体、五选一与模型加载修复/);
+  assert.match(html, /版本 0\.14\.6 · 主副技能共享冷却缩减/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -198,6 +199,11 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /const shouldOpenSupply = \(currentWave - 1\) % SHOP_EVERY_WAVES === 0/);
   assert.match(page, /const GUARDIAN_SHIELD_MAX = 5/);
   assert.match(page, /const MIN_GUARDIAN_COOLDOWN = 7/);
+  assert.match(page, /skillCooldownFor\(spec\.cooldown, stats\.skillHaste, minimumCooldown\)/);
+  assert.match(page, /skillCooldownFor\(spec\.secondaryCooldown, stats\.skillHaste\)/);
+  assert.match(page, /主技能与副技能冷却 -15%/);
+  assert.match(page, /主技能与副技能冷却永久 -7%/);
+  assert.match(page, /全队主\/副技能冷却 -10%/);
   assert.match(page, /Math\.min\(GUARDIAN_SHIELD_MAX, stats\.shieldDuration, cooldownSeconds - 2\)/);
   assert.match(page, /const MAX_UPGRADE_REROLLS = 2/);
   assert.match(page, /const MAX_SHOP_REROLLS = 3/);
@@ -443,4 +449,12 @@ test("prioritizes bosses for every offensive ultimate and boosts only early-wave
   assert.equal(supplyRewardFor(50, 5), 63);
   assert.equal(supplyRewardFor(50, 7), 54);
   assert.equal(supplyRewardFor(50, 9), 45, "launch stipend fully expires by the mid game");
+});
+
+test("applies every cooldown reduction to both tactical skill slots", () => {
+  const haste = .85;
+  assert.equal(skillCooldownFor(10, haste), 8.5, "Q receives the shared cooldown reduction");
+  assert.equal(skillCooldownFor(8, haste), 6.8, "E receives the same shared cooldown reduction");
+  assert.equal(skillCooldownFor(10, .3), 4, "ordinary skills retain the four-second safety floor");
+  assert.equal(skillCooldownFor(14, .3, 7), 7, "guardian Q retains its seven-second safety floor");
 });
