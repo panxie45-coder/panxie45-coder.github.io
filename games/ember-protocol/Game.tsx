@@ -503,9 +503,15 @@ const UPGRADE_RARITY: Partial<Record<string, UpgradeRarity>> = {
   "cinder-ultimate-power": "rare",
   "cinder-ultimate-lanes": "epic",
 };
-const RARITY_WEIGHTS: Record<UpgradeRarity, number> = { common: 60, rare: 25, epic: 10, legendary: 4 };
+const UPGRADE_RARITY_GROWTH_CAP_WAVE = 12;
+const RARITY_WEIGHTS: Record<UpgradeRarity, number> = { common: 52, rare: 32, epic: 16, legendary: 7 };
+const RARITY_LATE_WAVE_BONUS: Record<UpgradeRarity, number> = { common: -8, rare: 10, epic: 14, legendary: 11 };
 const RARITY_LABELS: Record<UpgradeRarity, string> = { common: "普通", rare: "稀有", epic: "史诗", legendary: "传说" };
 const upgradeRarity = (upgrade: Upgrade): UpgradeRarity => upgrade.rarity || UPGRADE_RARITY[upgrade.id] || "common";
+const upgradeRarityWeight = (rarity: UpgradeRarity, wave: number) => {
+  const progress = Math.min(1, Math.max(0, (Math.max(1, wave) - 1) / (UPGRADE_RARITY_GROWTH_CAP_WAVE - 1)));
+  return Math.max(1, RARITY_WEIGHTS[rarity] + RARITY_LATE_WAVE_BONUS[rarity] * progress);
+};
 
 const GUARDIAN_SHIELD_MAX = 5;
 const MIN_GUARDIAN_COOLDOWN = 7;
@@ -518,7 +524,7 @@ const shopRerollPrice = (wave: number, used: number, wallet: number) => {
   const economyFloor = wallet * (.04 + used * .032);
   return roundShopPrice(Math.max(wavePrice, economyFloor));
 };
-const upgradeRerollPrice = (wave: number, used: number) => 6 + Math.floor(Math.max(0, wave - 1) / 3) * 2 + used * 5;
+const upgradeRerollPrice = (wave: number, used: number) => 4 + Math.floor(Math.max(0, wave - 1) / 4) + used * 3;
 const shuffled = <T,>(items: T[]) => [...items].sort(() => Math.random() - .5);
 const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
   if (upgrade.id === "assault-ultimate-locks") return currentBuild.ultimateTargets < 14;
@@ -548,9 +554,12 @@ const secondaryUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) =
   if (upgrade.id === "cinder-secondary-scorch") return currentBuild.secondaryArea < 1.6;
   return true;
 };
-const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>) => {
+const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>, wave: number) => {
   const available = items.filter((upgrade) => !excludedIds.has(upgrade.id));
-  const weighted = available.map((upgrade) => ({ upgrade, rarity: upgradeRarity(upgrade), weight: RARITY_WEIGHTS[upgradeRarity(upgrade)] }));
+  const weighted = available.map((upgrade) => {
+    const rarity = upgradeRarity(upgrade);
+    return { upgrade, rarity, weight: upgradeRarityWeight(rarity, wave) };
+  });
   const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
   let roll = Math.random() * totalWeight;
   for (const entry of weighted) {
@@ -560,7 +569,7 @@ const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>) => {
   const fallback = weighted[weighted.length - 1];
   return fallback ? { ...fallback.upgrade, rarity: fallback.rarity } : null;
 };
-const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame) => {
+const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame, wave: number) => {
   const availableUltimate = ULTIMATE_UPGRADES[classId].filter((upgrade) => ultimateUpgradeAvailable(upgrade, currentBuild));
   const availableSecondary = SECONDARY_UPGRADES[classId].filter((upgrade) => secondaryUpgradeAvailable(upgrade, currentBuild));
   const classPool = [...CLASS_UPGRADES[classId], ...availableSecondary, ...availableUltimate];
@@ -568,7 +577,7 @@ const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame) => {
   const excluded = new Set<string>();
   const choices: Upgrade[] = [];
   while (choices.length < 4) {
-    const choice = weightedUpgradePick(fullPool, excluded);
+    const choice = weightedUpgradePick(fullPool, excluded, wave);
     if (!choice) break;
     choices.push(choice);
     excluded.add(choice.id);
@@ -1353,7 +1362,7 @@ export default function Home() {
         localUpgradeRerolls = 0;
         setUpgradeRerolls(0);
         setLevel(data.level);
-        setChoices(rollUpgradeChoices(build.classId, build));
+        setChoices(rollUpgradeChoices(build.classId, build, currentWave));
       }
       if (data.t === "upgrade-resume" && !isAuthority) {
         localPaused = false;
@@ -1706,7 +1715,7 @@ export default function Home() {
       setLocalWallet(localWallet() - cost);
       localUpgradeRerolls += 1;
       setUpgradeRerolls(localUpgradeRerolls);
-      setChoices(rollUpgradeChoices(build.classId, build));
+      setChoices(rollUpgradeChoices(build.classId, build, currentWave));
       audio?.play("ui");
     };
     finishShopRef.current = () => {
@@ -2595,7 +2604,7 @@ export default function Home() {
     const levelUp = () => {
       audio?.play("level");
       currentLevel++; setLevel(currentLevel);
-      const pool = rollUpgradeChoices(build.classId, build);
+      const pool = rollUpgradeChoices(build.classId, build, currentWave);
       localUpgradeDone = false;
       localUpgradeStartedAlive = player.hp > 0;
       localUpgradeStartHp = player.hp;
@@ -3983,7 +3992,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.14.1 · 副技能成长与补给调优</div>
+        <div className="status"><i /> 版本 0.14.2 · 稀有强化概率调优</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -4107,7 +4116,7 @@ export default function Home() {
         </div>
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
-          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>通用、本职业、第二技能与终极强化全部按普通、稀有、史诗、传说权重随机出现，不提供固定保底。达到机制上限的强化会移出奖池，第二技能与终极伤害仍可无限叠加。装配完成后恢复 18% 最大生命值。</p>
+          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>通用、本职业、第二技能与终极强化全部参与动态稀有度抽取，仍不提供固定保底。稀有、史诗与传说强化的基础出现率已经提高，并会随波数继续增长，第 12 波达到概率上限。达到机制上限的强化会移出奖池，第二技能与终极伤害仍可无限叠加。装配完成后恢复 18% 最大生命值。</p>
             <div className="shopWallet upgradeWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="upgradeGrid">{choices.map((u)=><button key={u.id} className={`${u.ultimate?"ultimateUpgrade ":u.secondary?"secondaryUpgrade ":""}rarity-${u.rarity||"common"}`} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?`终极 · ${RARITY_LABELS[u.rarity||"common"]}`:u.secondary?`副技能 · ${RARITY_LABELS[u.rarity||"common"]}`:u.classId?`本职业 · ${RARITY_LABELS[u.rarity||"common"]}`:RARITY_LABELS[u.rarity||"common"]}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>

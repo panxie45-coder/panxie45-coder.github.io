@@ -38,7 +38,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.14\.1 · 副技能成长与补给调优/);
+  assert.match(html, /版本 0\.14\.2 · 稀有强化概率调优/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -136,7 +136,15 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /const ULTIMATE_UPGRADES/);
   assert.match(page, /type UpgradeRarity = "common" \| "rare" \| "epic" \| "legendary"/);
   assert.match(page, /const RARITY_WEIGHTS/);
+  assert.match(page, /const UPGRADE_RARITY_GROWTH_CAP_WAVE = 12/);
+  assert.match(page, /const RARITY_LATE_WAVE_BONUS/);
+  assert.match(page, /common: 52, rare: 32, epic: 16, legendary: 7/);
+  assert.match(page, /common: -8, rare: 10, epic: 14, legendary: 11/);
+  assert.match(page, /const upgradeRarityWeight = \(rarity: UpgradeRarity, wave: number\)/);
+  assert.match(page, /RARITY_LATE_WAVE_BONUS\[rarity\] \* progress/);
   assert.match(page, /const weightedUpgradePick/);
+  assert.match(page, /weightedUpgradePick\(fullPool, excluded, wave\)/);
+  assert.match(page, /rollUpgradeChoices\(build\.classId, build, currentWave\)/);
   assert.match(page, /while \(choices\.length < 4\)/);
   assert.match(page, /const availableUltimate = ULTIMATE_UPGRADES\[classId\]\.filter\(\(upgrade\) => ultimateUpgradeAvailable\(upgrade, currentBuild\)\)/);
   assert.match(page, /const availableSecondary = SECONDARY_UPGRADES\[classId\]\.filter\(\(upgrade\) => secondaryUpgradeAvailable\(upgrade, currentBuild\)\)/);
@@ -145,7 +153,7 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /不提供固定保底/);
   assert.match(page, /副技能 · \$\{RARITY_LABELS/);
   assert.match(page, /本职业 · \$\{RARITY_LABELS/);
-  assert.match(page, /通用、本职业、第二技能与终极强化全部按普通、稀有、史诗、传说权重随机出现/);
+  assert.match(page, /通用、本职业、第二技能与终极强化全部参与动态稀有度抽取/);
   assert.match(page, /const ultimateUpgradeAvailable/);
   assert.match(page, /const secondaryUpgradeAvailable/);
   assert.match(page, /secondaryPower: 1/);
@@ -208,6 +216,8 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /boss: \{ hp: 3400/);
   assert.match(page, /const bossResilience = enemy\.kind !== "boss"/);
   assert.match(page, /const upgradeRerollPrice/);
+  assert.match(page, /4 \+ Math\.floor\(Math\.max\(0, wave - 1\) \/ 4\) \+ used \* 3/);
+  assert.match(page, /第 12 波达到概率上限/);
   assert.match(page, /再次降低全部商品、稀有度溢价和刷新费/);
   assert.match(page, /保证每次至少有一件当前金币买得起/);
   assert.match(page, /刷新次数已用尽/);
