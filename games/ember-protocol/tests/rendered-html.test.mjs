@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+import {
+  reconcilePausedPeerHp,
+  teamRunDefeated,
+} from "../team-state.mjs";
 
 async function render() {
   const workerUrl = new URL("../../../dist/server/index.js", import.meta.url);
@@ -30,7 +34,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.13\.4 · 联机经济修复/);
+  assert.match(html, /版本 0\.13\.5 · 团队存活修复/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -49,10 +53,15 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost" \| "blade" \| "gravity" \| "thunder" \| "sky" \| "cinder"/);
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
   assert.match(page, /t: "upgrade-resume"/);
+  assert.match(page, /t: "gameover"; hostHp: number; guestHp: number \| null/);
   assert.match(page, /const remoteWasAlive = remote\.hp > 0/);
-  assert.match(page, /remoteWasAlive \? clamp\(Math\.max\(1, data\.hp\)/);
+  assert.match(page, /reconcilePausedPeerHp\(remoteWasAlive, data\.hp, data\.build\.maxHp\)/);
   assert.match(page, /localUpgradeStartedAlive = player\.hp > 0/);
   assert.match(page, /if \(data\.t === "upgrade-resume" && !isAuthority\)/);
+  assert.match(page, /coOpRunEstablished = true/);
+  assert.doesNotMatch(page, /remoteSeen/);
+  assert.match(page, /teamRunDefeated\(player\.hp, guestHp, coOpRunEstablished\)/);
+  assert.match(page, /t: "gameover", hostHp: player\.hp, guestHp/);
   assert.match(page, /个人机体强化 · 独立选择/);
   assert.match(page, /waitingForRemoteUpgrade/);
   assert.match(page, /eliteChance/);
@@ -82,7 +91,7 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /const REVIVE_SECONDS = 2/);
   assert.match(page, /const REVIVE_RANGE = 88/);
   assert.match(page, /hostReviveProgress = Math\.min\(REVIVE_SECONDS, hostReviveProgress \+ dt\)/);
-  assert.match(page, /const teamDefeated = player\.hp <= 0 &&/);
+  assert.match(page, /const teamDefeated = teamRunDefeated\(player\.hp, guestHp, coOpRunEstablished\)/);
   assert.match(page, /drawDowned/);
   assert.match(page, /正在观战/);
   assert.match(page, /队友机体/);
@@ -296,4 +305,15 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
     access(new URL("../public/favicon.svg", import.meta.url)),
     access(new URL("../public/og.png", import.meta.url)),
   ]);
+});
+
+test("keeps a co-op run alive across upgrade/shop pauses until both players are down", () => {
+  assert.equal(teamRunDefeated(0, 80, true), false, "dead host + living guest must continue");
+  assert.equal(teamRunDefeated(0, null, true), false, "missing guest frame is unknown, not dead");
+  assert.equal(teamRunDefeated(0, 0, true), true, "both authoritative health values are dead");
+  assert.equal(teamRunDefeated(0, null, false), true, "solo host death ends the run");
+
+  assert.equal(reconcilePausedPeerHp(true, 0, 120), 1, "stale zero report cannot kill a living peer");
+  assert.equal(reconcilePausedPeerHp(true, 75, 120), 75);
+  assert.equal(reconcilePausedPeerHp(false, 75, 120), 0, "a downed peer cannot revive through a menu");
 });

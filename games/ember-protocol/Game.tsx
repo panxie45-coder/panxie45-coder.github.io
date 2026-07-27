@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getRelaySockets, joinRoom } from "@trystero-p2p/mqtt";
 import type { CSSProperties } from "react";
 import { EmberAudioEngine, type SoundCue } from "./audio";
+import { reconcilePausedPeerHp, teamRunDefeated } from "./team-state.mjs";
 
 type View = "menu" | "loadout" | "game" | "coop";
 type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity" | "thunder" | "sky" | "cinder";
@@ -171,7 +172,7 @@ type NetPayload =
   | { t: "shop-resume" }
   | { t: "boss-loot"; relic: BossRelicId }
   | { t: "pause"; paused: boolean }
-  | { t: "gameover" };
+  | { t: "gameover"; hostHp: number; guestHp: number | null };
 type NetBridge = {
   roomId: string;
   role: "host" | "join";
@@ -1037,14 +1038,18 @@ export default function Home() {
 
     const W = 1600, H = 900;
     canvas.width = W; canvas.height = H;
+    const network = netRef.current;
+    const isAuthority = network?.role !== "join";
     let raf = 0, last = performance.now(), elapsed = 0, spawnClock = 0, fireClock = 0;
     let nextSurgeAt = 22, surgeRemaining = 0, surgeSpawnClock = 0;
     let active = true, localPaused = false, currentXp = 0, currentLevel = 1, currentKills = 0;
-    let netClock = 0, worldClock = 0, remoteFireClock = 0, remoteSeen = 0, gameOverSent = false, nextEnemyId = 1;
+    let netClock = 0, worldClock = 0, remoteFireClock = 0, gameOverSent = false, nextEnemyId = 1;
     let selfShieldUntil = 0, remoteShieldUntil = 0, skillReadyAt = 0, shownCooldown = -1;
     let hostReviveProgress = 0, guestReviveProgress = 0;
     let localUpgradeDone = false, waitingForRemoteUpgrade = false;
     let localUpgradeStartedAlive = false, localUpgradeStartHp = 0;
+    let localShopStartedAlive = false, localShopStartHp = 0;
+    let coOpRunEstablished = Boolean(network?.role === "host" && network.connected());
     let hostCoins = 0, guestCoins = 0, hostUltimate = 0, guestUltimate = 0;
     let currentWave = 1, waveKills = 0, nextWaveAt = WAVE_INTERVAL_SECONDS, lastBossWave = 0;
     let bossBag: BossVariant[] = [];
@@ -1057,8 +1062,6 @@ export default function Home() {
     const REVIVE_SECONDS = 2;
     const REVIVE_RANGE = 88;
     const ULTIMATE_MAX = 100;
-    const network = netRef.current;
-    const isAuthority = network?.role !== "join";
     let build = { ...ownBuildRef.current };
     let stats: CombatStats = { ...build };
     const classSpec = () => CLASSES.find((item) => item.id === build.classId) || CLASSES[0];
@@ -1126,6 +1129,7 @@ export default function Home() {
     v2SupportAssets.src = GAME_ASSETS.v2SupportAssets;
     const unsubscribeNetwork = network?.subscribe((data) => {
       if (data.t === "player" && isAuthority) {
+        coOpRunEstablished = true;
         const remoteBuild = remoteBuildRef.current || makeBuild("assault");
         const remoteSpec = CLASSES.find((item) => item.id === remoteBuild.classId) || CLASSES[0];
         remote = {
@@ -1138,7 +1142,6 @@ export default function Home() {
           name: "伙伴",
           classId: remoteBuild.classId,
         };
-        remoteSeen = performance.now();
       }
       if (data.t === "build" && isAuthority) {
         remoteBuildRef.current = data.build;
@@ -1157,7 +1160,7 @@ export default function Home() {
         if (remote) {
           const remoteWasAlive = remote.hp > 0;
           remote.maxHp = data.build.maxHp;
-          remote.hp = remoteWasAlive ? clamp(Math.max(1, data.hp), 1, data.build.maxHp) : 0;
+          remote.hp = reconcilePausedPeerHp(remoteWasAlive, data.hp, data.build.maxHp);
         }
         if (localUpgradeDone) {
           localPaused = false;
@@ -1220,7 +1223,6 @@ export default function Home() {
           color: CLASSES.find((item) => item.id === frame.host.classId)?.color || "#78a99d",
           name: "队长",
         };
-        remoteSeen = performance.now();
         if (frame.guest) {
           player.hp = frame.guest.hp;
           player.maxHp = frame.guest.maxHp;
@@ -1257,6 +1259,8 @@ export default function Home() {
         guestCoins = data.coins;
         currentWave = data.wave;
         localShopDone = false;
+        localShopStartedAlive = player.hp > 0;
+        localShopStartHp = player.hp;
         localPaused = true;
         localShopRerolls = 0;
         setShopRerolls(0);
@@ -1274,8 +1278,9 @@ export default function Home() {
         remoteBuildRef.current = data.build;
         remoteShopDone = true;
         if (remote) {
+          const remoteWasAlive = remote.hp > 0;
           remote.maxHp = data.build.maxHp;
-          remote.hp = clamp(data.hp, 0, data.build.maxHp);
+          remote.hp = reconcilePausedPeerHp(remoteWasAlive, data.hp, data.build.maxHp);
         }
         if (localShopDone) {
           localPaused = false;
@@ -1302,7 +1307,11 @@ export default function Home() {
       if (data.t === "pause" && !isAuthority) {
         setPaused(data.paused);
       }
-      if (data.t === "gameover" && !isAuthority) {
+      if (
+        data.t === "gameover" &&
+        !isAuthority &&
+        teamRunDefeated(data.hostHp, data.guestHp, true)
+      ) {
         audio?.play("game-over");
         player.hp = 0;
         setHp(0);
@@ -1326,6 +1335,8 @@ export default function Home() {
       localShopDone = false; remoteShopDone = false; pendingMissileWaves = [];
       localUpgradeDone = false; waitingForRemoteUpgrade = false;
       localUpgradeStartedAlive = false; localUpgradeStartHp = 0;
+      localShopStartedAlive = false; localShopStartHp = 0;
+      coOpRunEstablished = Boolean(network?.role === "host" && network.connected());
       keys.clear();
       setWaitingPeerUpgrade(false);
       build = { ...ownBuildRef.current };
@@ -1579,6 +1590,12 @@ export default function Home() {
       localShopDone = true;
       shopStock = [];
       setShopItems(null);
+      if (localShopStartedAlive) {
+        player.hp = Math.min(player.maxHp, Math.max(1, player.hp, localShopStartHp));
+      } else {
+        player.hp = 0;
+      }
+      setHp(Math.ceil(player.hp));
       if (network?.role === "join") {
         setWaitingSupply(true);
         if (network.connected()) {
@@ -2303,7 +2320,6 @@ export default function Home() {
         player.y = clamp(player.y + dy * stats.speed * dt, 30, H - 30);
       }
 
-      if (remote && performance.now() - remoteSeen > 3500) remote = null;
       netClock -= dt;
       if (network?.connected() && network.role === "join" && netClock <= 0) {
         netClock = .033;
@@ -2383,6 +2399,8 @@ export default function Home() {
         waveKills = 0;
         localShopDone = false;
         remoteShopDone = false;
+        localShopStartedAlive = player.hp > 0;
+        localShopStartHp = player.hp;
         localShopRerolls = 0;
         setShopRerolls(0);
         localPaused = true;
@@ -2966,12 +2984,14 @@ export default function Home() {
         worldClock = .06;
         sendWorld();
       }
-      const hasConnectedTeammate = Boolean(remote && network?.connected());
-      const teamDefeated = player.hp <= 0 && (!hasConnectedTeammate || Boolean(remote && remote.hp <= 0));
+      const guestHp = remote?.hp ?? null;
+      const teamDefeated = teamRunDefeated(player.hp, guestHp, coOpRunEstablished);
       if (teamDefeated && !gameOverSent) {
         gameOverSent = true;
         sendWorld();
-        if (network?.connected()) void network.send({ t: "gameover" });
+        if (network?.connected()) {
+          void network.send({ t: "gameover", hostHp: player.hp, guestHp });
+        }
         audio?.play("game-over");
         setHp(0);
         localPaused = true;
@@ -3583,7 +3603,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.13.4 · 联机经济修复</div>
+        <div className="status"><i /> 版本 0.13.5 · 团队存活修复</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
