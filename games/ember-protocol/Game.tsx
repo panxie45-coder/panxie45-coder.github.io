@@ -4,7 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getRelaySockets, joinRoom } from "@trystero-p2p/mqtt";
 import type { CSSProperties } from "react";
 import { EmberAudioEngine, type SoundCue } from "./audio";
-import { earlyWaveXpMultiplier, prioritizeUltimateTargets } from "./combat-balance.mjs";
+import {
+  earlyShopDiscountFor,
+  earlyWaveXpMultiplier,
+  FIRST_SHOP_WAVE,
+  prioritizeUltimateTargets,
+  supplyRewardFor,
+} from "./combat-balance.mjs";
 import { reconcilePausedPeerHp, teamRunDefeated } from "./team-state.mjs";
 
 type View = "menu" | "loadout" | "game" | "coop";
@@ -600,6 +606,7 @@ const weightedShopPick = (items: ShopItem[]) => {
 const rollShopItems = (wave: number, wallet: number, recentIds: string[] = []) => {
   const lateWave = Math.max(0, wave - 1);
   const priceScale = 1 + lateWave * .125 + Math.pow(lateWave, 1.42) * .05;
+  const earlyShopDiscount = earlyShopDiscountFor(wave);
   const unlocked = SHOP_ITEMS.filter((item) => (item.unlockWave || 1) <= wave);
   const recent = new Set(recentIds);
   const picked = new Set<string>();
@@ -610,10 +617,20 @@ const rollShopItems = (wave: number, wallet: number, recentIds: string[] = []) =
     if (!item) return [];
     picked.add(item.id);
     const economyFloor = wallet * (item.priceRate || SHOP_CATEGORY_PRICE_RATE[item.category]) * .82;
-    const rarityPrice = item.cost * .88 * priceScale * SHOP_RARITY_PRICE_MULTIPLIER[item.rarity];
+    const rarityPrice = item.cost * .88 * priceScale * SHOP_RARITY_PRICE_MULTIPLIER[item.rarity] * earlyShopDiscount;
     return [{ ...item, cost: roundShopPrice(Math.max(rarityPrice, economyFloor)) }];
   });
   const shuffledChoices = shuffled(choices);
+  if (wave <= FIRST_SHOP_WAVE && wallet >= 10 && !shuffledChoices.some((item) => item.category !== "补给" && item.cost <= wallet)) {
+    const progressionFallback = unlocked
+      .filter((item) => item.rarity === "common" && item.category !== "补给")
+      .sort((a, b) => a.cost - b.cost)[0];
+    if (progressionFallback) {
+      const replaceIndex = Math.max(0, shuffledChoices.findIndex((item) => item.category === progressionFallback.category));
+      const openingPrice = Math.max(10, Math.floor(wallet * .7 / 5) * 5);
+      shuffledChoices[replaceIndex] = { ...progressionFallback, cost: openingPrice };
+    }
+  }
   if (wallet >= 5 && shuffledChoices.length && !shuffledChoices.some((item) => item.cost <= wallet)) {
     const affordableCost = Math.max(5, Math.floor(wallet / 5) * 5);
     const fallback = unlocked
@@ -638,8 +655,6 @@ const rollShopItems = (wave: number, wallet: number, recentIds: string[] = []) =
 
 const WAVE_INTERVAL_SECONDS = 45;
 const SHOP_EVERY_WAVES = 2;
-const supplyRewardFor = (kills: number, wave: number) =>
-  Math.max(8, Math.round(Math.sqrt(Math.max(0, kills)) * 3.2 + wave * 2.5));
 
 const CLASSES: ClassSpec[] = [
   { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", secondary: "爆破标枪：锁定高威胁目标并引爆重型弹头", passive: "爆破弹：命中产生范围爆炸", ultimate: "天穹火雨：锁定多个敌群，从空中逐点轰炸", cooldown: 10, secondaryCooldown: 8, color: "#f4c95d", sprite: 0, sheet: "core", radius: 18, renderSize: 78 },
@@ -3992,7 +4007,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.14.2 · 稀有强化概率调优</div>
+        <div className="status"><i /> 版本 0.14.3 · 前期补给经济调优</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -4129,7 +4144,7 @@ export default function Home() {
           <div className="shopPanel">
             <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波后补给</div>
             <h2>战场补给站</h2>
-            <p>本次补给周期共享结算 <b>◈ {supplyReward}</b>。补给站每两波出现一次；本轮再次降低全部商品、稀有度溢价和刷新费，并保证每次至少有一件当前金币买得起。</p>
+            <p>本次补给周期共享结算 <b>◈ {supplyReward}</b>。前期额外发放远征启动资金，前三次补给享受逐步递减的价格优惠；首次补给保证至少一件永久成长配件买得起。</p>
             <div className="shopWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="shopGrid">{shopItems.map((item)=><button key={item.id} className={`shop-rarity-${item.rarity}`} onClick={()=>buyShopItemRef.current(item.id)} disabled={coins<item.cost}>

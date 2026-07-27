@@ -29,8 +29,30 @@ export const prioritizeUltimateTargets = (enemies, origin, limit) =>
  * @param {number} wave
  */
 export const earlyWaveXpMultiplier = (wave) => {
-  if (wave <= 1) return 1.5;
-  if (wave === 2) return 1.35;
-  if (wave === 3) return 1.2;
+  if (wave <= 1) return 1.8;
+  if (wave === 2) return 1.55;
+  if (wave === 3) return 1.3;
   return 1;
+};
+
+export const FIRST_SHOP_WAVE = 3;
+
+/**
+ * Help the opening build come online, then return to the normal price curve.
+ *
+ * @param {number} wave
+ */
+export const earlyShopDiscountFor = (wave) =>
+  wave <= 3 ? .75 : wave <= 5 ? .88 : wave <= 7 ? .96 : 1;
+
+/**
+ * Early supply grants include a decaying launch stipend. Kill rewards keep
+ * diminishing returns so late-game hordes cannot flood the economy.
+ *
+ * @param {number} kills
+ * @param {number} wave
+ */
+export const supplyRewardFor = (kills, wave) => {
+  const earlyWaveBonus = Math.max(0, 42 - Math.max(0, wave - FIRST_SHOP_WAVE) * 7);
+  return Math.max(12, Math.round(Math.sqrt(Math.max(0, kills)) * 3.2 + wave * 2.5 + earlyWaveBonus));
 };

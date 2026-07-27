@@ -6,8 +6,11 @@ import {
   teamRunDefeated,
 } from "../team-state.mjs";
 import {
+  earlyShopDiscountFor,
   earlyWaveXpMultiplier,
+  FIRST_SHOP_WAVE,
   prioritizeUltimateTargets,
+  supplyRewardFor,
 } from "../combat-balance.mjs";
 
 async function render() {
@@ -38,7 +41,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.14\.2 · 稀有强化概率调优/);
+  assert.match(html, /版本 0\.14\.3 · 前期补给经济调优/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -171,7 +174,7 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /assault-double-storm/);
   assert.match(page, /const SHOP_ITEMS/);
   assert.match(page, /const SHOP_EVERY_WAVES = 2/);
-  assert.match(page, /Math\.sqrt\(Math\.max\(0, kills\)\) \* 3\.2/);
+  assert.match(page, /supplyRewardFor\(waveKills, currentWave\)/);
   assert.match(page, /const shouldOpenSupply = \(currentWave - 1\) % SHOP_EVERY_WAVES === 0/);
   assert.match(page, /const GUARDIAN_SHIELD_MAX = 5/);
   assert.match(page, /const MIN_GUARDIAN_COOLDOWN = 7/);
@@ -187,9 +190,12 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /common: 62, rare: 26, epic: 9, legendary: 3/);
   assert.match(page, /const weightedShopPick/);
   assert.match(page, /const SHOP_RARITY_PRICE_MULTIPLIER/);
+  assert.match(page, /earlyShopDiscountFor\(wave\)/);
   assert.match(page, /const rollShopItems = \(wave: number, wallet: number, recentIds: string\[\] = \[\]\)/);
   assert.match(page, /Math\.pow\(lateWave, 1\.42\) \* \.05/);
-  assert.match(page, /item\.cost \* \.88 \* priceScale/);
+  assert.match(page, /item\.cost \* \.88 \* priceScale \* SHOP_RARITY_PRICE_MULTIPLIER\[item\.rarity\] \* earlyShopDiscount/);
+  assert.match(page, /item\.category !== "补给" && item\.cost <= wallet/);
+  assert.match(page, /Math\.floor\(wallet \* \.7 \/ 5\) \* 5/);
   assert.match(page, /!shuffledChoices\.some\(\(item\) => item\.cost <= wallet\)/);
   assert.match(page, /affordableCost = Math\.max\(5, Math\.floor\(wallet \/ 5\) \* 5\)/);
   assert.match(page, /id: "ultimate-amplifier"[\s\S]*rarity: "legendary"/);
@@ -218,8 +224,8 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /const upgradeRerollPrice/);
   assert.match(page, /4 \+ Math\.floor\(Math\.max\(0, wave - 1\) \/ 4\) \+ used \* 3/);
   assert.match(page, /第 12 波达到概率上限/);
-  assert.match(page, /再次降低全部商品、稀有度溢价和刷新费/);
-  assert.match(page, /保证每次至少有一件当前金币买得起/);
+  assert.match(page, /前三次补给享受逐步递减的价格优惠/);
+  assert.match(page, /首次补给保证至少一件永久成长配件买得起/);
   assert.match(page, /刷新次数已用尽/);
   assert.match(page, /const spawnBoss/);
   assert.match(page, /let bossBag: BossVariant\[\] = \[\]/);
@@ -383,9 +389,20 @@ test("prioritizes bosses for every offensive ultimate and boosts only early-wave
     "runner",
   );
 
-  assert.equal(earlyWaveXpMultiplier(1), 1.5);
-  assert.equal(earlyWaveXpMultiplier(2), 1.35);
-  assert.equal(earlyWaveXpMultiplier(3), 1.2);
+  assert.equal(earlyWaveXpMultiplier(1), 1.8);
+  assert.equal(earlyWaveXpMultiplier(2), 1.55);
+  assert.equal(earlyWaveXpMultiplier(3), 1.3);
   assert.equal(earlyWaveXpMultiplier(4), 1);
   assert.equal(earlyWaveXpMultiplier(12), 1);
+
+  assert.equal(FIRST_SHOP_WAVE, 3);
+  assert.equal(earlyShopDiscountFor(3), .75);
+  assert.equal(earlyShopDiscountFor(5), .88);
+  assert.equal(earlyShopDiscountFor(7), .96);
+  assert.equal(earlyShopDiscountFor(9), 1);
+  assert.equal(supplyRewardFor(0, 3), 50, "first shop always starts with useful spending money");
+  assert.equal(supplyRewardFor(50, 3), 72);
+  assert.equal(supplyRewardFor(50, 5), 63);
+  assert.equal(supplyRewardFor(50, 7), 54);
+  assert.equal(supplyRewardFor(50, 9), 45, "launch stipend fully expires by the mid game");
 });
