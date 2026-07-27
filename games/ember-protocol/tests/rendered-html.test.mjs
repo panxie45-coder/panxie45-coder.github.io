@@ -110,6 +110,7 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /coOpActive \? 84 : 68/);
   assert.match(page, /Math\.max\(\.19, \.68 - elapsed \* \.0018\)/);
   assert.match(page, /Math\.max\(\.23, \.82 - elapsed \* \.0019\)/);
+  assert.match(page, /const coOpScale = remote \? 1\.5 : 1;\s+const waveScale/);
   assert.match(page, /const upgradeRerollPrice/);
   assert.match(page, /商品会随波次逐渐涨价/);
   assert.match(page, /刷新次数已用尽/);

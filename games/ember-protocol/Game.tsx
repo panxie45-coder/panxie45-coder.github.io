@@ -1323,7 +1323,7 @@ export default function Home() {
       const variants: BossVariant[] = ["rift", "storm", "weaver", "forge"];
       const bossVariant = variants[(Math.max(3, currentWave) / 3 - 1) % variants.length | 0];
       const variant = BOSS_VARIANTS[bossVariant];
-      const coOpScale = remote ? 1.68 : 1;
+      const coOpScale = remote ? 1.5 : 1;
       const waveScale = 1 + Math.max(0, currentWave - 3) * .28;
       const maxHp = config.hp * variant.hp * waveScale * coOpScale;
       enemies.push({
