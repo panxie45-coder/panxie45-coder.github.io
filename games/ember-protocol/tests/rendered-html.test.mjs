@@ -30,7 +30,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.13\.3 · 成长节奏重构/);
+  assert.match(html, /版本 0\.13\.4 · 联机经济修复/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -48,6 +48,11 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /ember-protocol-v9/);
   assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost" \| "blade" \| "gravity" \| "thunder" \| "sky" \| "cinder"/);
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
+  assert.match(page, /t: "upgrade-resume"/);
+  assert.match(page, /const remoteWasAlive = remote\.hp > 0/);
+  assert.match(page, /remoteWasAlive \? clamp\(Math\.max\(1, data\.hp\)/);
+  assert.match(page, /localUpgradeStartedAlive = player\.hp > 0/);
+  assert.match(page, /if \(data\.t === "upgrade-resume" && !isAuthority\)/);
   assert.match(page, /个人机体强化 · 独立选择/);
   assert.match(page, /waitingForRemoteUpgrade/);
   assert.match(page, /eliteChance/);
@@ -116,6 +121,9 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /stats\.ultimateRange = Math\.min\(670/);
   assert.match(page, /assault-double-storm/);
   assert.match(page, /const SHOP_ITEMS/);
+  assert.match(page, /const SHOP_EVERY_WAVES = 2/);
+  assert.match(page, /Math\.sqrt\(Math\.max\(0, kills\)\) \* 3\.2/);
+  assert.match(page, /const shouldOpenSupply = \(currentWave - 1\) % SHOP_EVERY_WAVES === 0/);
   assert.match(page, /const GUARDIAN_SHIELD_MAX = 5/);
   assert.match(page, /const MIN_GUARDIAN_COOLDOWN = 7/);
   assert.match(page, /Math\.min\(GUARDIAN_SHIELD_MAX, stats\.shieldDuration, cooldownSeconds - 2\)/);

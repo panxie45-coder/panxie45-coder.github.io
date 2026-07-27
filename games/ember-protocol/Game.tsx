@@ -165,6 +165,7 @@ type NetPayload =
   | { t: "ultimate"; classId: ClassId; x: number; y: number }
   | { t: "world"; frame: WorldFrame }
   | { t: "levelup"; level: number }
+  | { t: "upgrade-resume" }
   | { t: "shop-open"; wave: number; reward: number; coins: number }
   | { t: "shop-done"; build: BuildFrame; hp: number; coins: number; ultimate: number }
   | { t: "shop-resume" }
@@ -531,6 +532,11 @@ const rollShopItems = (wave: number, wallet: number, recentIds: string[] = []) =
   });
   return shuffled(choices);
 };
+
+const WAVE_INTERVAL_SECONDS = 45;
+const SHOP_EVERY_WAVES = 2;
+const supplyRewardFor = (kills: number, wave: number) =>
+  Math.max(8, Math.round(Math.sqrt(Math.max(0, kills)) * 3.2 + wave * 2.5));
 
 const CLASSES: ClassSpec[] = [
   { id: "assault", name: "强袭型", role: "高火力突击", active: "导弹风暴：向四周发射高伤导弹", passive: "爆破弹：命中产生范围爆炸", ultimate: "天穹火雨：锁定多个敌群，从空中逐点轰炸", cooldown: 10, color: "#f4c95d", sprite: 0, sheet: "core", radius: 18, renderSize: 78 },
@@ -1038,8 +1044,9 @@ export default function Home() {
     let selfShieldUntil = 0, remoteShieldUntil = 0, skillReadyAt = 0, shownCooldown = -1;
     let hostReviveProgress = 0, guestReviveProgress = 0;
     let localUpgradeDone = false, waitingForRemoteUpgrade = false;
+    let localUpgradeStartedAlive = false, localUpgradeStartHp = 0;
     let hostCoins = 0, guestCoins = 0, hostUltimate = 0, guestUltimate = 0;
-    let currentWave = 1, waveKills = 0, nextSupplyAt = 45, lastBossWave = 0;
+    let currentWave = 1, waveKills = 0, nextWaveAt = WAVE_INTERVAL_SECONDS, lastBossWave = 0;
     let bossBag: BossVariant[] = [];
     let previousBossVariant: BossVariant | null = null;
     let localUpgradeRerolls = 0, localShopRerolls = 0;
@@ -1148,10 +1155,14 @@ export default function Home() {
         waitingForRemoteUpgrade = false;
         setWaitingPeerUpgrade(false);
         if (remote) {
+          const remoteWasAlive = remote.hp > 0;
           remote.maxHp = data.build.maxHp;
-          remote.hp = clamp(data.hp, 0, data.build.maxHp);
+          remote.hp = remoteWasAlive ? clamp(Math.max(1, data.hp), 1, data.build.maxHp) : 0;
         }
-        if (localUpgradeDone) localPaused = false;
+        if (localUpgradeDone) {
+          localPaused = false;
+          void network?.send({ t: "upgrade-resume" });
+        }
       }
       if (data.t === "skill" && isAuthority && remote) {
         const remoteBuild = remoteBuildRef.current || makeBuild(data.classId);
@@ -1230,11 +1241,17 @@ export default function Home() {
       if (data.t === "levelup" && !isAuthority) {
         currentLevel = data.level;
         localUpgradeDone = false;
+        localUpgradeStartedAlive = player.hp > 0;
+        localUpgradeStartHp = player.hp;
         localPaused = true;
         localUpgradeRerolls = 0;
         setUpgradeRerolls(0);
         setLevel(data.level);
         setChoices(rollUpgradeChoices(build.classId, build));
+      }
+      if (data.t === "upgrade-resume" && !isAuthority) {
+        localPaused = false;
+        setWaitingPeerUpgrade(false);
       }
       if (data.t === "shop-open" && !isAuthority) {
         guestCoins = data.coins;
@@ -1302,12 +1319,13 @@ export default function Home() {
       selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; shownCooldown = -1;
       hostReviveProgress = 0; guestReviveProgress = 0;
       hostCoins = 0; guestCoins = 0; hostUltimate = 0; guestUltimate = 0;
-      currentWave = 1; waveKills = 0; nextSupplyAt = 45; lastBossWave = 0;
+      currentWave = 1; waveKills = 0; nextWaveAt = WAVE_INTERVAL_SECONDS; lastBossWave = 0;
       bossBag = [];
       previousBossVariant = null;
       localUpgradeRerolls = 0; localShopRerolls = 0; shopStock = []; recentShopIds = [];
       localShopDone = false; remoteShopDone = false; pendingMissileWaves = [];
       localUpgradeDone = false; waitingForRemoteUpgrade = false;
+      localUpgradeStartedAlive = false; localUpgradeStartHp = 0;
       keys.clear();
       setWaitingPeerUpgrade(false);
       build = { ...ownBuildRef.current };
@@ -1362,7 +1380,7 @@ export default function Home() {
       if (id === "guardian-rail") { stats.damage *= 1.24; stats.projectileSize += 1.4; }
       if (id === "guardian-plating") {
         player.maxHp += 28;
-        player.hp = Math.min(player.maxHp, player.hp + 28);
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 28);
         stats.damageReduction = Math.min(.6, stats.damageReduction + .05);
       }
       if (id === "engineer-swarm") stats.drones += 1;
@@ -1378,21 +1396,21 @@ export default function Home() {
       if (id === "frost-shatter") { stats.damage *= 1.2; stats.projectileSize += 1.3; }
       if (id === "frost-armor") {
         player.maxHp += 24;
-        player.hp = Math.min(player.maxHp, player.hp + 24);
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 24);
         stats.damageReduction = Math.min(.6, stats.damageReduction + .05);
       }
       if (id === "blade-edge") { stats.meleeRange *= 1.18; stats.meleePower *= 1.16; }
       if (id === "blade-vamp") {
         stats.repairPower *= 1.45;
         player.maxHp += 16;
-        player.hp = Math.min(player.maxHp, player.hp + 16);
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 16);
       }
       if (id === "blade-tempo") { stats.interval = Math.max(.24, stats.interval * .85); stats.speed *= 1.08; }
       if (id === "gravity-collapse") stats.gravityPower *= 1.28;
       if (id === "gravity-lens") { stats.damage *= 1.18; stats.multi += 1; }
       if (id === "gravity-anchor") {
         player.maxHp += 22;
-        player.hp = Math.min(player.maxHp, player.hp + 22);
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 22);
         stats.skillHaste = Math.max(.5, stats.skillHaste * .85);
       }
       if (id === "thunder-capacitor") stats.lightningPower *= 1.25;
@@ -1405,7 +1423,7 @@ export default function Home() {
       if (id === "cinder-nozzle") { stats.projectileSize *= 1.22; stats.damage *= 1.08; }
       if (id === "cinder-plating") {
         player.maxHp += 26;
-        player.hp = Math.min(player.maxHp, player.hp + 26);
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 26);
         stats.damageReduction = Math.min(.62, stats.damageReduction + .04);
       }
       if (id.endsWith("-ultimate-power")) stats.ultimatePower *= 1.2;
@@ -1420,21 +1438,36 @@ export default function Home() {
       if (id === "thunder-ultimate-locks") stats.ultimateTargets = Math.min(16, stats.ultimateTargets + 2);
       if (id === "sky-ultimate-locks") stats.ultimateTargets = Math.min(9, stats.ultimateTargets + 1);
       if (id === "cinder-ultimate-lanes") stats.ultimateLanes = Math.min(5, stats.ultimateLanes + 1);
-      if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .18);
+      if (localUpgradeStartedAlive) {
+        player.hp = Math.min(
+          player.maxHp,
+          Math.max(1, player.hp, localUpgradeStartHp) + player.maxHp * .18,
+        );
+      } else {
+        player.hp = 0;
+      }
       build = { ...build, ...stats, maxHp: player.maxHp };
       ownBuildRef.current = { ...build };
       setHp(Math.ceil(player.hp));
       setMaxHp(player.maxHp);
       audio?.play("upgrade");
       localUpgradeDone = true;
-      if (network?.role === "join" && network.connected()) {
+      const connectedGuest = network?.role === "join" && network.connected();
+      if (connectedGuest) {
         void network.send({ t: "upgrade-done", build: ownBuildRef.current, hp: player.hp });
       }
       if (network?.role === "host" && network.connected()) {
         void network.send({ t: "build", build: ownBuildRef.current });
       }
-      setWaitingPeerUpgrade(Boolean(network?.role === "host" && waitingForRemoteUpgrade));
-      if (network?.role === "join" || !waitingForRemoteUpgrade) localPaused = false;
+      setWaitingPeerUpgrade(Boolean(connectedGuest || (network?.role === "host" && waitingForRemoteUpgrade)));
+      if (connectedGuest) return;
+      if (!waitingForRemoteUpgrade) {
+        localPaused = false;
+        setWaitingPeerUpgrade(false);
+        if (network?.role === "host" && network.connected()) {
+          void network.send({ t: "upgrade-resume" });
+        }
+      }
     };
 
     const localWallet = () => network?.role === "join" ? guestCoins : hostCoins;
@@ -2218,6 +2251,8 @@ export default function Home() {
       currentLevel++; setLevel(currentLevel);
       const pool = rollUpgradeChoices(build.classId, build);
       localUpgradeDone = false;
+      localUpgradeStartedAlive = player.hp > 0;
+      localUpgradeStartHp = player.hp;
       localUpgradeRerolls = 0;
       setUpgradeRerolls(0);
       waitingForRemoteUpgrade = Boolean(remote && network?.connected());
@@ -2336,19 +2371,21 @@ export default function Home() {
         setRescueProgress(0);
       }
       const coOpActive = Boolean(remote && network?.connected());
-      if (elapsed >= nextSupplyAt) {
-        const reward = waveKills * 2 + currentWave * 6;
+      if (elapsed >= nextWaveAt) {
+        currentWave += 1;
+        nextWaveAt += WAVE_INTERVAL_SECONDS;
+        setWave(currentWave);
+        const shouldOpenSupply = (currentWave - 1) % SHOP_EVERY_WAVES === 0;
+        if (!shouldOpenSupply) return;
+        const reward = supplyRewardFor(waveKills, currentWave);
         hostCoins += reward;
         if (coOpActive) guestCoins += reward;
-        currentWave += 1;
         waveKills = 0;
-        nextSupplyAt += 45;
         localShopDone = false;
         remoteShopDone = false;
         localShopRerolls = 0;
         setShopRerolls(0);
         localPaused = true;
-        setWave(currentWave);
         setCoins(hostCoins);
         setSupplyReward(reward);
         setWaitingSupply(false);
@@ -3546,7 +3583,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.13.3 · 成长节奏重构</div>
+        <div className="status"><i /> 版本 0.13.4 · 联机经济修复</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -3676,9 +3713,9 @@ export default function Home() {
         </div>}
         {shopItems && !choices && <div className="overlay">
           <div className="shopPanel">
-            <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波结算</div>
+            <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波后补给</div>
             <h2>战场补给站</h2>
-            <p>本波共享结算 <b>◈ {supplyReward}</b>。商品价格会随波次与个人经济持续上涨；连续刷新费用逐次提高，高稀有度配件出现概率更低。</p>
+            <p>本次补给周期共享结算 <b>◈ {supplyReward}</b>。补给站每两波出现一次，金币按击杀递减结算；商品价格会随波次与个人经济持续上涨，高稀有度配件出现概率更低。</p>
             <div className="shopWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="shopGrid">{shopItems.map((item)=><button key={item.id} className={`shop-rarity-${item.rarity}`} onClick={()=>buyShopItemRef.current(item.id)} disabled={coins<item.cost}>
