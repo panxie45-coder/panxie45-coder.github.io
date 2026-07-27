@@ -6,7 +6,7 @@ import type { CSSProperties } from "react";
 import { EmberAudioEngine, type SoundCue } from "./audio";
 
 type View = "menu" | "loadout" | "game" | "coop";
-type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity";
+type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity" | "thunder" | "sky" | "cinder";
 type EnemyKind =
   | "runner"
   | "crawler"
@@ -21,7 +21,7 @@ type EnemyKind =
   | "leech"
   | "rammer"
   | "boss";
-type BossVariant = "rift" | "storm" | "weaver" | "forge";
+type BossVariant = "rift" | "storm" | "weaver" | "forge" | "leviathan" | "mirror" | "warden";
 type PlayerSide = "host" | "guest";
 type BossRelicId = "titan-core" | "overdrive-core" | "chrono-core";
 type UpgradeRarity = "common" | "rare" | "epic" | "legendary";
@@ -37,6 +37,7 @@ type CombatStats = {
   magnet: number;
   projectileSpeed: number;
   projectileSize: number;
+  bonusPierce: number;
   damageReduction: number;
   critChance: number;
   skillHaste: number;
@@ -58,6 +59,9 @@ type CombatStats = {
   meleeRange: number;
   meleePower: number;
   gravityPower: number;
+  lightningPower: number;
+  sniperPower: number;
+  burnPower: number;
 };
 type BuildFrame = CombatStats & { classId: ClassId; maxHp: number };
 type ClassSpec = {
@@ -70,7 +74,7 @@ type ClassSpec = {
   cooldown: number;
   color: string;
   sprite: number;
-  sheet: "core" | "specialist" | "vanguard";
+  sheet: "core" | "specialist" | "vanguard" | "expedition";
   radius: number;
   renderSize: number;
 };
@@ -84,10 +88,14 @@ type Enemy = Actor & {
   cooldown: number;
   slow: number;
   frozen?: number;
+  stunned?: number;
   bossPhase?: number;
   bossVariant?: BossVariant;
   barrier?: number;
   lastHitBy?: PlayerSide;
+  burn?: number;
+  burnDamage?: number;
+  burnOwner?: PlayerSide;
 };
 type Shot = {
   x: number;
@@ -107,6 +115,8 @@ type Shot = {
   splash?: number;
   slow?: number;
   chain?: boolean;
+  burn?: number;
+  burnDamage?: number;
   hitIds?: number[];
 };
 type Beam = { x1: number; y1: number; x2: number; y2: number; life: number; width: number; color: string };
@@ -174,7 +184,10 @@ const GAME_ASSETS = {
   assassinProjectile: "/game/assassin-projectile.png",
   bladeMech: "/game/blade-mech.png",
   bossProjectiles: "/game/boss-projectiles.png",
+  bossProjectilesV2: "/game/boss-projectiles-v2.png",
   bossVariants: "/game/boss-variants.png",
+  bossVariantsV2: "/game/boss-variants-v2.png",
+  cinderForgeMech: "/game/cinder-forge-mech.png",
   enemyMechs: "/game/enemy-mechs.png",
   enemyReinforcementProjectiles: "/game/enemy-reinforcement-projectiles.png",
   enemyReinforcements: "/game/enemy-reinforcements.png",
@@ -187,6 +200,9 @@ const GAME_ASSETS = {
   specialistDrones: "/game/specialist-drones.png",
   specialistProjectiles: "/game/specialist-projectiles.png",
   supportDrones: "/game/support-drones.png",
+  skyTalonMech: "/game/sky-talon-mech.png",
+  thunderMech: "/game/thunder-mech.png",
+  v2SupportAssets: "/game/v2-support-assets.png",
   vanguardDrones: "/game/vanguard-drones.png",
   vanguardProjectiles: "/game/vanguard-projectiles.png",
 };
@@ -247,6 +263,21 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
     { id: "gravity-lens", classId: "gravity", title: "引力透镜", desc: "炮弹伤害 +18%，额外穿透 1 名敌人", icon: "◌" },
     { id: "gravity-anchor", classId: "gravity", title: "事件锚点", desc: "生命上限 +22，主动技能冷却 -15%", icon: "⬢" },
   ],
+  thunder: [
+    { id: "thunder-capacitor", classId: "thunder", title: "雷核增压", desc: "连锁闪电伤害与跳跃距离 +25%", icon: "ϟ" },
+    { id: "thunder-network", classId: "thunder", title: "并联电弧", desc: "主动技能额外锁定 2 个目标", icon: "⌁" },
+    { id: "thunder-cycle", classId: "thunder", title: "超导回路", desc: "射击间隔 -10%，主动技能冷却 -12%", icon: "◎" },
+  ],
+  sky: [
+    { id: "sky-focus", classId: "sky", title: "天穹焦镜", desc: "轨道狙击与暴击伤害 +24%", icon: "⌖" },
+    { id: "sky-penetrator", classId: "sky", title: "贯星弹芯", desc: "主炮额外穿透 2 名敌人，弹速 +12%", icon: "➤" },
+    { id: "sky-thruster", classId: "sky", title: "隼翼推进", desc: "移动速度 +10%，射击间隔 -8%", icon: "△" },
+  ],
+  cinder: [
+    { id: "cinder-furnace", classId: "cinder", title: "焚城炉心", desc: "灼烧伤害与持续时间 +28%", icon: "♨" },
+    { id: "cinder-nozzle", classId: "cinder", title: "裂焰喷口", desc: "熔岩弹爆炸范围与弹体 +22%", icon: "◆" },
+    { id: "cinder-plating", classId: "cinder", title: "黑曜热甲", desc: "生命上限 +26，减伤 +4%", icon: "⬢" },
+  ],
 };
 
 const ULTIMATE_UPGRADES: Record<ClassId, Upgrade[]> = {
@@ -281,6 +312,18 @@ const ULTIMATE_UPGRADES: Record<ClassId, Upgrade[]> = {
   gravity: [
     { id: "gravity-ultimate-power", classId: "gravity", ultimate: true, title: "视界增压", desc: "事件视界伤害 +20%，可无限叠加", icon: "◉" },
     { id: "gravity-ultimate-range", classId: "gravity", ultimate: true, title: "视界扩张", desc: "事件视界半径 +80，最多 670", icon: "◎" },
+  ],
+  thunder: [
+    { id: "thunder-ultimate-power", classId: "thunder", ultimate: true, title: "雷域增压", desc: "天罚雷域伤害 +20%，可无限叠加", icon: "ϟ" },
+    { id: "thunder-ultimate-locks", classId: "thunder", ultimate: true, title: "风暴标记", desc: "天罚雷域额外锁定 2 个目标，最多 16 个", icon: "⌁" },
+  ],
+  sky: [
+    { id: "sky-ultimate-power", classId: "sky", ultimate: true, title: "轨道增压", desc: "神矛阵列伤害 +20%，可无限叠加", icon: "⌖" },
+    { id: "sky-ultimate-locks", classId: "sky", ultimate: true, title: "多重照准", desc: "神矛阵列额外锁定 1 个目标，最多 9 个", icon: "✦" },
+  ],
+  cinder: [
+    { id: "cinder-ultimate-power", classId: "cinder", ultimate: true, title: "熔城增压", desc: "炼狱推进伤害 +20%，可无限叠加", icon: "♨" },
+    { id: "cinder-ultimate-lanes", classId: "cinder", ultimate: true, title: "火墙增殖", desc: "炼狱推进额外生成 1 道火墙，最多 5 道", icon: "▰" },
   ],
 };
 
@@ -326,6 +369,9 @@ const ULTIMATE_NAMES: Record<ClassId, string> = {
   frost: "永冻纪元",
   blade: "红莲断界",
   gravity: "事件视界",
+  thunder: "天罚雷域",
+  sky: "神矛阵列",
+  cinder: "炼狱推进",
 };
 
 const ULTIMATE_CHARGE_SCALE: Record<ClassId, number> = {
@@ -337,6 +383,9 @@ const ULTIMATE_CHARGE_SCALE: Record<ClassId, number> = {
   frost: .58,
   blade: .7,
   gravity: .5,
+  thunder: .54,
+  sky: .48,
+  cinder: .57,
 };
 
 const UPGRADE_RARITY: Partial<Record<string, UpgradeRarity>> = {
@@ -362,6 +411,15 @@ const UPGRADE_RARITY: Partial<Record<string, UpgradeRarity>> = {
   "gravity-collapse": "rare",
   "gravity-lens": "rare",
   "gravity-anchor": "epic",
+  "thunder-capacitor": "rare",
+  "thunder-network": "epic",
+  "thunder-cycle": "rare",
+  "sky-focus": "rare",
+  "sky-penetrator": "epic",
+  "sky-thruster": "rare",
+  "cinder-furnace": "rare",
+  "cinder-nozzle": "rare",
+  "cinder-plating": "epic",
   "assault-ultimate-power": "rare",
   "assault-ultimate-locks": "rare",
   "guardian-ultimate-power": "rare",
@@ -378,6 +436,12 @@ const UPGRADE_RARITY: Partial<Record<string, UpgradeRarity>> = {
   "blade-ultimate-echoes": "legendary",
   "gravity-ultimate-power": "rare",
   "gravity-ultimate-range": "epic",
+  "thunder-ultimate-power": "rare",
+  "thunder-ultimate-locks": "epic",
+  "sky-ultimate-power": "rare",
+  "sky-ultimate-locks": "legendary",
+  "cinder-ultimate-power": "rare",
+  "cinder-ultimate-lanes": "epic",
 };
 const RARITY_WEIGHTS: Record<UpgradeRarity, number> = { common: 60, rare: 25, epic: 10, legendary: 4 };
 const RARITY_LABELS: Record<UpgradeRarity, string> = { common: "普通", rare: "稀有", epic: "史诗", legendary: "传说" };
@@ -405,6 +469,9 @@ const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) =>
   if (upgrade.id === "frost-ultimate-lanes") return currentBuild.ultimateLanes < 4;
   if (upgrade.id === "blade-ultimate-echoes") return currentBuild.ultimateEchoes < 4;
   if (upgrade.id === "gravity-ultimate-range") return currentBuild.ultimateRange < 670;
+  if (upgrade.id === "thunder-ultimate-locks") return currentBuild.ultimateTargets < 16;
+  if (upgrade.id === "sky-ultimate-locks") return currentBuild.ultimateTargets < 9;
+  if (upgrade.id === "cinder-ultimate-lanes") return currentBuild.ultimateLanes < 5;
   return true;
 };
 const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>) => {
@@ -479,13 +546,19 @@ const CLASSES: ClassSpec[] = [
   { id: "frost", name: "霜垒型", role: "冰冻攻城炮", active: "绝对零域：冻结附近敌人并造成伤害", passive: "低温弹头：命中后显著降低敌人速度", ultimate: "永冻纪元：向前推进冰川风暴，冻结整条战线", cooldown: 15, color: "#8bdcff", sprite: 1, sheet: "specialist", radius: 25, renderSize: 94 },
   { id: "blade", name: "裂锋型", role: "等离子近战", active: "磁轨冲锋：扑向目标并释放双重圆弧斩", passive: "熔断刃：近距离自动斩击并修复少量生命", ultimate: "红莲断界：沿一条战线高速突进并留下连环斩痕", cooldown: 10, color: "#ff9b43", sprite: 0, sheet: "vanguard", radius: 18, renderSize: 86 },
   { id: "gravity", name: "星渊型", role: "重力控场", active: "坍缩奇点：牵引附近敌人并引爆核心", passive: "引力弹：穿透、减速并产生小型爆炸", ultimate: "事件视界：在敌群中心制造奇点，持续牵引后坍缩", cooldown: 14, color: "#a58cff", sprite: 1, sheet: "vanguard", radius: 23, renderSize: 92 },
+  { id: "thunder", name: "雷霆型", role: "连锁电弧控场", active: "雷链过载：自动串联附近敌人并短暂麻痹", passive: "感应雷弹：命中后电弧跳跃至附近目标", ultimate: "天罚雷域：连续标记高威胁目标并降下多轮落雷", cooldown: 12, color: "#48dfff", sprite: 0, sheet: "expedition", radius: 17, renderSize: 86 },
+  { id: "sky", name: "天隼型", role: "超远程轨道狙击", active: "贯星狙击：贯穿整条战线并重创首领", passive: "弱点照准：高伤害、高暴击、超高速贯穿弹", ultimate: "神矛阵列：轨道光矛依次点杀最高威胁目标", cooldown: 14, color: "#ff6a62", sprite: 1, sheet: "expedition", radius: 15, renderSize: 88 },
+  { id: "cinder", name: "熔炉型", role: "重装燃烧推进", active: "焚城喷流：向敌群喷出锥形烈焰并持续灼烧", passive: "熔岩弹：爆炸后点燃范围内敌人", ultimate: "炼狱推进：多道火墙横推战场并留下燃烧地带", cooldown: 13, color: "#ff8a32", sprite: 2, sheet: "expedition", radius: 26, renderSize: 98 },
 ];
 
-const BOSS_VARIANTS: Record<BossVariant, { name: string; sprite: number; color: string; hp: number; speed: number; hit: number; range: number }> = {
-  rift: { name: "裂界泰坦", sprite: 0, color: "#ff4f7c", hp: 1, speed: 1, hit: 1, range: 305 },
-  storm: { name: "雷暴航母", sprite: 1, color: "#5ca9ff", hp: .86, speed: 1.18, hit: .9, range: 385 },
-  weaver: { name: "深渊织母", sprite: 2, color: "#b37cff", hp: .92, speed: 1.24, hit: .82, range: 255 },
-  forge: { name: "熔炉巨像", sprite: 3, color: "#ff8b42", hp: 1.28, speed: .76, hit: 1.2, range: 335 },
+const BOSS_VARIANTS: Record<BossVariant, { name: string; sprite: number; sheet: "core" | "v2"; color: string; hp: number; speed: number; hit: number; range: number }> = {
+  rift: { name: "裂界泰坦", sprite: 0, sheet: "core", color: "#ff4f7c", hp: 1, speed: 1, hit: 1, range: 305 },
+  storm: { name: "雷暴航母", sprite: 1, sheet: "core", color: "#5ca9ff", hp: .86, speed: 1.18, hit: .9, range: 385 },
+  weaver: { name: "深渊织母", sprite: 2, sheet: "core", color: "#b37cff", hp: .92, speed: 1.24, hit: .82, range: 255 },
+  forge: { name: "熔炉巨像", sprite: 3, sheet: "core", color: "#ff8b42", hp: 1.28, speed: .76, hit: 1.2, range: 335 },
+  leviathan: { name: "吞星利维坦", sprite: 0, sheet: "v2", color: "#4d98ff", hp: 1.38, speed: .88, hit: 1.08, range: 270 },
+  mirror: { name: "镜界仲裁者", sprite: 1, sheet: "v2", color: "#ff68d7", hp: 1.08, speed: 1.08, hit: .92, range: 350 },
+  warden: { name: "时蚀守望者", sprite: 2, sheet: "v2", color: "#66eadf", hp: 1.24, speed: .72, hit: 1.02, range: 315 },
 };
 
 const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; radius: number; color: string; cooldown: number }> = {
@@ -545,6 +618,7 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     magnet: 84,
     projectileSpeed: 560,
     projectileSize: 5,
+    bonusPierce: 0,
     damageReduction: 0,
     critChance: .05,
     skillHaste: 1,
@@ -566,6 +640,9 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     meleeRange: 122,
     meleePower: 1,
     gravityPower: 1,
+    lightningPower: 1,
+    sniperPower: 1,
+    burnPower: 1,
   };
   if (classId === "assault") return { ...base, maxHp: 116, damage: 46, interval: .6, projectileSpeed: 535, projectileSize: 7.5 };
   if (classId === "guardian") return { ...base, maxHp: 155, speed: 224, damage: 78, interval: 1.05, projectileSpeed: 455, projectileSize: 10, damageReduction: .25 };
@@ -574,10 +651,13 @@ const makeBuild = (classId: ClassId): BuildFrame => {
   if (classId === "laser") return { ...base, maxHp: 106, speed: 280, damage: 22, interval: .26, projectileSpeed: 930, projectileSize: 5, critChance: .15, laserPower: 1.12, ultimateLanes: 8 };
   if (classId === "frost") return { ...base, maxHp: 138, speed: 218, damage: 47, interval: .72, projectileSpeed: 500, projectileSize: 8.5, damageReduction: .12, frostPower: 1.12 };
   if (classId === "blade") return { ...base, maxHp: 132, speed: 292, damage: 66, interval: .56, projectileSpeed: 620, projectileSize: 6, damageReduction: .08, meleeRange: 132, meleePower: 1.08, repairPower: 1.05 };
-  return { ...base, maxHp: 146, speed: 226, damage: 44, interval: .66, magnet: 110, projectileSpeed: 510, projectileSize: 9, damageReduction: .14, gravityPower: 1.12 };
+  if (classId === "gravity") return { ...base, maxHp: 146, speed: 226, damage: 44, interval: .66, magnet: 110, projectileSpeed: 510, projectileSize: 9, damageReduction: .14, gravityPower: 1.12 };
+  if (classId === "thunder") return { ...base, maxHp: 112, speed: 274, damage: 27, interval: .36, projectileSpeed: 690, projectileSize: 5.5, critChance: .1, lightningPower: 1.12, ultimateTargets: 8 };
+  if (classId === "sky") return { ...base, maxHp: 96, speed: 312, damage: 72, interval: .94, projectileSpeed: 980, projectileSize: 6, critChance: .2, sniperPower: 1.14, ultimateTargets: 4 };
+  return { ...base, maxHp: 162, speed: 204, damage: 54, interval: .76, projectileSpeed: 490, projectileSize: 10, damageReduction: .18, burnPower: 1.15, ultimateLanes: 3 };
 };
 
-const projectileTraits = (classId: ClassId): Partial<Shot> => {
+const projectileTraits = (classId: ClassId, combatStats?: Pick<CombatStats, "bonusPierce" | "projectileSize">): Partial<Shot> => {
   if (classId === "assault") return { splash: 54 };
   if (classId === "guardian") return { pierce: 2 };
   if (classId === "engineer") return { chain: true };
@@ -585,7 +665,10 @@ const projectileTraits = (classId: ClassId): Partial<Shot> => {
   if (classId === "laser") return { pierce: 4 };
   if (classId === "frost") return { slow: 2.8 };
   if (classId === "blade") return { pierce: 1 };
-  return { slow: 1.4, splash: 48, pierce: 1 };
+  if (classId === "gravity") return { slow: 1.4, splash: 48, pierce: 1 };
+  if (classId === "thunder") return { chain: true, pierce: 1 };
+  if (classId === "sky") return { pierce: 4 + Math.round(combatStats?.bonusPierce || 0) };
+  return { splash: 72 + Math.max(0, (combatStats?.projectileSize || 10) - 10) * 4, burn: 4.2, burnDamage: 8 };
 };
 
 const mechPreviewClass = (classInfo: ClassSpec) => {
@@ -593,6 +676,9 @@ const mechPreviewClass = (classInfo: ClassSpec) => {
   if (classInfo.id === "frost") return "mechPreview frostPreview";
   if (classInfo.id === "blade") return "mechPreview bladePreview";
   if (classInfo.id === "gravity") return "mechPreview gravityPreview";
+  if (classInfo.id === "thunder") return "mechPreview thunderPreview";
+  if (classInfo.id === "sky") return "mechPreview skyPreview";
+  if (classInfo.id === "cinder") return "mechPreview cinderPreview";
   return `mechPreview mech-${classInfo.sprite}`;
 };
 const mechPreviewStyle = (classInfo: ClassSpec): CSSProperties => ({
@@ -604,7 +690,13 @@ const mechPreviewStyle = (classInfo: ClassSpec): CSSProperties => ({
         ? GAME_ASSETS.bladeMech
         : classInfo.id === "gravity"
           ? GAME_ASSETS.gravityMech
-          : GAME_ASSETS.playerMechs}")`,
+          : classInfo.id === "thunder"
+            ? GAME_ASSETS.thunderMech
+            : classInfo.id === "sky"
+              ? GAME_ASSETS.skyTalonMech
+              : classInfo.id === "cinder"
+                ? GAME_ASSETS.cinderForgeMech
+                : GAME_ASSETS.playerMechs}")`,
 });
 const applyBossRelicToBuild = (source: BuildFrame, relic: BossRelicId): BuildFrame => {
   if (relic === "titan-core") {
@@ -984,10 +1076,15 @@ export default function Home() {
     const frostSprite = new Image();
     const bladeSprite = new Image();
     const gravitySprite = new Image();
+    const thunderSprite = new Image();
+    const skySprite = new Image();
+    const cinderSprite = new Image();
     const enemySprites = new Image();
     const bossVariantSprites = new Image();
+    const bossVariantSpritesV2 = new Image();
     const enemyReinforcementSprites = new Image();
     const bossProjectileSprites = new Image();
+    const bossProjectileSpritesV2 = new Image();
     const enemyReinforcementProjectiles = new Image();
     const projectileSprites = new Image();
     const specialistProjectiles = new Image();
@@ -997,15 +1094,21 @@ export default function Home() {
     const vanguardProjectiles = new Image();
     const enemyProjectiles = new Image();
     const assassinProjectile = new Image();
+    const v2SupportAssets = new Image();
     playerSprites.src = GAME_ASSETS.playerMechs;
     laserSprite.src = GAME_ASSETS.laserMech;
     frostSprite.src = GAME_ASSETS.frostMech;
     bladeSprite.src = GAME_ASSETS.bladeMech;
     gravitySprite.src = GAME_ASSETS.gravityMech;
+    thunderSprite.src = GAME_ASSETS.thunderMech;
+    skySprite.src = GAME_ASSETS.skyTalonMech;
+    cinderSprite.src = GAME_ASSETS.cinderForgeMech;
     enemySprites.src = GAME_ASSETS.enemyMechs;
     bossVariantSprites.src = GAME_ASSETS.bossVariants;
+    bossVariantSpritesV2.src = GAME_ASSETS.bossVariantsV2;
     enemyReinforcementSprites.src = GAME_ASSETS.enemyReinforcements;
     bossProjectileSprites.src = GAME_ASSETS.bossProjectiles;
+    bossProjectileSpritesV2.src = GAME_ASSETS.bossProjectilesV2;
     enemyReinforcementProjectiles.src = GAME_ASSETS.enemyReinforcementProjectiles;
     projectileSprites.src = GAME_ASSETS.projectileMechs;
     specialistProjectiles.src = GAME_ASSETS.specialistProjectiles;
@@ -1015,6 +1118,7 @@ export default function Home() {
     vanguardProjectiles.src = GAME_ASSETS.vanguardProjectiles;
     enemyProjectiles.src = GAME_ASSETS.enemyProjectiles;
     assassinProjectile.src = GAME_ASSETS.assassinProjectile;
+    v2SupportAssets.src = GAME_ASSETS.v2SupportAssets;
     const unsubscribeNetwork = network?.subscribe((data) => {
       if (data.t === "player" && isAuthority) {
         const remoteBuild = remoteBuildRef.current || makeBuild("assault");
@@ -1071,6 +1175,9 @@ export default function Home() {
         if (data.classId === "frost") freezeArea(remote, remoteBuild, "guest");
         if (data.classId === "blade") bladeRush(remote, remoteBuild, "guest", data.x, data.y);
         if (data.classId === "gravity") gravityWell(remote, remoteBuild, "guest");
+        if (data.classId === "thunder") thunderChain(remote, remoteBuild, "guest");
+        if (data.classId === "sky") railSnipe(remote, remoteBuild, "guest");
+        if (data.classId === "cinder") incinerateCone(remote, remoteBuild, "guest");
         triggerSkillEffect(remote, data.classId, skillStart);
         audio?.play("skill");
       }
@@ -1288,6 +1395,19 @@ export default function Home() {
         player.hp = Math.min(player.maxHp, player.hp + 22);
         stats.skillHaste = Math.max(.5, stats.skillHaste * .85);
       }
+      if (id === "thunder-capacitor") stats.lightningPower *= 1.25;
+      if (id === "thunder-network") stats.ultimateTargets = Math.min(16, stats.ultimateTargets + 2);
+      if (id === "thunder-cycle") { stats.interval = Math.max(.18, stats.interval * .9); stats.skillHaste = Math.max(.5, stats.skillHaste * .88); }
+      if (id === "sky-focus") { stats.sniperPower *= 1.24; stats.critChance = Math.min(.72, stats.critChance + .04); }
+      if (id === "sky-penetrator") { stats.projectileSpeed *= 1.12; stats.bonusPierce += 2; }
+      if (id === "sky-thruster") { stats.speed *= 1.1; stats.interval = Math.max(.3, stats.interval * .92); }
+      if (id === "cinder-furnace") stats.burnPower *= 1.28;
+      if (id === "cinder-nozzle") { stats.projectileSize *= 1.22; stats.damage *= 1.08; }
+      if (id === "cinder-plating") {
+        player.maxHp += 26;
+        player.hp = Math.min(player.maxHp, player.hp + 26);
+        stats.damageReduction = Math.min(.62, stats.damageReduction + .04);
+      }
       if (id.endsWith("-ultimate-power")) stats.ultimatePower *= 1.2;
       if (id === "assault-ultimate-locks") stats.ultimateTargets = Math.min(14, stats.ultimateTargets + 2);
       if (id === "guardian-ultimate-duration") stats.ultimateDuration = Math.min(5.4, stats.ultimateDuration + .5);
@@ -1297,6 +1417,9 @@ export default function Home() {
       if (id === "frost-ultimate-lanes") stats.ultimateLanes = Math.min(4, stats.ultimateLanes + 1);
       if (id === "blade-ultimate-echoes") stats.ultimateEchoes = Math.min(4, stats.ultimateEchoes + 1);
       if (id === "gravity-ultimate-range") stats.ultimateRange = Math.min(670, stats.ultimateRange + 80);
+      if (id === "thunder-ultimate-locks") stats.ultimateTargets = Math.min(16, stats.ultimateTargets + 2);
+      if (id === "sky-ultimate-locks") stats.ultimateTargets = Math.min(9, stats.ultimateTargets + 1);
+      if (id === "cinder-ultimate-lanes") stats.ultimateLanes = Math.min(5, stats.ultimateLanes + 1);
       if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .18);
       build = { ...build, ...stats, maxHp: player.maxHp };
       ownBuildRef.current = { ...build };
@@ -1385,6 +1508,9 @@ export default function Home() {
         if (build.classId === "frost") stats.frostPower *= 1.15;
         if (build.classId === "blade") { stats.meleePower *= 1.15; stats.meleeRange *= 1.06; }
         if (build.classId === "gravity") stats.gravityPower *= 1.15;
+        if (build.classId === "thunder") stats.lightningPower *= 1.15;
+        if (build.classId === "sky") stats.sniperPower *= 1.15;
+        if (build.classId === "cinder") stats.burnPower *= 1.15;
       }
       if (id === "ultimate-amplifier") stats.ultimatePower *= 1.12;
       if (id === "ult-battery") setLocalUltimate(localUltimate() + 22);
@@ -1490,6 +1616,9 @@ export default function Home() {
       if (build.classId === "frost") freezeArea(player, stats, "host");
       if (build.classId === "blade") bladeRush(player, stats, "host");
       if (build.classId === "gravity") gravityWell(player, stats, "host");
+      if (build.classId === "thunder") thunderChain(player, stats, "host");
+      if (build.classId === "sky") railSnipe(player, stats, "host");
+      if (build.classId === "cinder") incinerateCone(player, stats, "host");
       triggerSkillEffect(player, build.classId, skillStart);
       audio?.play("skill");
     };
@@ -1584,7 +1713,7 @@ export default function Home() {
     };
     const spawnBoss = () => {
       const config = ENEMY_DATA.boss;
-      const variants: BossVariant[] = ["rift", "storm", "weaver", "forge"];
+      const variants: BossVariant[] = ["rift", "storm", "leviathan", "weaver", "mirror", "forge", "warden"];
       const bossVariant = variants[(Math.max(3, currentWave) / 3 - 1) % variants.length | 0];
       const variant = BOSS_VARIANTS[bossVariant];
       const coOpScale = remote ? 1.5 : 1;
@@ -1595,7 +1724,7 @@ export default function Home() {
         id: nextEnemyId++,
         x: W / 2,
         y: -70,
-        r: config.radius,
+        r: bossVariant === "leviathan" ? 60 : bossVariant === "warden" ? 54 : bossVariant === "mirror" ? 47 : config.radius,
         hp: maxHp,
         maxHp,
         speed: (config.speed + Math.min(12, currentWave * 1.2)) * variant.speed,
@@ -1633,6 +1762,9 @@ export default function Home() {
         frost: "#8bdcff",
         blade: "#ff9b43",
         gravity: "#a58cff",
+        thunder: "#48dfff",
+        sky: "#ff6a62",
+        cinder: "#ff8a32",
       };
       const radii: Record<ClassId, number> = {
         assault: 190,
@@ -1643,6 +1775,9 @@ export default function Home() {
         frost: 410,
         blade: 170,
         gravity: 330,
+        thunder: 290,
+        sky: 520,
+        cinder: 440,
       };
       const color = colors[classId];
       addEffect({ kind: "skill", classId, x: actor.x, y: actor.y, color, radius: radii[classId] }, classId === "frost" ? 1 : .72);
@@ -1799,6 +1934,65 @@ export default function Home() {
       addEffect({ kind: "skill", classId: "gravity", x: actor.x, y: actor.y, color: "#a58cff", radius }, 1);
       burst(actor.x, actor.y, "#a58cff", 24);
     };
+    const thunderChain = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      const targetCount = clamp(3 + Math.floor(combatStats.ultimateTargets / 3), 5, 9);
+      const remaining = enemies.filter((enemy) => enemy.hp > 0);
+      let source = { x: actor.x, y: actor.y };
+      for (let index = 0; index < targetCount && remaining.length; index++) {
+        const target = remaining
+          .filter((enemy) => index === 0 ? dist(source, enemy) < 560 : dist(source, enemy) < 275)
+          .sort((a, b) => dist(source, a) - dist(source, b))[0];
+        if (!target) break;
+        const damageScale = Math.max(.54, 1 - index * .09);
+        target.hp -= combatStats.damage * 3.15 * combatStats.lightningPower * damageScale;
+        target.lastHitBy = owner;
+        target.stunned = Math.max(target.stunned || 0, .34);
+        beams.push({ x1: source.x, y1: source.y, x2: target.x, y2: target.y, life: .3, width: Math.max(3, 8 - index * .6), color: index % 2 ? "#b9f8ff" : "#48dfff" });
+        burst(target.x, target.y, "#48dfff", 8);
+        source = { x: target.x, y: target.y };
+        remaining.splice(remaining.indexOf(target), 1);
+      }
+      addEffect({ kind: "skill", classId: "thunder", x: actor.x, y: actor.y, color: "#48dfff", radius: 290 }, .88);
+    };
+    const railSnipe = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      const target = enemies
+        .filter((enemy) => enemy.hp > 0)
+        .sort((a, b) => (b.kind === "boss" ? 1 : 0) - (a.kind === "boss" ? 1 : 0) || b.maxHp - a.maxHp)[0];
+      const angle = target ? Math.atan2(target.y - actor.y, target.x - actor.x) : -Math.PI / 2;
+      const length = 1650;
+      const x2 = actor.x + Math.cos(angle) * length;
+      const y2 = actor.y + Math.sin(angle) * length;
+      beams.push({ x1: actor.x, y1: actor.y, x2, y2, life: .58, width: 11 + combatStats.projectileSize, color: "#fff1df" });
+      for (const enemy of enemies) {
+        const along = (enemy.x - actor.x) * Math.cos(angle) + (enemy.y - actor.y) * Math.sin(angle);
+        const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(angle) - (enemy.y - actor.y) * Math.cos(angle));
+        if (along <= 0 || along >= length || perpendicular >= enemy.r + 16) continue;
+        const bossMultiplier = enemy.kind === "boss" ? 1.28 : 1;
+        enemy.hp -= combatStats.damage * 7.6 * combatStats.sniperPower * bossMultiplier;
+        enemy.lastHitBy = owner;
+        burst(enemy.x, enemy.y, "#ff6a62", 12);
+      }
+      addEffect({ kind: "skill", classId: "sky", x: actor.x, y: actor.y, x2, y2, color: "#ff6a62", radius: 520 }, .72);
+    };
+    const incinerateCone = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      const target = enemies.filter((enemy) => enemy.hp > 0).sort((a, b) => dist(actor, a) - dist(actor, b))[0];
+      const angle = target ? Math.atan2(target.y - actor.y, target.x - actor.x) : -Math.PI / 2;
+      const range = 470;
+      for (const enemy of enemies) {
+        const distance = dist(actor, enemy);
+        if (distance > range + enemy.r) continue;
+        const enemyAngle = Math.atan2(enemy.y - actor.y, enemy.x - actor.x);
+        const delta = Math.abs(Math.atan2(Math.sin(enemyAngle - angle), Math.cos(enemyAngle - angle)));
+        if (delta > .62) continue;
+        enemy.hp -= combatStats.damage * 2.5 * combatStats.burnPower;
+        enemy.lastHitBy = owner;
+        enemy.burn = Math.max(enemy.burn || 0, 5.2 * combatStats.burnPower);
+        enemy.burnDamage = Math.max(enemy.burnDamage || 0, combatStats.damage * .42 * combatStats.burnPower);
+        enemy.burnOwner = owner;
+        burst(enemy.x, enemy.y, "#ff8a32", 10);
+      }
+      addEffect({ kind: "skill", classId: "cinder", x: actor.x, y: actor.y, x2: actor.x + Math.cos(angle) * range, y2: actor.y + Math.sin(angle) * range, color: "#ff8a32", radius: range }, 1.05);
+    };
     const executeUltimate = (actor: Actor, combatStats: BuildFrame | CombatStats, classId: ClassId, owner: PlayerSide) => {
       const power = combatStats.ultimatePower;
       const color = CLASSES.find((entry) => entry.id === classId)?.color || "#f4c95d";
@@ -1943,6 +2137,62 @@ export default function Home() {
           beams.push({ x1: enemy.x, y1: enemy.y, x2: center.x, y2: center.y, life: .52, width: 5, color: "#a58cff" });
         }
         addEffect({ kind: "ultimate", classId, x: center.x, y: center.y, color, radius: gravityRange * .58 }, 2.2);
+      }
+      if (classId === "thunder") {
+        const targets = [...enemies]
+          .filter((enemy) => enemy.hp > 0)
+          .sort((a, b) => b.maxHp - a.maxHp)
+          .slice(0, Math.round(combatStats.ultimateTargets));
+        for (const [index, target] of targets.entries()) {
+          const strikeDamage = combatStats.damage * 5.1 * combatStats.lightningPower * power;
+          damageEnemy(target, strikeDamage);
+          target.stunned = Math.max(target.stunned || 0, 1.05);
+          beams.push({ x1: target.x + (index % 2 ? 55 : -55), y1: target.y - 520, x2: target.x, y2: target.y, life: .72, width: 10, color: "#b9f8ff" });
+          addEffect({ kind: "ultimate", classId, x: target.x, y: target.y, x2: target.x, y2: target.y - 520, color, radius: 110 }, 1.35);
+          for (const nearby of enemies) {
+            if (nearby === target || dist(target, nearby) > 145 + nearby.r) continue;
+            damageEnemy(nearby, strikeDamage * .38);
+            beams.push({ x1: target.x, y1: target.y, x2: nearby.x, y2: nearby.y, life: .34, width: 5, color: "#48dfff" });
+          }
+          burst(target.x, target.y, "#48dfff", 20);
+        }
+      }
+      if (classId === "sky") {
+        const targets = [...enemies]
+          .filter((enemy) => enemy.hp > 0)
+          .sort((a, b) => (b.kind === "boss" ? 1 : 0) - (a.kind === "boss" ? 1 : 0) || b.maxHp - a.maxHp)
+          .slice(0, Math.round(combatStats.ultimateTargets));
+        for (const [index, target] of targets.entries()) {
+          const xOffset = (index - (targets.length - 1) / 2) * 38;
+          beams.push({ x1: target.x + xOffset, y1: -120, x2: target.x, y2: target.y, life: .95, width: 16, color: "#fff1df" });
+          beams.push({ x1: target.x - 110, y1: target.y, x2: target.x + 110, y2: target.y, life: .48, width: 3, color: "#ff6a62" });
+          damageEnemy(target, combatStats.damage * 8.8 * combatStats.sniperPower * power * (target.kind === "boss" ? 1.2 : 1));
+          addEffect({ kind: "ultimate", classId, x: target.x, y: target.y, x2: target.x, y2: -120, color, radius: 125 }, 1.45);
+          burst(target.x, target.y, "#ff6a62", 22);
+        }
+      }
+      if (classId === "cinder") {
+        const laneCount = clamp(Math.round(combatStats.ultimateLanes), 3, 5);
+        const normalX = -Math.sin(aimAngle), normalY = Math.cos(aimAngle);
+        const length = 1320;
+        for (let lane = 0; lane < laneCount; lane++) {
+          const offset = (lane - (laneCount - 1) / 2) * 118;
+          const x1 = actor.x + normalX * offset;
+          const y1 = actor.y + normalY * offset;
+          const x2 = x1 + Math.cos(aimAngle) * length;
+          const y2 = y1 + Math.sin(aimAngle) * length;
+          beams.push({ x1, y1, x2, y2, life: 1.55, width: 42, color: lane % 2 ? "#ffb23e" : "#ff672f" });
+          for (const enemy of enemies) {
+            const along = (enemy.x - x1) * Math.cos(aimAngle) + (enemy.y - y1) * Math.sin(aimAngle);
+            const perpendicular = Math.abs((enemy.x - x1) * Math.sin(aimAngle) - (enemy.y - y1) * Math.cos(aimAngle));
+            if (along < -50 || along > length || perpendicular > 54 + enemy.r) continue;
+            damageEnemy(enemy, combatStats.damage * 4.2 * combatStats.burnPower * power);
+            enemy.burn = Math.max(enemy.burn || 0, 6.5 * combatStats.burnPower);
+            enemy.burnDamage = Math.max(enemy.burnDamage || 0, combatStats.damage * .52 * combatStats.burnPower * power);
+            enemy.burnOwner = owner;
+          }
+        }
+        addEffect({ kind: "ultimate", classId, count: laneCount, x: actor.x, y: actor.y, x2: actor.x + Math.cos(aimAngle) * length, y2: actor.y + Math.sin(aimAngle) * length, color, radius: 310 }, 2.15);
       }
       burst(actor.x, actor.y, color, classId === "guardian" || classId === "engineer" ? 26 : 40);
       setHp(Math.ceil(player.hp));
@@ -2140,13 +2390,13 @@ export default function Home() {
             const spread=(i-(stats.multi-1)/2)*.14;
             const angle=a0+spread;
             const damage = Math.random() < stats.critChance ? stats.damage * 2 : stats.damage;
-            shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5,owner:"host",classId:build.classId,...projectileTraits(build.classId)});
+            shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5,owner:"host",classId:build.classId,...projectileTraits(build.classId,stats)});
           }
         }
         for (let i = 0; i < stats.drones; i++) {
           const droneAngle = a0 + (i % 2 ? .22 : -.22);
           const origin = dronePosition(player, i, stats.drones);
-          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*.42*stats.dronePower,life:1.6,owner:"host",classId:build.classId,...projectileTraits(build.classId)});
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*.42*stats.dronePower,life:1.6,owner:"host",classId:build.classId,...projectileTraits(build.classId,stats)});
         }
         audio?.play("shot");
         burst(player.x+Math.cos(a0)*18,player.y+Math.sin(a0)*18,"#f4c95d",3);
@@ -2164,13 +2414,13 @@ export default function Home() {
             const spread=(i-(remoteStats.multi-1)/2)*.14;
             const shotAngle=a+spread;
             const damage = Math.random() < remoteStats.critChance ? remoteStats.damage * 2 : remoteStats.damage;
-            shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId)});
+            shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId,remoteStats)});
           }
         }
         for (let i = 0; i < remoteStats.drones; i++) {
           const droneAngle = a + (i % 2 ? .22 : -.22);
           const origin = dronePosition(remote, i, remoteStats.drones);
-          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*.42*remoteStats.dronePower,life:1.6,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId)});
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*.42*remoteStats.dronePower,life:1.6,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId,remoteStats)});
         }
         audio?.play("ally-shot");
       }
@@ -2195,11 +2445,16 @@ export default function Home() {
       const livingActors: Actor[] = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
       for (const enemy of enemies) {
         if (!livingActors.length) continue;
+        if ((enemy.burn || 0) > 0) {
+          enemy.burn = Math.max(0, (enemy.burn || 0) - dt);
+          enemy.hp -= (enemy.burnDamage || 0) * dt;
+          enemy.lastHitBy = enemy.burnOwner || enemy.lastHitBy;
+        }
         const target = livingActors.reduce((nearest, actor) => dist(enemy, actor) < dist(enemy, nearest) ? actor : nearest);
         const targetDistance = dist(enemy, target);
         const angle = Math.atan2(target.y-enemy.y,target.x-enemy.x);
         enemy.cooldown -= dt;
-        const canAct = (enemy.frozen || 0) <= 0;
+        const canAct = (enemy.frozen || 0) <= 0 && (enemy.stunned || 0) <= 0;
         const ranged = ENEMY_ATTACK_MODE[enemy.kind] === "ranged";
         if (enemy.kind === "boss") {
           const hpRatio = enemy.hp / Math.max(1, enemy.maxHp);
@@ -2252,6 +2507,7 @@ export default function Home() {
           if (dist(enemy, target) < enemy.r + target.r + 46) applyMeleeStrike(enemy.hit * .72, "#66b8ff", 46);
         }
         enemy.frozen = Math.max(0, (enemy.frozen || 0) - dt);
+        enemy.stunned = Math.max(0, (enemy.stunned || 0) - dt);
         enemy.slow = Math.max(0, enemy.slow - dt);
         if (canAct && (enemy.kind === "shieldmite" || enemy.kind === "splitter") && enemy.cooldown <= 0 && targetDistance < enemy.r + target.r + 78) {
           const reach = enemy.kind === "shieldmite" ? 112 : 132;
@@ -2303,7 +2559,7 @@ export default function Home() {
               shots.push({ x: enemy.x, y: enemy.y, vx: Math.cos(shotAngle) * (165 + phase * 20), vy: Math.sin(shotAngle) * (165 + phase * 20), r: 9, damage: enemy.hit * .5, life: 4, hostile: true, enemyKind: "boss", bossVariant: variant, homing: .7 + phase * .16 });
             }
             enemy.cooldown = phase === 1 ? 2.4 : phase === 2 ? 1.84 : 1.38;
-          } else {
+          } else if (variant === "forge") {
             const count = 1 + phase;
             for (let index = 0; index < count; index++) {
               const shotAngle = angle + (index - (count - 1) / 2) * .24;
@@ -2316,6 +2572,47 @@ export default function Home() {
               }
             }
             enemy.cooldown = phase === 1 ? 2.8 : phase === 2 ? 2.15 : 1.65;
+          } else if (variant === "leviathan") {
+            const chargeStart = { x: enemy.x, y: enemy.y };
+            const chargeDistance = 95 + phase * 32;
+            enemy.x = clamp(enemy.x + Math.cos(angle) * chargeDistance, -70, W + 70);
+            enemy.y = clamp(enemy.y + Math.sin(angle) * chargeDistance, -70, H + 70);
+            addEffect({ kind: "dash", bossVariant: variant, x: chargeStart.x, y: chargeStart.y, x2: enemy.x, y2: enemy.y, color: BOSS_VARIANTS[variant].color, radius: 72 }, .55);
+            if (dist(enemy, target) < enemy.r + target.r + 52) applyMeleeStrike(enemy.hit * .68, "#4d98ff", 58);
+            const torpedoes = 2 + phase;
+            for (let index = 0; index < torpedoes; index++) {
+              const shotAngle = angle + (index - (torpedoes - 1) / 2) * .22;
+              shots.push({ x: enemy.x, y: enemy.y, vx: Math.cos(shotAngle) * (275 + phase * 18), vy: Math.sin(shotAngle) * (275 + phase * 18), r: 10, damage: enemy.hit * .54, life: 3, hostile: true, enemyKind: "boss", bossVariant: variant, homing: .34 + phase * .08 });
+            }
+            enemy.cooldown = phase === 1 ? 2.75 : phase === 2 ? 2.18 : 1.72;
+          } else if (variant === "mirror") {
+            const pairs = 2 + phase;
+            for (let pair = 0; pair < pairs; pair++) {
+              const offset = .16 + pair * .15;
+              for (const direction of [-1, 1]) {
+                const shotAngle = angle + offset * direction;
+                shots.push({ x: enemy.x, y: enemy.y, vx: Math.cos(shotAngle) * (325 + phase * 24), vy: Math.sin(shotAngle) * (325 + phase * 24), r: 8, damage: enemy.hit * .48, life: 2.7, hostile: true, enemyKind: "boss", bossVariant: variant });
+              }
+            }
+            if (phase >= 2) {
+              const reflectedAngle = angle + Math.PI;
+              shots.push({ x: enemy.x, y: enemy.y, vx: Math.cos(reflectedAngle) * 360, vy: Math.sin(reflectedAngle) * 360, r: 9, damage: enemy.hit * .56, life: 2.5, hostile: true, enemyKind: "boss", bossVariant: variant });
+            }
+            beams.push({ x1: enemy.x - Math.sin(angle) * 150, y1: enemy.y + Math.cos(angle) * 150, x2: enemy.x + Math.sin(angle) * 150, y2: enemy.y - Math.cos(angle) * 150, life: .4, width: 5, color: "#ff68d7" });
+            enemy.cooldown = phase === 1 ? 2.15 : phase === 2 ? 1.62 : 1.25;
+          } else {
+            const rings = phase === 1 ? 1 : phase === 2 ? 2 : 3;
+            for (let ring = 0; ring < rings; ring++) {
+              const count = 6 + ring * 4 + phase * 2;
+              const offset = elapsed * .28 + ring * .3;
+              for (let index = 0; index < count; index++) {
+                const shotAngle = offset + index / count * Math.PI * 2;
+                const speed = 118 + ring * 48 + phase * 14;
+                shots.push({ x: enemy.x, y: enemy.y, vx: Math.cos(shotAngle) * speed, vy: Math.sin(shotAngle) * speed, r: 11, damage: enemy.hit * .43, life: 5.2 - ring * .45, hostile: true, enemyKind: "boss", bossVariant: variant, homing: ring === 0 ? .28 : undefined });
+              }
+            }
+            addEffect({ kind: "boss-phase", bossVariant: variant, x: enemy.x, y: enemy.y, color: "#66eadf", radius: 210 }, .72);
+            enemy.cooldown = phase === 1 ? 3.15 : phase === 2 ? 2.48 : 1.92;
           }
           burst(enemy.x, enemy.y, BOSS_VARIANTS[variant].color, 16);
         } else if (canAct && ranged && enemy.cooldown <= 0) {
@@ -2451,6 +2748,13 @@ export default function Home() {
           enemy.lastHitBy = shot.owner || "host";
           shot.hitIds = [...(shot.hitIds || []), enemy.id];
           if (shot.slow) enemy.slow = Math.max(enemy.slow, shot.slow);
+          if (shot.burn) {
+            const burnStats = shot.owner === "guest" ? remoteBuildRef.current : stats;
+            const burnPower = burnStats?.burnPower || 1;
+            enemy.burn = Math.max(enemy.burn || 0, shot.burn * burnPower);
+            enemy.burnDamage = Math.max(enemy.burnDamage || 0, (shot.burnDamage || shot.damage * .16) * burnPower);
+            enemy.burnOwner = shot.owner || "host";
+          }
           if (shot.splash) {
             for (const nearby of nearbyEnemies(enemy.x, enemy.y, shot.splash)) {
               if (nearby === enemy || nearby.hp <= 0 || dist(enemy, nearby) > shot.splash) continue;
@@ -2468,8 +2772,9 @@ export default function Home() {
             if (next) {
               next.hp -= shot.damage * .48;
               next.lastHitBy = shot.owner || "host";
-              beams.push({ x1: enemy.x, y1: enemy.y, x2: next.x, y2: next.y, life: .16, width: 4, color: "#a9ef84" });
-              burst(next.x, next.y, "#a9ef84", 5);
+              const chainColor = shot.classId === "thunder" ? "#48dfff" : "#a9ef84";
+              beams.push({ x1: enemy.x, y1: enemy.y, x2: next.x, y2: next.y, life: .16, width: 4, color: chainColor });
+              burst(next.x, next.y, chainColor, 5);
             }
             shot.chain = false;
           }
@@ -2723,6 +3028,18 @@ export default function Home() {
             ctx.translate(effect.x,effect.y);ctx.fillStyle="rgba(3,1,10,.92)";ctx.beginPath();ctx.arc(0,0,26+radius*.18,0,Math.PI*2);ctx.fill();
             ctx.lineWidth=6;for(let ring=1;ring<=4;ring++){ctx.beginPath();ctx.ellipse(0,0,radius*(.2*ring),radius*(.08+.045*ring),progress*3+ring*.4,0,Math.PI*2);ctx.stroke();}
             for(let index=0;index<10;index++){const angle=index/10*Math.PI*2-progress*4;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(Math.cos(angle)*radius,Math.sin(angle)*radius);ctx.quadraticCurveTo(Math.cos(angle+1.2)*radius*.48,Math.sin(angle+1.2)*radius*.48,0,0);ctx.stroke();}
+          }else if(effect.classId==="thunder"){
+            const topY=effect.y2??effect.y-520;ctx.lineWidth=9*(1-progress)+3;ctx.beginPath();ctx.moveTo(effect.x,topY);
+            for(let step=1;step<=8;step++){const y=topY+(effect.y-topY)*step/8;const x=effect.x+(step===8?0:(step%2?1:-1)*(14+step*2));ctx.lineTo(x,y);}ctx.stroke();
+            ctx.lineWidth=3;for(let index=0;index<8;index++){const angle=index/8*Math.PI*2+progress;ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*radius*.28,effect.y+Math.sin(angle)*radius*.28);ctx.lineTo(effect.x+Math.cos(angle+.16)*radius,effect.y+Math.sin(angle+.16)*radius);ctx.stroke();}
+          }else if(effect.classId==="sky"){
+            ctx.lineWidth=4;ctx.setLineDash([14,8]);ctx.beginPath();ctx.arc(effect.x,effect.y,radius*.62,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+            ctx.beginPath();ctx.moveTo(effect.x-radius,effect.y);ctx.lineTo(effect.x+radius,effect.y);ctx.moveTo(effect.x,effect.y-radius);ctx.lineTo(effect.x,effect.y+radius);ctx.stroke();
+            const topY=effect.y2??-120;ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(effect.x,topY);ctx.lineTo(effect.x,effect.y);ctx.stroke();
+          }else if(effect.classId==="cinder"){
+            const endX=effect.x2??effect.x,endY=effect.y2??effect.y;const angle=Math.atan2(endY-effect.y,endX-effect.x),length=Math.hypot(endX-effect.x,endY-effect.y);
+            ctx.translate(effect.x,effect.y);ctx.rotate(angle);const laneCount=clamp(effect.count??3,3,5);ctx.fillStyle="rgba(255,103,47,.18)";
+            for(let lane=0;lane<laneCount;lane++){const offset=(lane-(laneCount-1)/2)*118;ctx.beginPath();ctx.moveTo(0,offset-38);for(let step=1;step<=8;step++){ctx.lineTo(length*step/8,offset-30-Math.sin(step*2+progress*7)*26);}for(let step=8;step>=0;step--){ctx.lineTo(length*step/8,offset+30+Math.sin(step*2.2+progress*7)*26);}ctx.closePath();ctx.fill();ctx.stroke();}
           }else{
             ctx.lineWidth=8*(1-progress)+3;ctx.beginPath();ctx.arc(effect.x,effect.y,radius,0,Math.PI*2);ctx.stroke();
           }
@@ -2737,6 +3054,14 @@ export default function Home() {
           }else if(effect.bossVariant==="forge"){
             ctx.fillStyle="rgba(255,113,38,.18)";ctx.fillRect(effect.x-radius,effect.y-radius*.32,radius*2,radius*.64);
             for(let index=0;index<5;index++){const x=effect.x-radius+index*radius*.5;ctx.beginPath();ctx.moveTo(x,effect.y+radius*.35);ctx.lineTo(x+radius*.2,effect.y-radius*.35);ctx.stroke();}
+          }else if(effect.bossVariant==="leviathan"){
+            for(let index=0;index<4;index++){ctx.beginPath();ctx.ellipse(effect.x,effect.y,radius*(.4+index*.18),radius*(.12+index*.045),progress*.35,0,Math.PI*2);ctx.stroke();}
+          }else if(effect.bossVariant==="mirror"){
+            ctx.translate(effect.x,effect.y);ctx.rotate(progress*Math.PI*.5);for(let index=0;index<3;index++){const size=radius*(.35+index*.22);ctx.strokeRect(-size,-size,size*2,size*2);}
+          }else if(effect.bossVariant==="warden"){
+            ctx.beginPath();ctx.arc(effect.x,effect.y,radius,0,Math.PI*2);ctx.stroke();
+            for(let index=0;index<12;index++){const angle=index/12*Math.PI*2;ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*radius*.58,effect.y+Math.sin(angle)*radius*.58);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();}
+            ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(effect.x+Math.cos(progress*5.2)*radius*.72,effect.y+Math.sin(progress*5.2)*radius*.72);ctx.stroke();
           }else{
             for(let index=0;index<6;index++){const angle=index/6*Math.PI*2+progress;ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*radius*.25,effect.y+Math.sin(angle)*radius*.25);ctx.lineTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.stroke();}
           }
@@ -2811,10 +3136,22 @@ export default function Home() {
               ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*radius,effect.y+Math.sin(angle)*radius);ctx.lineTo(effect.x+Math.cos(angle)*radius*.25,effect.y+Math.sin(angle)*radius*.25);ctx.stroke();
             }
           }
+          if(effect.classId==="thunder"){
+            ctx.globalAlpha=alpha*.85;ctx.lineWidth=3;
+            for(let index=0;index<7;index++){const angle=index/7*Math.PI*2+progress;ctx.beginPath();ctx.moveTo(effect.x+Math.cos(angle)*radius*.18,effect.y+Math.sin(angle)*radius*.18);ctx.lineTo(effect.x+Math.cos(angle+.15)*radius*.48,effect.y+Math.sin(angle+.15)*radius*.48);ctx.lineTo(effect.x+Math.cos(angle-.08)*radius,effect.y+Math.sin(angle-.08)*radius);ctx.stroke();}
+          }
+          if(effect.classId==="sky"){
+            const endX=effect.x2??effect.x,endY=effect.y2??effect.y;ctx.setLineDash([18,10]);ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(endX,endY);ctx.stroke();ctx.setLineDash([]);
+            ctx.beginPath();ctx.arc(effect.x,effect.y,radius*.34,0,Math.PI*2);ctx.stroke();ctx.beginPath();ctx.moveTo(effect.x-radius*.55,effect.y);ctx.lineTo(effect.x+radius*.55,effect.y);ctx.moveTo(effect.x,effect.y-radius*.55);ctx.lineTo(effect.x,effect.y+radius*.55);ctx.stroke();
+          }
+          if(effect.classId==="cinder"){
+            const endX=effect.x2??effect.x,endY=effect.y2??effect.y;const angle=Math.atan2(endY-effect.y,endX-effect.x),length=Math.hypot(endX-effect.x,endY-effect.y);ctx.translate(effect.x,effect.y);ctx.rotate(angle);ctx.fillStyle="rgba(255,111,42,.2)";
+            ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(length,-length*.48);for(let step=7;step>=0;step--){const x=length*step/7;ctx.lineTo(x,Math.sin(step*2+progress*8)*22);}ctx.lineTo(length,length*.48);ctx.closePath();ctx.fill();ctx.stroke();
+          }
         }
         ctx.restore();
       }
-      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1, blade: 0, gravity: 1 };
+      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1, blade: 0, gravity: 1, thunder: 0, sky: 1, cinder: 2 };
       const projectileDimensions: Record<ClassId, [number, number]> = {
         assault: [34, 18],
         guardian: [38, 22],
@@ -2824,16 +3161,22 @@ export default function Home() {
         frost: [40, 23],
         blade: [40, 21],
         gravity: [42, 24],
+        thunder: [44, 20],
+        sky: [58, 17],
+        cinder: [42, 24],
       };
       for(const s of shots){
         if(s.hostile){
           if(s.enemyKind==="boss"){
-            const variant=s.bossVariant||"rift",sprite=BOSS_VARIANTS[variant].sprite;
-            if(bossProjectileSprites.complete&&bossProjectileSprites.naturalWidth){
-              const cellW=bossProjectileSprites.naturalWidth/2,cellH=bossProjectileSprites.naturalHeight/2;
-              const drawW=variant==="forge"?72:variant==="weaver"?64:74,drawH=variant==="weaver"?52:38;
+            const variant=s.bossVariant||"rift",bossInfo=BOSS_VARIANTS[variant],sprite=bossInfo.sprite;
+            const bossProjectileImage=bossInfo.sheet==="v2"?bossProjectileSpritesV2:bossProjectileSprites;
+            if(bossProjectileImage.complete&&bossProjectileImage.naturalWidth){
+              const columns=bossInfo.sheet==="v2"?3:2,rows=bossInfo.sheet==="v2"?1:2;
+              const cellW=bossProjectileImage.naturalWidth/columns,cellH=bossProjectileImage.naturalHeight/rows;
+              const drawW=variant==="warden"?62:variant==="mirror"?66:variant==="leviathan"?82:variant==="forge"?72:variant==="weaver"?64:74;
+              const drawH=variant==="warden"?62:variant==="mirror"?42:variant==="leviathan"?34:variant==="weaver"?52:38;
               ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));ctx.shadowColor=BOSS_VARIANTS[variant].color;ctx.shadowBlur=18;
-              ctx.drawImage(bossProjectileSprites,(sprite%2)*cellW,Math.floor(sprite/2)*cellH,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);ctx.restore();
+              ctx.drawImage(bossProjectileImage,(sprite%columns)*cellW+4,Math.floor(sprite/columns)*cellH+4,cellW-8,cellH-8,-drawW/2,-drawH/2,drawW,drawH);ctx.restore();
             }else{
               ctx.save();ctx.translate(s.x,s.y);ctx.fillStyle=BOSS_VARIANTS[variant].color;ctx.beginPath();ctx.arc(0,0,s.r+3,0,Math.PI*2);ctx.fill();ctx.restore();
             }
@@ -2871,15 +3214,16 @@ export default function Home() {
         }
         const sprite=projectileSpriteIndex[s.classId];
         const classInfo=CLASSES.find((item)=>item.id===s.classId)||CLASSES[0];
-        const projectileImage=classInfo.sheet==="specialist"?specialistProjectiles:classInfo.sheet==="vanguard"?vanguardProjectiles:projectileSprites;
+        const projectileImage=classInfo.sheet==="specialist"?specialistProjectiles:classInfo.sheet==="vanguard"?vanguardProjectiles:classInfo.sheet==="expedition"?v2SupportAssets:projectileSprites;
         if(!projectileImage.complete||!projectileImage.naturalWidth){
           ctx.fillStyle="#fff2ba";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();continue;
         }
-        const cellW=projectileImage.naturalWidth/2,cellH=classInfo.sheet==="core"?projectileImage.naturalHeight/2:projectileImage.naturalHeight;
+        const projectileColumns=classInfo.sheet==="expedition"?3:2;
+        const cellW=projectileImage.naturalWidth/projectileColumns,cellH=classInfo.sheet==="core"||classInfo.sheet==="expedition"?projectileImage.naturalHeight/2:projectileImage.naturalHeight;
         const [drawW,drawH]=projectileDimensions[s.classId];
         ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));
         ctx.shadowColor=classInfo.color;ctx.shadowBlur=8;
-        ctx.drawImage(projectileImage,(sprite%2)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:0,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
+        ctx.drawImage(projectileImage,(sprite%projectileColumns)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:classInfo.sheet==="expedition"?cellH:0,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
         ctx.restore();
       }
       const enemySpriteIndex: Partial<Record<EnemyKind, number>> = { runner: 0, crawler: 1, artillery: 2, assassin: 3, brute: 4, commander: 5 };
@@ -2895,9 +3239,17 @@ export default function Home() {
         ctx.rotate(Math.atan2(visualTarget.y-e.y,visualTarget.x-e.x)-Math.PI/2);
         if(e.kind==="boss"){ctx.shadowColor=BOSS_VARIANTS[e.bossVariant||"rift"].color;ctx.shadowBlur=34;}
         else if(e.elite){ctx.shadowColor="#f4c95d";ctx.shadowBlur=18;}
-        if(e.kind==="boss"&&bossVariantSprites.complete&&bossVariantSprites.naturalWidth){
-          const bossSprite=BOSS_VARIANTS[e.bossVariant||"rift"].sprite,cellW=bossVariantSprites.naturalWidth/2,cellH=bossVariantSprites.naturalHeight/2;
-          ctx.drawImage(bossVariantSprites,(bossSprite%2)*cellW,Math.floor(bossSprite/2)*cellH,cellW,cellH,-size/2,-size/2,size,size);
+        if(e.kind==="boss"){
+          const bossInfo=BOSS_VARIANTS[e.bossVariant||"rift"];
+          const bossImage=bossInfo.sheet==="v2"?bossVariantSpritesV2:bossVariantSprites;
+          if(bossImage.complete&&bossImage.naturalWidth){
+            const columns=bossInfo.sheet==="v2"?3:2,rows=bossInfo.sheet==="v2"?1:2;
+            const cellW=bossImage.naturalWidth/columns,cellH=bossImage.naturalHeight/rows;
+            const inset=bossInfo.sheet==="v2"?9:0;
+            ctx.drawImage(bossImage,(bossInfo.sprite%columns)*cellW+inset,Math.floor(bossInfo.sprite/columns)*cellH+inset,cellW-inset*2,cellH-inset*2,-size/2,-size/2,size,size);
+          }else{
+            ctx.fillStyle=e.color;ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();
+          }
         }else if(reinforcementSprite!==undefined&&enemyReinforcementSprites.complete&&enemyReinforcementSprites.naturalWidth){
           const cellW=enemyReinforcementSprites.naturalWidth/3,cellH=enemyReinforcementSprites.naturalHeight/2;
           ctx.drawImage(enemyReinforcementSprites,(reinforcementSprite%3)*cellW,Math.floor(reinforcementSprite/3)*cellH,cellW,cellH,-size/2,-size/2,size,size);
@@ -2912,11 +3264,24 @@ export default function Home() {
           const variant=e.bossVariant||"rift",variantColor=BOSS_VARIANTS[variant].color;
           ctx.save();ctx.translate(e.x,e.y);ctx.rotate(performance.now()/(variant==="storm"?520:900));ctx.strokeStyle=variantColor;ctx.lineWidth=4;ctx.shadowColor=variantColor;ctx.shadowBlur=14;
           if(variant==="weaver"){for(let index=0;index<3;index++){ctx.beginPath();ctx.ellipse(0,0,e.r+18+index*8,e.r*.48+index*5,index*.7,0,Math.PI*2);ctx.stroke();}}
+          else if(variant==="leviathan"){for(let index=0;index<3;index++){ctx.beginPath();ctx.ellipse(0,0,e.r+22+index*12,e.r*.34+index*4,0,0,Math.PI*2);ctx.stroke();}}
+          else if(variant==="mirror"){for(let index=0;index<2;index++){ctx.rotate(Math.PI/4);ctx.strokeRect(-e.r-18-index*11,-e.r-18-index*11,(e.r+18+index*11)*2,(e.r+18+index*11)*2);}}
+          else if(variant==="warden"){for(let index=0;index<12;index++){const angle=index/12*Math.PI*2;ctx.beginPath();ctx.moveTo(Math.cos(angle)*(e.r+12),Math.sin(angle)*(e.r+12));ctx.lineTo(Math.cos(angle)*(e.r+29),Math.sin(angle)*(e.r+29));ctx.stroke();}ctx.beginPath();ctx.arc(0,0,e.r+22,0,Math.PI*2);ctx.stroke();}
           else{ctx.beginPath();const sides=variant==="forge"?4:variant==="storm"?8:6;for(let index=0;index<sides;index++){const angle=index/sides*Math.PI*2;const radius=e.r+18;const px=Math.cos(angle)*radius,py=Math.sin(angle)*radius;if(index)ctx.lineTo(px,py);else ctx.moveTo(px,py);}ctx.closePath();ctx.stroke();}
           ctx.restore();
         }else if(e.kind==="shieldmite"&&(e.barrier||0)>0){
           ctx.save();ctx.strokeStyle="#72fff2";ctx.fillStyle="rgba(83,214,206,.12)";ctx.lineWidth=3;ctx.shadowColor="#53d6ce";ctx.shadowBlur=12;ctx.beginPath();ctx.arc(e.x,e.y,e.r+13,-Math.PI*.85,-Math.PI*.15);ctx.stroke();ctx.fill();ctx.restore();
         }else if(e.elite){ctx.strokeStyle="rgba(244,201,93,.85)";ctx.lineWidth=2;ctx.strokeRect(e.x-e.r-6,e.y-e.r-6,(e.r+6)*2,(e.r+6)*2);}
+        if((e.burn||0)>0){
+          ctx.save();ctx.translate(e.x,e.y);ctx.fillStyle="rgba(255,116,38,.78)";ctx.shadowColor="#ff7a2f";ctx.shadowBlur=13;
+          for(let index=0;index<5;index++){const flameAngle=index/5*Math.PI*2+performance.now()/650;const flameRadius=e.r+7+(index%2)*5;const fx=Math.cos(flameAngle)*flameRadius,fy=Math.sin(flameAngle)*flameRadius;ctx.beginPath();ctx.moveTo(fx,fy-10);ctx.lineTo(fx-5,fy+7);ctx.lineTo(fx+5,fy+7);ctx.closePath();ctx.fill();}
+          ctx.restore();
+        }
+        if((e.stunned||0)>0){
+          ctx.save();ctx.translate(e.x,e.y);ctx.strokeStyle="#8bf5ff";ctx.lineWidth=2.6;ctx.shadowColor="#48dfff";ctx.shadowBlur=14;
+          for(let index=0;index<4;index++){const angle=index/4*Math.PI*2+performance.now()/420;ctx.beginPath();ctx.moveTo(Math.cos(angle)*e.r*.45,Math.sin(angle)*e.r*.45);ctx.lineTo(Math.cos(angle+.18)*(e.r+8),Math.sin(angle+.18)*(e.r+8));ctx.lineTo(Math.cos(angle-.08)*(e.r+18),Math.sin(angle-.08)*(e.r+18));ctx.stroke();}
+          ctx.restore();
+        }
         if((e.frozen||0)>0){
           const iceRadius=e.r+10,icePulse=1+Math.sin(performance.now()/110)*.035;
           ctx.save();ctx.translate(e.x,e.y);ctx.scale(icePulse,icePulse);ctx.fillStyle="rgba(120,222,255,.28)";ctx.strokeStyle="#b9f4ff";ctx.lineWidth=2.4;ctx.shadowColor="#75dcff";ctx.shadowBlur=18;
@@ -2944,10 +3309,16 @@ export default function Home() {
           : classInfo.id === "frost"
             ? frostSprite
             : classInfo.id === "blade"
-              ? bladeSprite
-              : classInfo.id === "gravity"
-                ? gravitySprite
-                : playerSprites;
+            ? bladeSprite
+            : classInfo.id === "gravity"
+              ? gravitySprite
+              : classInfo.id === "thunder"
+                ? thunderSprite
+                : classInfo.id === "sky"
+                  ? skySprite
+                  : classInfo.id === "cinder"
+                    ? cinderSprite
+                    : playerSprites;
         const independentSprite = classInfo.sheet !== "core";
         const cellW = independentSprite ? mechImage.naturalWidth : mechImage.naturalWidth / 2;
         const cellH = independentSprite ? mechImage.naturalHeight : mechImage.naturalHeight / 2;
@@ -2977,17 +3348,18 @@ export default function Home() {
       const drawDrones = (actor: Actor, count: number) => {
         if(count<=0)return;
         const classInfo=CLASSES.find((item)=>item.id===actor.classId)||CLASSES[0];
-        const droneImage=classInfo.sheet==="specialist"?specialistDrones:classInfo.sheet==="vanguard"?vanguardDrones:droneSprites;
+        const droneImage=classInfo.sheet==="specialist"?specialistDrones:classInfo.sheet==="vanguard"?vanguardDrones:classInfo.sheet==="expedition"?v2SupportAssets:droneSprites;
         if(!droneImage.complete||!droneImage.naturalWidth)return;
-        const cellW=droneImage.naturalWidth/2,cellH=classInfo.sheet==="core"?droneImage.naturalHeight/2:droneImage.naturalHeight;
+        const droneColumns=classInfo.sheet==="expedition"?3:2;
+        const cellW=droneImage.naturalWidth/droneColumns,cellH=classInfo.sheet==="core"||classInfo.sheet==="expedition"?droneImage.naturalHeight/2:droneImage.naturalHeight;
         for(let index=0;index<count;index++){
           const position=dronePosition(actor,index,count);
           const sprite=classInfo.sprite;
           const target=enemies.length?enemies.reduce((nearest,enemy)=>dist(position,enemy)<dist(position,nearest)?enemy:nearest):null;
           const angle=target?Math.atan2(target.y-position.y,target.x-position.x):position.angle+Math.PI/2;
-          const size=classInfo.id==="frost"||classInfo.id==="gravity"?38:classInfo.id==="blade"?36:32;
+          const size=classInfo.id==="cinder"?42:classInfo.id==="frost"||classInfo.id==="gravity"?38:classInfo.id==="blade"||classInfo.id==="thunder"||classInfo.id==="sky"?36:32;
           ctx.save();ctx.translate(position.x,position.y);ctx.rotate(angle);ctx.shadowColor=classInfo.color;ctx.shadowBlur=10;
-          ctx.drawImage(droneImage,(sprite%2)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:0,cellW,cellH,-size/2,-size/2,size,size);
+          ctx.drawImage(droneImage,(sprite%droneColumns)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:0,cellW,cellH,-size/2,-size/2,size,size);
           ctx.restore();
         }
       };
@@ -3129,7 +3501,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.12.3 · 四选构筑</div>
+        <div className="status"><i /> 版本 0.13.0 · 远征机群</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>

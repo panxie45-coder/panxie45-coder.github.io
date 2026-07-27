@@ -30,14 +30,14 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.12\.3 · 四选构筑/);
+  assert.match(html, /版本 0\.13\.0 · 远征机群/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
   assert.match(html, /终极大招/);
 });
 
-test("ships eight independent classes, drones, effects, bosses, and generated sprites", async () => {
+test("ships eleven independent classes, drones, effects, bosses, and generated sprites", async () => {
   const page = await readFile(new URL("../Game.tsx", import.meta.url), "utf8");
   const audio = await readFile(new URL("../audio.ts", import.meta.url), "utf8");
   const css = await readFile(new URL("../game.css", import.meta.url), "utf8");
@@ -46,7 +46,7 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(rootEntry, /games\/ember-protocol\/Game/);
   assert.doesNotMatch(rootEntry, /ember-protocol-v9/);
   assert.match(page, /ember-protocol-v9/);
-  assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost" \| "blade" \| "gravity"/);
+  assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost" \| "blade" \| "gravity" \| "thunder" \| "sky" \| "cinder"/);
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
   assert.match(page, /个人机体强化 · 独立选择/);
   assert.match(page, /waitingForRemoteUpgrade/);
@@ -90,6 +90,9 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /const fireBlade/);
   assert.match(page, /const bladeRush/);
   assert.match(page, /const gravityWell/);
+  assert.match(page, /const thunderChain/);
+  assert.match(page, /const railSnipe/);
+  assert.match(page, /const incinerateCone/);
   assert.match(page, /const dronePosition/);
   assert.match(page, /const CLASS_UPGRADES/);
   assert.match(page, /const ULTIMATE_UPGRADES/);
@@ -194,10 +197,10 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /enemy\.slow = Math\.max/);
   assert.match(page, /frozen\?: number/);
   assert.match(page, /enemy\.frozen = Math\.max/);
-  assert.match(page, /const canAct = \(enemy\.frozen \|\| 0\) <= 0/);
+  assert.match(page, /const canAct = \(enemy\.frozen \|\| 0\) <= 0 && \(enemy\.stunned \|\| 0\) <= 0/);
   assert.match(page, /else if \(canAct && ranged && enemy\.cooldown <= 0\)/);
   assert.match(page, /const iceRadius=e\.r\+10/);
-  assert.match(page, /type BossVariant = "rift" \| "storm" \| "weaver" \| "forge"/);
+  assert.match(page, /type BossVariant = "rift" \| "storm" \| "weaver" \| "forge" \| "leviathan" \| "mirror" \| "warden"/);
   assert.match(page, /shieldmite: "melee"/);
   assert.match(page, /splitter: "melee"/);
   assert.match(page, /rammer: "melee"/);
@@ -209,6 +212,12 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
   assert.match(page, /10 \+ currentLevel \* 4\.4 \+ Math\.pow/);
   assert.match(page, /boss-variants\.png/);
   assert.match(page, /boss-projectiles\.png/);
+  assert.match(page, /boss-variants-v2\.png/);
+  assert.match(page, /boss-projectiles-v2\.png/);
+  assert.match(page, /thunder-mech\.png/);
+  assert.match(page, /sky-talon-mech\.png/);
+  assert.match(page, /cinder-forge-mech\.png/);
+  assert.match(page, /v2-support-assets\.png/);
   assert.match(page, /enemy-reinforcements\.png/);
   assert.match(page, /enemy-reinforcement-projectiles\.png/);
   assert.doesNotMatch(page, /ctx\.arc\(player\.x/);
@@ -243,6 +252,12 @@ test("ships eight independent classes, drones, effects, bosses, and generated sp
     access(new URL("../public/game/assassin-projectile.png", import.meta.url)),
     access(new URL("../public/game/boss-variants.png", import.meta.url)),
     access(new URL("../public/game/boss-projectiles.png", import.meta.url)),
+    access(new URL("../public/game/boss-variants-v2.png", import.meta.url)),
+    access(new URL("../public/game/boss-projectiles-v2.png", import.meta.url)),
+    access(new URL("../public/game/thunder-mech.png", import.meta.url)),
+    access(new URL("../public/game/sky-talon-mech.png", import.meta.url)),
+    access(new URL("../public/game/cinder-forge-mech.png", import.meta.url)),
+    access(new URL("../public/game/v2-support-assets.png", import.meta.url)),
     access(new URL("../public/game/enemy-reinforcements.png", import.meta.url)),
     access(new URL("../public/game/enemy-reinforcement-projectiles.png", import.meta.url)),
     access(new URL("../public/favicon.svg", import.meta.url)),
