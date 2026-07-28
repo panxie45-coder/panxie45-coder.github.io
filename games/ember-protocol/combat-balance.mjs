@@ -69,3 +69,25 @@ export const supplyRewardFor = (kills, wave) => {
  */
 export const skillCooldownFor = (baseCooldown, skillHaste, minimum = 4) =>
   Math.max(minimum, baseCooldown * skillHaste);
+
+/**
+ * Every chassis receives a support drone, but the engineer starts with three.
+ * Individual engineer drones therefore use a smaller per-unit coefficient so
+ * the formation is stronger as a whole without tripling the opening DPS.
+ *
+ * @param {string} classId
+ */
+export const droneDamageScaleFor = (classId) => classId === "engineer" ? .22 : .26;
+
+/**
+ * A lightweight budget score used by regression tests when adding new mechs.
+ * Tanks/controllers may sit near the lower edge and glass cannons near the
+ * upper edge, but new releases should stay inside the shared launch envelope.
+ *
+ * @param {{ classId: string; damage: number; interval: number; critChance: number; drones: number; dronePower: number }} stats
+ */
+export const primaryThreatScore = (stats) => {
+  const critMultiplier = 1 + Math.max(0, stats.critChance);
+  const droneMultiplier = 1 + Math.max(0, stats.drones) * droneDamageScaleFor(stats.classId) * Math.max(0, stats.dronePower);
+  return stats.damage / Math.max(.08, stats.interval) * critMultiplier * droneMultiplier;
+};

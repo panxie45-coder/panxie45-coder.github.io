@@ -5,6 +5,7 @@ import { getRelaySockets, joinRoom } from "@trystero-p2p/mqtt";
 import type { CSSProperties } from "react";
 import { EmberAudioEngine, type SoundCue } from "./audio";
 import {
+  droneDamageScaleFor,
   earlyShopDiscountFor,
   earlyWaveXpMultiplier,
   FIRST_SHOP_WAVE,
@@ -79,6 +80,13 @@ type CombatStats = {
   aegisPower: number;
   venomPower: number;
   chronoPower: number;
+  assaultGuidance: number;
+  guardianRetaliation: number;
+  engineerTriage: number;
+  phantomAfterimage: number;
+  laserRefraction: number;
+  frostShatter: number;
+  bladeCombo: number;
 };
 type BuildFrame = CombatStats & { classId: ClassId; maxHp: number };
 type ClassSpec = {
@@ -296,39 +304,46 @@ const UPGRADES: Upgrade[] = [
 const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
   assault: [
     { id: "assault-double-storm", classId: "assault", title: "双重风暴", desc: "导弹风暴追加一轮齐射", icon: "✹" },
-    { id: "assault-saturation", classId: "assault", title: "饱和弹舱", desc: "每轮导弹数量 +4", icon: "✦" },
-    { id: "assault-warhead", classId: "assault", title: "炽核战斗部", desc: "火力 +18%，爆炸范围扩大", icon: "◆" },
+    { id: "assault-saturation", classId: "assault", title: "饱和弹舱", desc: "每轮导弹数量 +6", icon: "✦" },
+    { id: "assault-warhead", classId: "assault", title: "炽核战斗部", desc: "火力 +24%，爆炸范围扩大", icon: "◆" },
+    { id: "assault-guidance", classId: "assault", title: "猎群制导", desc: "导弹风暴获得主动索敌与弯道追踪，仅可装配一次", icon: "⌖", rarity: "epic" },
   ],
   guardian: [
-    { id: "guardian-fortress", classId: "guardian", title: "永固壁垒", desc: "绝对屏障持续时间 +0.75 秒，最多 5 秒", icon: "⬢" },
-    { id: "guardian-rail", classId: "guardian", title: "震荡轨炮", desc: "重炮伤害 +24%，弹体更大", icon: "▰" },
-    { id: "guardian-plating", classId: "guardian", title: "泰坦覆甲", desc: "生命上限 +28，额外减伤 5%", icon: "▣" },
+    { id: "guardian-fortress", classId: "guardian", title: "永固壁垒", desc: "绝对屏障持续时间 +0.9 秒，最多 5 秒", icon: "⬢" },
+    { id: "guardian-rail", classId: "guardian", title: "震荡轨炮", desc: "重炮伤害 +30%，弹体更大", icon: "▰" },
+    { id: "guardian-plating", classId: "guardian", title: "泰坦覆甲", desc: "生命上限 +34，额外减伤 6%", icon: "▣" },
+    { id: "guardian-retaliation", classId: "guardian", title: "棱堡反击", desc: "展开绝对屏障时向八方向释放穿甲震波，仅可装配一次", icon: "✣", rarity: "epic" },
   ],
   engineer: [
     { id: "engineer-swarm", classId: "engineer", title: "蜂群扩编", desc: "增加 1 架专属无人机", icon: "✣" },
-    { id: "engineer-link", classId: "engineer", title: "高压链路", desc: "无人机伤害 +35%", icon: "⌁" },
-    { id: "engineer-repair", classId: "engineer", title: "战地工坊", desc: "修复脉冲治疗量 +40%", icon: "✚" },
+    { id: "engineer-link", classId: "engineer", title: "高压链路", desc: "无人机伤害 +28%", icon: "⌁" },
+    { id: "engineer-repair", classId: "engineer", title: "战地工坊", desc: "修复脉冲治疗量 +55%", icon: "✚" },
+    { id: "engineer-triage", classId: "engineer", title: "战医蜂群", desc: "修复脉冲同时命令全部无人机发射链式反击弹，仅可装配一次", icon: "✥", rarity: "epic" },
   ],
   phantom: [
-    { id: "phantom-fold", classId: "phantom", title: "折跃增程", desc: "相位突进距离 +70", icon: "➟" },
+    { id: "phantom-fold", classId: "phantom", title: "折跃增程", desc: "相位突进距离 +90", icon: "➟" },
     { id: "phantom-reserve", classId: "phantom", title: "相位蓄能", desc: "相位突进储存上限 +1，最多储存 3 次并可连续释放", icon: "◌" },
-    { id: "phantom-needle", classId: "phantom", title: "虚空针簇", desc: "暴击率 +12%，伤害 +12%", icon: "✧" },
-    { id: "phantom-cycle", classId: "phantom", title: "相位回路", desc: "主技能与副技能冷却 -22%", icon: "◌" },
+    { id: "phantom-needle", classId: "phantom", title: "虚空针簇", desc: "暴击率 +14%，伤害 +18%", icon: "✧" },
+    { id: "phantom-cycle", classId: "phantom", title: "相位回路", desc: "主技能与副技能冷却 -25%", icon: "◌" },
+    { id: "phantom-afterimage", classId: "phantom", title: "坍缩残像", desc: "相位突进终点引爆高伤残像，仅可装配一次", icon: "◇", rarity: "epic" },
   ],
   laser: [
-    { id: "laser-overfocus", classId: "laser", title: "超焦透镜", desc: "聚焦光束伤害与宽度 +30%", icon: "┃" },
-    { id: "laser-prism", classId: "laser", title: "分光棱镜", desc: "弹丸伤害 +16%，额外一发弹丸", icon: "◇" },
-    { id: "laser-capacitor", classId: "laser", title: "赤曜电容", desc: "主技能与副技能冷却 -20%", icon: "◎" },
+    { id: "laser-overfocus", classId: "laser", title: "超焦透镜", desc: "聚焦光束伤害与宽度 +38%", icon: "┃" },
+    { id: "laser-prism", classId: "laser", title: "分光棱镜", desc: "弹丸伤害 +20%，额外一发弹丸", icon: "◇" },
+    { id: "laser-capacitor", classId: "laser", title: "赤曜电容", desc: "主技能与副技能冷却 -24%", icon: "◎" },
+    { id: "laser-refraction", classId: "laser", title: "折射阵列", desc: "聚焦光束分裂出两道斜向副光束，仅可装配一次", icon: "✳", rarity: "epic" },
   ],
   frost: [
-    { id: "frost-zero", classId: "frost", title: "绝对零芯", desc: "冻结范围、伤害和减速时长 +28%", icon: "❄" },
-    { id: "frost-shatter", classId: "frost", title: "冰晶爆裂", desc: "炮弹伤害 +20%，弹体更大", icon: "✣" },
-    { id: "frost-armor", classId: "frost", title: "低温装甲", desc: "生命上限 +24，额外减伤 5%", icon: "⬡" },
+    { id: "frost-zero", classId: "frost", title: "绝对零芯", desc: "冻结范围、伤害和减速时长 +35%", icon: "❄" },
+    { id: "frost-shatter", classId: "frost", title: "冰晶爆裂", desc: "炮弹伤害 +26%，弹体更大", icon: "✣" },
+    { id: "frost-armor", classId: "frost", title: "低温装甲", desc: "生命上限 +30，额外减伤 6%", icon: "⬡" },
+    { id: "frost-brittle", classId: "frost", title: "脆化协议", desc: "霜垒弹丸对已冻结目标额外造成 35% 伤害，仅可装配一次", icon: "✦", rarity: "epic" },
   ],
   blade: [
-    { id: "blade-edge", classId: "blade", title: "延展刃域", desc: "近战范围 +18%，斩击伤害 +16%", icon: "〆" },
-    { id: "blade-vamp", classId: "blade", title: "噬能回路", desc: "斩击修复量 +45%，生命上限 +16", icon: "✚" },
-    { id: "blade-tempo", classId: "blade", title: "连斩协议", desc: "斩击间隔 -15%，移动速度 +8%", icon: "⚔" },
+    { id: "blade-edge", classId: "blade", title: "延展刃域", desc: "近战范围 +22%，斩击伤害 +20%", icon: "〆" },
+    { id: "blade-vamp", classId: "blade", title: "噬能回路", desc: "斩击修复量 +55%，生命上限 +20", icon: "✚" },
+    { id: "blade-tempo", classId: "blade", title: "连斩协议", desc: "斩击间隔 -18%，移动速度 +9%", icon: "⚔" },
+    { id: "blade-combo", classId: "blade", title: "三段熔断", desc: "每第三次自动斩击变为高伤破甲重斩，仅可装配一次", icon: "Ⅲ", rarity: "epic" },
   ],
   gravity: [
     { id: "gravity-collapse", classId: "gravity", title: "坍缩增幅", desc: "奇点范围与伤害 +28%", icon: "◉" },
@@ -707,6 +722,17 @@ const secondaryUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) =
   if (upgrade.id === "chrono-secondary-wheels") return currentBuild.secondaryProjectiles < 2;
   return true;
 };
+const classUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
+  if (upgrade.id === "phantom-reserve") return currentBuild.dashCharges < 3;
+  if (upgrade.id === "assault-guidance") return (currentBuild.assaultGuidance || 0) < 1;
+  if (upgrade.id === "guardian-retaliation") return (currentBuild.guardianRetaliation || 0) < 1;
+  if (upgrade.id === "engineer-triage") return (currentBuild.engineerTriage || 0) < 1;
+  if (upgrade.id === "phantom-afterimage") return (currentBuild.phantomAfterimage || 0) < 1;
+  if (upgrade.id === "laser-refraction") return (currentBuild.laserRefraction || 0) < 1;
+  if (upgrade.id === "frost-brittle") return (currentBuild.frostShatter || 0) < 1;
+  if (upgrade.id === "blade-combo") return (currentBuild.bladeCombo || 0) < 1;
+  return true;
+};
 const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>, wave: number) => {
   const available = items.filter((upgrade) => !excludedIds.has(upgrade.id));
   const weighted = available.map((upgrade) => {
@@ -726,7 +752,7 @@ const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>, wave: n
 const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame, wave: number) => {
   const availableUltimate = ULTIMATE_UPGRADES[classId].filter((upgrade) => ultimateUpgradeAvailable(upgrade, currentBuild));
   const availableSecondary = SECONDARY_UPGRADES[classId].filter((upgrade) => secondaryUpgradeAvailable(upgrade, currentBuild));
-  const availableClass = CLASS_UPGRADES[classId].filter((upgrade) => upgrade.id !== "phantom-reserve" || currentBuild.dashCharges < 3);
+  const availableClass = CLASS_UPGRADES[classId].filter((upgrade) => classUpgradeAvailable(upgrade, currentBuild));
   const classPool = [...availableClass, ...availableSecondary, ...availableUltimate];
   const fullPool = [...UPGRADES, ...classPool];
   const excluded = new Set<string>();
@@ -825,8 +851,8 @@ const CLASSES: ClassSpec[] = [
   { id: "thunder", name: "雷霆型", role: "连锁电弧控场", active: "雷链过载：自动串联附近敌人并短暂麻痹", secondary: "电磁脉冲：范围麻痹并扩散多重电弧", passive: "感应雷弹：命中后电弧跳跃至附近目标", ultimate: "天罚雷域：连续标记高威胁目标并降下多轮落雷", cooldown: 12, secondaryCooldown: 9, color: "#48dfff", sprite: 0, sheet: "expedition", radius: 17, renderSize: 86 },
   { id: "sky", name: "天隼型", role: "超远程轨道狙击", active: "贯星狙击：贯穿整条战线并重创首领", secondary: "猎杀标记：向首领或强敌降下三发轨道矛", passive: "弱点照准：高伤害、高暴击、超高速贯穿弹", ultimate: "神矛阵列：轨道光矛依次点杀最高威胁目标", cooldown: 14, secondaryCooldown: 12, color: "#ff6a62", sprite: 1, sheet: "expedition", radius: 15, renderSize: 88 },
   { id: "cinder", name: "熔炉型", role: "重装燃烧推进", active: "焚城喷流：向敌群喷出锥形烈焰并持续灼烧", secondary: "熔火地雷：投射爆炸核心并留下持续灼烧", passive: "熔岩弹：爆炸后点燃范围内敌人", ultimate: "炼狱推进：多道火墙横推战场并留下燃烧地带", cooldown: 13, secondaryCooldown: 10, color: "#ff8a32", sprite: 2, sheet: "expedition", radius: 26, renderSize: 98 },
-  { id: "aegis", name: "圣铠型", role: "圣盾反击", active: "光盾震击：展开双盾、击退敌人并短暂免伤", secondary: "裁决长矛：发射贯穿整条战线的圣光长矛", passive: "圣辉穿刺：主炮贯穿敌阵并削弱前排", ultimate: "天穹圣域：展开移动圣域，修复队友并连续反击", cooldown: 13, secondaryCooldown: 9, color: "#ffd36a", sprite: 0, sheet: "frontier", radius: 24, renderSize: 96 },
-  { id: "venom", name: "蚀蜂型", role: "腐蚀猎杀", active: "腐蚀云爆：引爆酸雾并持续溶解附近敌人", secondary: "蝎尾毒刺：发射分裂腐蚀长钉", passive: "酸蚀弹头：所有弹丸叠加持续腐蚀", ultimate: "灾厄酸雨：锁定敌群降下多轮腐蚀雨", cooldown: 11, secondaryCooldown: 8, color: "#b5e536", sprite: 1, sheet: "frontier", radius: 18, renderSize: 92 },
+  { id: "aegis", name: "圣铠型", role: "圣盾反击", active: "光盾裁决：短暂护体并反击最多六个高威胁目标", secondary: "裁决长矛：发射贯穿整条战线的圣光长矛", passive: "圣辉穿刺：主炮贯穿敌阵并削弱前排", ultimate: "天穹圣域：展开移动圣域，修复队友并连续反击", cooldown: 13, secondaryCooldown: 9, color: "#ffd36a", sprite: 0, sheet: "frontier", radius: 24, renderSize: 96 },
+  { id: "venom", name: "蚀蜂型", role: "腐蚀猎杀", active: "腐蚀云爆：引爆酸雾并持续溶解附近敌人", secondary: "蝎尾毒刺：发射分裂腐蚀长钉", passive: "传染酸蚀：腐蚀目标死亡时向两名近敌扩散", ultimate: "灾厄酸雨：锁定敌群降下多轮腐蚀雨", cooldown: 11, secondaryCooldown: 8, color: "#b5e536", sprite: 1, sheet: "frontier", radius: 18, renderSize: 92 },
   { id: "chrono", name: "时轮型", role: "时间控制", active: "时停领域：锁死敌人朝向并静止范围内全部弹幕", secondary: "回溯飞轮：发射贯穿时序刃，短暂停止命中目标", passive: "延迟回响：主炮造成时间迟滞，不产生冰冻", ultimate: "零时刻：展开大型时停穹顶，使敌人与弹幕完全静止", cooldown: 14, secondaryCooldown: 10, color: "#f0ad4e", sprite: 2, sheet: "frontier", radius: 20, renderSize: 94 },
 ];
 
@@ -931,21 +957,28 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     aegisPower: 1,
     venomPower: 1,
     chronoPower: 1,
+    assaultGuidance: 0,
+    guardianRetaliation: 0,
+    engineerTriage: 0,
+    phantomAfterimage: 0,
+    laserRefraction: 0,
+    frostShatter: 0,
+    bladeCombo: 0,
   };
-  if (classId === "assault") return { ...base, maxHp: 116, damage: 46, interval: .6, projectileSpeed: 535, projectileSize: 7.5 };
-  if (classId === "guardian") return { ...base, maxHp: 155, speed: 224, damage: 78, interval: 1.05, projectileSpeed: 455, projectileSize: 10, damageReduction: .25 };
-  if (classId === "engineer") return { ...base, maxHp: 116, damage: 29, interval: .5, magnet: 118, projectileSpeed: 545, projectileSize: 6, drones: 3, repairPower: 1.15, dronePower: 1.12, ultimateTargets: 8 };
-  if (classId === "phantom") return { ...base, maxHp: 100, speed: 302, damage: 19, interval: .24, projectileSpeed: 850, projectileSize: 4.5, critChance: .28, dashDistance: 215, ultimateTargets: 5 };
-  if (classId === "laser") return { ...base, maxHp: 106, speed: 280, damage: 22, interval: .26, projectileSpeed: 930, projectileSize: 5, critChance: .15, laserPower: 1.12, ultimateLanes: 8 };
-  if (classId === "frost") return { ...base, maxHp: 138, speed: 218, damage: 47, interval: .72, projectileSpeed: 500, projectileSize: 8.5, damageReduction: .12, frostPower: 1.12 };
-  if (classId === "blade") return { ...base, maxHp: 132, speed: 292, damage: 66, interval: .56, projectileSpeed: 620, projectileSize: 6, damageReduction: .08, meleeRange: 132, meleePower: 1.08, repairPower: 1.05 };
+  if (classId === "assault") return { ...base, maxHp: 120, damage: 50, interval: .58, projectileSpeed: 550, projectileSize: 7.5 };
+  if (classId === "guardian") return { ...base, maxHp: 160, speed: 226, damage: 84, interval: .98, projectileSpeed: 470, projectileSize: 10, damageReduction: .25 };
+  if (classId === "engineer") return { ...base, maxHp: 120, damage: 31, interval: .48, magnet: 120, projectileSpeed: 560, projectileSize: 6, drones: 3, repairPower: 1.18, dronePower: 1.12, ultimateTargets: 8 };
+  if (classId === "phantom") return { ...base, maxHp: 104, speed: 304, damage: 20, interval: .24, projectileSpeed: 860, projectileSize: 4.5, critChance: .25, dashDistance: 220, ultimateTargets: 5 };
+  if (classId === "laser") return { ...base, maxHp: 110, speed: 282, damage: 24, interval: .26, projectileSpeed: 940, projectileSize: 5, critChance: .15, laserPower: 1.12, ultimateLanes: 8 };
+  if (classId === "frost") return { ...base, maxHp: 142, speed: 220, damage: 52, interval: .68, projectileSpeed: 520, projectileSize: 8.5, damageReduction: .12, frostPower: 1.12 };
+  if (classId === "blade") return { ...base, maxHp: 132, speed: 292, damage: 60, interval: .58, projectileSpeed: 620, projectileSize: 6, damageReduction: .08, meleeRange: 132, meleePower: 1.08, repairPower: 1.05 };
   if (classId === "gravity") return { ...base, maxHp: 146, speed: 226, damage: 44, interval: .66, magnet: 110, projectileSpeed: 510, projectileSize: 9, damageReduction: .14, gravityPower: 1.12 };
   if (classId === "thunder") return { ...base, maxHp: 112, speed: 274, damage: 27, interval: .36, projectileSpeed: 690, projectileSize: 5.5, critChance: .1, lightningPower: 1.12, ultimateTargets: 8 };
   if (classId === "sky") return { ...base, maxHp: 96, speed: 312, damage: 72, interval: .94, projectileSpeed: 980, projectileSize: 6, critChance: .2, sniperPower: 1.14, ultimateTargets: 4 };
   if (classId === "cinder") return { ...base, maxHp: 162, speed: 204, damage: 54, interval: .76, projectileSpeed: 490, projectileSize: 10, damageReduction: .18, burnPower: 1.15, ultimateLanes: 3 };
-  if (classId === "aegis") return { ...base, maxHp: 150, speed: 225, damage: 58, interval: .76, projectileSpeed: 590, projectileSize: 9, bonusPierce: 1, damageReduction: .2, drones: 1, aegisPower: 1.12, ultimateDuration: 3.4 };
-  if (classId === "venom") return { ...base, maxHp: 112, speed: 286, damage: 30, interval: .38, projectileSpeed: 720, projectileSize: 6.5, critChance: .12, drones: 1, venomPower: 1.15, ultimateTargets: 8 };
-  return { ...base, maxHp: 120, speed: 258, damage: 36, interval: .48, projectileSpeed: 680, projectileSize: 7, damageReduction: .08, drones: 1, chronoPower: 1.12, ultimateRange: 440 };
+  if (classId === "aegis") return { ...base, maxHp: 148, speed: 225, damage: 55, interval: .8, projectileSpeed: 590, projectileSize: 9, bonusPierce: 1, damageReduction: .18, drones: 1, aegisPower: 1.08, ultimateDuration: 3.4 };
+  if (classId === "venom") return { ...base, maxHp: 110, speed: 284, damage: 29, interval: .42, projectileSpeed: 710, projectileSize: 6.5, critChance: .1, drones: 1, venomPower: 1.1, ultimateTargets: 8 };
+  return { ...base, maxHp: 118, speed: 256, damage: 34, interval: .52, projectileSpeed: 670, projectileSize: 7, damageReduction: .06, drones: 1, chronoPower: 1.08, ultimateRange: 440 };
 };
 
 const projectileTraits = (classId: ClassId, combatStats?: Pick<CombatStats, "bonusPierce" | "projectileSize">): Partial<Shot> => {
@@ -1398,6 +1431,7 @@ export default function Home() {
     let localShopStartedAlive = false, localShopStartHp = 0;
     let coOpRunEstablished = Boolean(network?.role === "host" && network.connected());
     let hostCoins = 0, guestCoins = 0, hostUltimate = 0, guestUltimate = 0;
+    let hostBladeCombo = 0, guestBladeCombo = 0;
     let currentWave = 1, waveKills = 0, nextWaveAt = WAVE_INTERVAL_SECONDS, lastBossWave = 0;
     let bossBag: BossVariant[] = [];
     let previousBossVariant: BossVariant | null = null;
@@ -1499,17 +1533,18 @@ export default function Home() {
         const remoteBuild = remoteBuildRef.current || makeBuild(data.classId);
         const skillStart = { x: remote.x, y: remote.y };
         if (data.classId === "assault") queueMissileStorm(remote, remoteBuild, "guest");
-        if (data.classId === "guardian") remoteShieldUntil = performance.now() + Math.min(GUARDIAN_SHIELD_MAX, remoteBuild.shieldDuration) * 1000;
-        if (data.classId === "engineer") {
-          const repair = 34 * remoteBuild.repairPower;
-          if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + repair);
-          if (remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + repair);
-          setHp(Math.ceil(player.hp));
-        }
+        if (data.classId === "guardian") guardianBulwark(
+          remote,
+          remoteBuild,
+          "guest",
+          Math.min(GUARDIAN_SHIELD_MAX, remoteBuild.shieldDuration, skillCooldownFor(14, remoteBuild.skillHaste, MIN_GUARDIAN_COOLDOWN) - 2),
+        );
+        if (data.classId === "engineer") engineerRepairPulse(remote, remoteBuild, "guest");
         if (data.classId === "phantom") {
           remote.x = clamp(data.x, 30, W - 30);
           remote.y = clamp(data.y, 30, H - 30);
           remoteShieldUntil = performance.now() + 1200;
+          phaseAfterimage(remote, remoteBuild, "guest");
         }
         if (data.classId === "laser") fireLaser(remote, remoteBuild, "guest");
         if (data.classId === "frost") freezeArea(remote, remoteBuild, "guest");
@@ -1664,6 +1699,7 @@ export default function Home() {
       selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; secondarySkillReadyAt = 0; shownCooldown = -1; shownSecondaryCooldown = -1;
       hostReviveProgress = 0; guestReviveProgress = 0;
       hostCoins = 0; guestCoins = 0; hostUltimate = 0; guestUltimate = 0;
+      hostBladeCombo = 0; guestBladeCombo = 0;
       currentWave = 1; waveKills = 0; nextWaveAt = WAVE_INTERVAL_SECONDS; lastBossWave = 0;
       bossBag = [];
       previousBossVariant = null;
@@ -1725,44 +1761,51 @@ export default function Home() {
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 30);
       }
       if (id === "assault-double-storm") stats.missileWaves += 1;
-      if (id === "assault-saturation") stats.missileCount += 4;
-      if (id === "assault-warhead") { stats.damage *= 1.18; stats.projectileSize += 1.1; }
-      if (id === "guardian-fortress") stats.shieldDuration = Math.min(GUARDIAN_SHIELD_MAX, stats.shieldDuration + .75);
-      if (id === "guardian-rail") { stats.damage *= 1.24; stats.projectileSize += 1.4; }
+      if (id === "assault-saturation") stats.missileCount += 6;
+      if (id === "assault-warhead") { stats.damage *= 1.24; stats.projectileSize += 1.2; }
+      if (id === "assault-guidance") stats.assaultGuidance = 1;
+      if (id === "guardian-fortress") stats.shieldDuration = Math.min(GUARDIAN_SHIELD_MAX, stats.shieldDuration + .9);
+      if (id === "guardian-rail") { stats.damage *= 1.3; stats.projectileSize += 1.6; }
       if (id === "guardian-plating") {
-        player.maxHp += 28;
-        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 28);
-        stats.damageReduction = Math.min(.6, stats.damageReduction + .05);
+        player.maxHp += 34;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 34);
+        stats.damageReduction = Math.min(.6, stats.damageReduction + .06);
       }
+      if (id === "guardian-retaliation") stats.guardianRetaliation = 1;
       if (id === "engineer-swarm") stats.drones += 1;
-      if (id === "engineer-link") stats.dronePower *= 1.35;
-      if (id === "engineer-repair") stats.repairPower *= 1.4;
-      if (id === "phantom-fold") stats.dashDistance += 70;
+      if (id === "engineer-link") stats.dronePower *= 1.28;
+      if (id === "engineer-repair") stats.repairPower *= 1.55;
+      if (id === "engineer-triage") stats.engineerTriage = 1;
+      if (id === "phantom-fold") stats.dashDistance += 90;
       if (id === "phantom-reserve") {
         stats.dashCharges = Math.min(3, stats.dashCharges + 1);
         phantomDashCharges = Math.min(stats.dashCharges, phantomDashCharges + 1);
         setSkillCharges(phantomDashCharges);
         setSkillChargeCap(stats.dashCharges);
       }
-      if (id === "phantom-needle") { stats.critChance = Math.min(.72, stats.critChance + .12); stats.damage *= 1.12; }
-      if (id === "phantom-cycle") stats.skillHaste = Math.max(.45, stats.skillHaste * .78);
-      if (id === "laser-overfocus") stats.laserPower *= 1.3;
-      if (id === "laser-prism") { stats.damage *= 1.16; stats.multi += 1; }
-      if (id === "laser-capacitor") stats.skillHaste = Math.max(.5, stats.skillHaste * .8);
-      if (id === "frost-zero") stats.frostPower *= 1.28;
-      if (id === "frost-shatter") { stats.damage *= 1.2; stats.projectileSize += 1.3; }
+      if (id === "phantom-needle") { stats.critChance = Math.min(.72, stats.critChance + .14); stats.damage *= 1.18; }
+      if (id === "phantom-cycle") stats.skillHaste = Math.max(.45, stats.skillHaste * .75);
+      if (id === "phantom-afterimage") stats.phantomAfterimage = 1;
+      if (id === "laser-overfocus") stats.laserPower *= 1.38;
+      if (id === "laser-prism") { stats.damage *= 1.2; stats.multi += 1; }
+      if (id === "laser-capacitor") stats.skillHaste = Math.max(.5, stats.skillHaste * .76);
+      if (id === "laser-refraction") stats.laserRefraction = 1;
+      if (id === "frost-zero") stats.frostPower *= 1.35;
+      if (id === "frost-shatter") { stats.damage *= 1.26; stats.projectileSize += 1.45; }
       if (id === "frost-armor") {
-        player.maxHp += 24;
-        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 24);
-        stats.damageReduction = Math.min(.6, stats.damageReduction + .05);
+        player.maxHp += 30;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 30);
+        stats.damageReduction = Math.min(.6, stats.damageReduction + .06);
       }
-      if (id === "blade-edge") { stats.meleeRange *= 1.18; stats.meleePower *= 1.16; }
+      if (id === "frost-brittle") stats.frostShatter = .35;
+      if (id === "blade-edge") { stats.meleeRange *= 1.22; stats.meleePower *= 1.2; }
       if (id === "blade-vamp") {
-        stats.repairPower *= 1.45;
-        player.maxHp += 16;
-        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 16);
+        stats.repairPower *= 1.55;
+        player.maxHp += 20;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 20);
       }
-      if (id === "blade-tempo") { stats.interval = Math.max(.24, stats.interval * .85); stats.speed *= 1.08; }
+      if (id === "blade-tempo") { stats.interval = Math.max(.24, stats.interval * .82); stats.speed *= 1.09; }
+      if (id === "blade-combo") stats.bladeCombo = 1;
       if (id === "gravity-collapse") stats.gravityPower *= 1.28;
       if (id === "gravity-lens") { stats.damage *= 1.18; stats.multi += 1; }
       if (id === "gravity-anchor") {
@@ -2051,13 +2094,8 @@ export default function Home() {
         return;
       }
       if (build.classId === "assault") queueMissileStorm(player, stats, "host");
-      if (build.classId === "guardian") selfShieldUntil = now + Math.min(GUARDIAN_SHIELD_MAX, stats.shieldDuration, cooldownSeconds - 2) * 1000;
-      if (build.classId === "engineer") {
-        const repair = 34 * stats.repairPower;
-        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + repair);
-        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + repair);
-        setHp(Math.ceil(player.hp));
-      }
+      if (build.classId === "guardian") guardianBulwark(player, stats, "host", Math.min(GUARDIAN_SHIELD_MAX, stats.shieldDuration, cooldownSeconds - 2));
+      if (build.classId === "engineer") engineerRepairPulse(player, stats, "host");
       if (build.classId === "phantom") {
         const dashX = (keys.has("d") ? 1 : 0) - (keys.has("a") ? 1 : 0);
         let dashY = (keys.has("s") ? 1 : 0) - (keys.has("w") ? 1 : 0);
@@ -2066,6 +2104,7 @@ export default function Home() {
         player.x = clamp(player.x + dashX / dashLength * stats.dashDistance, 30, W - 30);
         player.y = clamp(player.y + dashY / dashLength * stats.dashDistance, 30, H - 30);
         selfShieldUntil = now + 1200;
+        phaseAfterimage(player, stats, "host");
       }
       if (build.classId === "laser") fireLaser(player, stats, "host");
       if (build.classId === "frost") freezeArea(player, stats, "host");
@@ -2325,10 +2364,55 @@ export default function Home() {
           life: 1.5,
           owner,
           classId: "assault",
+          homing: combatStats.assaultGuidance > 0 ? 1.1 : undefined,
           ...projectileTraits("assault"),
         });
       }
       burst(actor.x, actor.y, "#f4c95d", 18);
+    };
+    const guardianBulwark = (
+      actor: Actor,
+      combatStats: BuildFrame | CombatStats,
+      owner: PlayerSide,
+      durationSeconds: number,
+    ) => {
+      const shieldUntil = performance.now() + durationSeconds * 1000;
+      if (actor === player) selfShieldUntil = Math.max(selfShieldUntil, shieldUntil);
+      else remoteShieldUntil = Math.max(remoteShieldUntil, shieldUntil);
+      if (combatStats.guardianRetaliation <= 0) return;
+      for (let index = 0; index < 8; index++) {
+        const angle = index / 8 * Math.PI * 2;
+        shots.push({
+          x: actor.x, y: actor.y,
+          vx: Math.cos(angle) * 610, vy: Math.sin(angle) * 610,
+          r: 9, damage: combatStats.damage * 1.45, life: 1.9,
+          owner, classId: "guardian", pierce: 3, skill2: true,
+        });
+      }
+      addEffect({ kind: "skill", classId: "guardian", x: actor.x, y: actor.y, color: "#75e6da", radius: 175 }, .72);
+    };
+    const engineerRepairPulse = (
+      actor: Actor,
+      combatStats: BuildFrame | CombatStats,
+      owner: PlayerSide,
+    ) => {
+      const repair = 34 * combatStats.repairPower;
+      if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + repair);
+      if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + repair);
+      setHp(Math.ceil(player.hp));
+      if (combatStats.engineerTriage <= 0) return;
+      const targets = prioritizeUltimateTargets(enemies, actor, Math.max(1, combatStats.drones));
+      for (let index = 0; index < combatStats.drones; index++) {
+        const origin = dronePosition(actor, index, combatStats.drones);
+        const target = targets[index % Math.max(1, targets.length)];
+        const angle = target ? Math.atan2(target.y - origin.y, target.x - origin.x) : index / combatStats.drones * Math.PI * 2;
+        shots.push({
+          x: origin.x, y: origin.y,
+          vx: Math.cos(angle) * 760, vy: Math.sin(angle) * 760,
+          r: 6, damage: combatStats.damage * 1.35 * combatStats.dronePower, life: 2.3,
+          owner, classId: "engineer", chain: true, pierce: 1, skill2: true,
+        });
+      }
     };
     const queueMissileStorm = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
       fireMissileWave(actor, combatStats, owner);
@@ -2348,15 +2432,20 @@ export default function Home() {
         : null;
       const angle = target ? Math.atan2(target.y - actor.y, target.x - actor.x) : 0;
       const length = 1550;
-      const x2 = actor.x + Math.cos(angle) * length;
-      const y2 = actor.y + Math.sin(angle) * length;
-      beams.push({ x1: actor.x, y1: actor.y, x2, y2, life: .36, width: 16 * combatStats.laserPower, color: "#ff4f50" });
-      for (const enemy of enemies) {
-        const along = (enemy.x - actor.x) * Math.cos(angle) + (enemy.y - actor.y) * Math.sin(angle);
-        const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(angle) - (enemy.y - actor.y) * Math.cos(angle));
-        if (along > 0 && along < length && perpendicular < enemy.r + 19 * combatStats.laserPower) {
-          applyEnemyDamage(enemy, combatStats.damage * 9 * combatStats.laserPower, owner);
-          burst(enemy.x, enemy.y, "#ff5b58", 9);
+      const beamAngles = combatStats.laserRefraction > 0 ? [angle, angle - .3, angle + .3] : [angle];
+      for (const [beamIndex, beamAngle] of beamAngles.entries()) {
+        const damageScale = beamIndex === 0 ? 1 : .56;
+        const beamWidth = (beamIndex === 0 ? 16 : 10) * combatStats.laserPower;
+        const x2 = actor.x + Math.cos(beamAngle) * length;
+        const y2 = actor.y + Math.sin(beamAngle) * length;
+        beams.push({ x1: actor.x, y1: actor.y, x2, y2, life: .36, width: beamWidth, color: beamIndex === 0 ? "#ff4f50" : "#ffaaa0" });
+        for (const enemy of enemies) {
+          const along = (enemy.x - actor.x) * Math.cos(beamAngle) + (enemy.y - actor.y) * Math.sin(beamAngle);
+          const perpendicular = Math.abs((enemy.x - actor.x) * Math.sin(beamAngle) - (enemy.y - actor.y) * Math.cos(beamAngle));
+          if (along > 0 && along < length && perpendicular < enemy.r + beamWidth) {
+            applyEnemyDamage(enemy, combatStats.damage * 9 * combatStats.laserPower * damageScale, owner);
+            burst(enemy.x, enemy.y, beamIndex === 0 ? "#ff5b58" : "#ffaaa0", beamIndex === 0 ? 9 : 5);
+          }
         }
       }
     };
@@ -2375,6 +2464,16 @@ export default function Home() {
         particles.push({ x: actor.x, y: actor.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: .7, color: "#b9efff" });
       }
     };
+    const phaseAfterimage = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      if (combatStats.phantomAfterimage <= 0) return;
+      const radius = 165;
+      for (const enemy of enemies) {
+        if (enemy.hp <= 0 || dist(actor, enemy) > radius + enemy.r) continue;
+        applyEnemyDamage(enemy, combatStats.damage * 2.8, owner);
+        burst(enemy.x, enemy.y, "#a78cff", 8);
+      }
+      addEffect({ kind: "impact", classId: "phantom", x: actor.x, y: actor.y, color: "#a78cff", radius }, .52);
+    };
     const fireBlade = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide, multiplier = 1) => {
       const range = combatStats.meleeRange * combatStats.meleePower;
       const target = enemies
@@ -2382,7 +2481,17 @@ export default function Home() {
         .sort((a, b) => dist(actor, a) - dist(actor, b))[0];
       if (!target) return false;
       const angle = Math.atan2(target.y - actor.y, target.x - actor.x);
-      const damage = combatStats.damage * combatStats.meleePower * multiplier;
+      let comboMultiplier = 1;
+      if (combatStats.bladeCombo > 0 && multiplier === 1) {
+        if (owner === "guest") {
+          guestBladeCombo = guestBladeCombo % 3 + 1;
+          if (guestBladeCombo === 3) comboMultiplier = 1.85;
+        } else {
+          hostBladeCombo = hostBladeCombo % 3 + 1;
+          if (hostBladeCombo === 3) comboMultiplier = 1.85;
+        }
+      }
+      const damage = combatStats.damage * combatStats.meleePower * multiplier * comboMultiplier;
       let hitCount = 0;
       for (const enemy of enemies) {
         const distance = dist(actor, enemy);
@@ -2394,6 +2503,10 @@ export default function Home() {
         hitCount += 1;
         burst(enemy.x, enemy.y, "#ff9b43", 7);
         impactEffect(enemy.x, enemy.y, "#ffb25d", 34);
+      }
+      if (comboMultiplier > 1) {
+        addEffect({ kind: "slash", classId: "blade", x: actor.x, y: actor.y, x2: target.x, y2: target.y, color: "#fff1b8", radius: range * 1.12 }, .48);
+        burst(actor.x, actor.y, "#fff1b8", 18);
       }
       addEffect({
         kind: "slash",
@@ -2513,17 +2626,18 @@ export default function Home() {
     };
     const aegisShock = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
       const radius = 300 * combatStats.aegisPower;
-      for (const enemy of enemies) {
-        const distance = dist(actor, enemy);
-        if (enemy.hp <= 0 || distance > radius + enemy.r || distance < 1) continue;
-        const angle = Math.atan2(enemy.y - actor.y, enemy.x - actor.x);
-        enemy.x = clamp(enemy.x + Math.cos(angle) * 135 * combatStats.aegisPower, -80, W + 80);
-        enemy.y = clamp(enemy.y + Math.sin(angle) * 135 * combatStats.aegisPower, -80, H + 80);
-        enemy.stunned = Math.max(enemy.stunned || 0, .5);
-        applyEnemyDamage(enemy, combatStats.damage * 2.35 * combatStats.aegisPower, owner);
+      const targets = prioritizeUltimateTargets(
+        enemies.filter((enemy) => enemy.hp > 0 && dist(actor, enemy) <= radius + enemy.r),
+        actor,
+        6,
+      );
+      for (const enemy of targets) {
+        enemy.stunned = Math.max(enemy.stunned || 0, .42);
+        applyEnemyDamage(enemy, combatStats.damage * 2 * combatStats.aegisPower, owner);
+        beams.push({ x1: actor.x, y1: actor.y, x2: enemy.x, y2: enemy.y, life: .28, width: 7, color: "#ffd36a" });
         burst(enemy.x, enemy.y, "#ffd36a", 8);
       }
-      const shieldUntil = performance.now() + 1150;
+      const shieldUntil = performance.now() + 900;
       if (actor === player) selfShieldUntil = Math.max(selfShieldUntil, shieldUntil);
       else remoteShieldUntil = Math.max(remoteShieldUntil, shieldUntil);
     };
@@ -2531,22 +2645,22 @@ export default function Home() {
       const radius = 340 * combatStats.venomPower;
       for (const enemy of enemies) {
         if (enemy.hp <= 0 || dist(actor, enemy) > radius + enemy.r) continue;
-        applyEnemyDamage(enemy, combatStats.damage * 1.7 * combatStats.venomPower, owner);
-        enemy.corrosion = Math.max(enemy.corrosion || 0, 6.2 * combatStats.venomPower);
-        enemy.corrosionDamage = Math.max(enemy.corrosionDamage || 0, combatStats.damage * .58 * combatStats.venomPower);
+        applyEnemyDamage(enemy, combatStats.damage * 1.35 * combatStats.venomPower, owner);
+        enemy.corrosion = Math.max(enemy.corrosion || 0, 5.2 * combatStats.venomPower);
+        enemy.corrosionDamage = Math.max(enemy.corrosionDamage || 0, combatStats.damage * .38 * combatStats.venomPower);
         enemy.corrosionOwner = owner;
-        enemy.slow = Math.max(enemy.slow, 2.4);
+        enemy.slow = Math.max(enemy.slow, 2);
         burst(enemy.x, enemy.y, "#b5e536", 8);
       }
     };
     const chronoField = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
       const radius = 390 * combatStats.chronoPower;
-      const stopDuration = Math.min(2.8, 1.25 * combatStats.chronoPower);
+      const stopDuration = Math.min(2.3, 1.05 * combatStats.chronoPower);
       for (const enemy of enemies) {
         if (enemy.hp <= 0 || dist(actor, enemy) > radius + enemy.r) continue;
         enemy.timeStopped = Math.max(enemy.timeStopped || 0, stopDuration);
         enemy.timeDilated = Math.max(enemy.timeDilated || 0, 5.2 * combatStats.chronoPower);
-        applyEnemyDamage(enemy, combatStats.damage * 2.2 * combatStats.chronoPower, owner);
+        applyEnemyDamage(enemy, combatStats.damage * 1.7 * combatStats.chronoPower, owner);
         burst(enemy.x, enemy.y, "#f0ad4e", 7);
       }
       for (const shot of shots) {
@@ -2725,7 +2839,7 @@ export default function Home() {
           shots.push({
             x: actor.x, y: actor.y,
             vx: Math.cos(angle) * 820, vy: Math.sin(angle) * 820,
-            r: 11, damage: combatStats.damage * 3.35 * combatStats.aegisPower * secondaryPower, life: 2.7,
+            r: 11, damage: combatStats.damage * 3.1 * combatStats.aegisPower * secondaryPower, life: 2.7,
             owner, classId, pierce: 5 + Math.round(combatStats.bonusPierce), slow: 1.8, skill2: true,
           });
         }
@@ -2740,7 +2854,7 @@ export default function Home() {
             vx: Math.cos(angle) * 760, vy: Math.sin(angle) * 760,
             r: 8, damage: combatStats.damage * 2.2 * combatStats.venomPower * secondaryPower, life: 2.8,
             owner, classId, pierce: 2, splash: 68 * secondaryArea,
-            corrosion: 7 * secondaryControl, corrosionDamage: combatStats.damage * .52 * combatStats.venomPower * secondaryPower, skill2: true,
+            corrosion: 6 * secondaryControl, corrosionDamage: combatStats.damage * .38 * combatStats.venomPower * secondaryPower, skill2: true,
           });
         }
         triggerSecondarySkillEffect(actor, classId, target, 250 * secondaryArea);
@@ -2978,7 +3092,7 @@ export default function Home() {
             y: actor.y + Math.sin(orbitAngle) * 155,
           };
           beams.push({ x1: origin.x, y1: origin.y, x2: enemy.x, y2: enemy.y, life: .72, width: 9, color: "#fff2ac" });
-          damageEnemy(enemy, combatStats.damage * 4.6 * combatStats.aegisPower * power);
+          damageEnemy(enemy, combatStats.damage * 4.2 * combatStats.aegisPower * power);
           enemy.stunned = Math.max(enemy.stunned || 0, .65);
           burst(enemy.x, enemy.y, "#ffd36a", 14);
         }
@@ -2991,9 +3105,9 @@ export default function Home() {
           addEffect({ kind: "ultimate", classId, x: target.x, y: target.y, x2: target.x, y2: -110, color, radius: 118 }, 1.55);
           for (const enemy of enemies) {
             if (enemy.hp <= 0 || dist(target, enemy) > 125 + enemy.r) continue;
-            damageEnemy(enemy, combatStats.damage * 4.15 * combatStats.venomPower * power);
-            enemy.corrosion = Math.max(enemy.corrosion || 0, 8.2 * combatStats.venomPower);
-            enemy.corrosionDamage = Math.max(enemy.corrosionDamage || 0, combatStats.damage * .68 * combatStats.venomPower * power);
+            damageEnemy(enemy, combatStats.damage * 3.5 * combatStats.venomPower * power);
+            enemy.corrosion = Math.max(enemy.corrosion || 0, 6.8 * combatStats.venomPower);
+            enemy.corrosionDamage = Math.max(enemy.corrosionDamage || 0, combatStats.damage * .42 * combatStats.venomPower * power);
             enemy.corrosionOwner = owner;
             enemy.slow = Math.max(enemy.slow, 4.2);
           }
@@ -3002,13 +3116,13 @@ export default function Home() {
       }
       if (classId === "chrono") {
         const timeRange = clamp(combatStats.ultimateRange, 440, 650);
-        const stopDuration = Math.min(5.2, 2.4 * combatStats.chronoPower);
+        const stopDuration = Math.min(4.2, 2 * combatStats.chronoPower);
         for (const enemy of enemies) {
           const distance = dist(actor, enemy);
           if (enemy.hp <= 0 || distance > timeRange + enemy.r) continue;
           enemy.timeStopped = Math.max(enemy.timeStopped || 0, stopDuration);
           enemy.timeDilated = Math.max(enemy.timeDilated || 0, 8 * combatStats.chronoPower);
-          damageEnemy(enemy, combatStats.damage * 5.25 * combatStats.chronoPower * power);
+          damageEnemy(enemy, combatStats.damage * 4.7 * combatStats.chronoPower * power);
           for (let echo = 0; echo < 3; echo++) {
             const angle = echo / 3 * Math.PI * 2 + distance * .01;
             beams.push({
@@ -3260,7 +3374,7 @@ export default function Home() {
         for (let i = 0; i < stats.drones; i++) {
           const droneAngle = a0 + (i % 2 ? .22 : -.22);
           const origin = dronePosition(player, i, stats.drones);
-          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*.42*stats.dronePower,life:1.6,owner:"host",classId:build.classId,...projectileTraits(build.classId,stats)});
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*droneDamageScaleFor(build.classId)*stats.dronePower,life:1.6,owner:"host",classId:build.classId,...projectileTraits(build.classId,stats)});
         }
         audio?.play("shot");
         burst(player.x+Math.cos(a0)*18,player.y+Math.sin(a0)*18,"#f4c95d",3);
@@ -3284,7 +3398,7 @@ export default function Home() {
         for (let i = 0; i < remoteStats.drones; i++) {
           const droneAngle = a + (i % 2 ? .22 : -.22);
           const origin = dronePosition(remote, i, remoteStats.drones);
-          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*.42*remoteStats.dronePower,life:1.6,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId,remoteStats)});
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*droneDamageScaleFor(remoteStats.classId)*remoteStats.dronePower,life:1.6,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId,remoteStats)});
         }
         audio?.play("ally-shot");
       }
@@ -3315,6 +3429,22 @@ export default function Home() {
           const turn = Math.atan2(Math.sin(desired - current), Math.cos(desired - current)) * .035;
           shot.vx = Math.cos(current + turn) * speed;
           shot.vy = Math.sin(current + turn) * speed;
+          shot.homing = Math.max(0, (shot.homing || 0) - dt);
+        }
+        if (!shot.hostile && (shot.homing || 0) > 0) {
+          const target = enemies.reduce<Enemy | null>(
+            (nearest, enemy) =>
+              enemy.hp <= 0 || (nearest && dist(shot, nearest) <= dist(shot, enemy)) ? nearest : enemy,
+            null,
+          );
+          if (target) {
+            const speed = Math.hypot(shot.vx, shot.vy);
+            const desired = Math.atan2(target.y - shot.y, target.x - shot.x);
+            const current = Math.atan2(shot.vy, shot.vx);
+            const turn = Math.atan2(Math.sin(desired - current), Math.cos(desired - current)) * .075;
+            shot.vx = Math.cos(current + turn) * speed;
+            shot.vy = Math.sin(current + turn) * speed;
+          }
           shot.homing = Math.max(0, (shot.homing || 0) - dt);
         }
         shot.x += shot.vx * dt; shot.y += shot.vy * dt; shot.life -= dt;
@@ -3653,6 +3783,10 @@ export default function Home() {
         for (const enemy of nearbyEnemies(shot.x, shot.y, shot.r + 46)) {
           if (shot.life <= 0 || enemy.hp <= 0 || shot.hitIds?.includes(enemy.id) || dist(shot,enemy) >= shot.r + enemy.r) continue;
           let resolvedDamage = shot.damage;
+          if (shot.classId === "frost" && (enemy.frozen || 0) > 0) {
+            const frostStats = shot.owner === "guest" ? remoteBuildRef.current : stats;
+            resolvedDamage *= 1 + (frostStats?.frostShatter || 0);
+          }
           if (enemy.kind === "shieldmite" && (enemy.barrier || 0) > 0) {
             const absorbed = Math.min(enemy.barrier || 0, shot.damage * .78);
             enemy.barrier = Math.max(0, (enemy.barrier || 0) - shot.damage);
@@ -3708,6 +3842,18 @@ export default function Home() {
       }
       for (const enemy of enemies) {
         if (enemy.hp <= 0) {
+          if ((enemy.corrosion || 0) > 0 && (enemy.corrosionDamage || 0) > 0) {
+            const spreadTargets = enemies
+              .filter((candidate) => candidate !== enemy && candidate.hp > 0 && dist(enemy, candidate) < 190)
+              .sort((a, b) => dist(enemy, a) - dist(enemy, b))
+              .slice(0, 2);
+            for (const target of spreadTargets) {
+              target.corrosion = Math.max(target.corrosion || 0, 2.8);
+              target.corrosionDamage = Math.max(target.corrosionDamage || 0, (enemy.corrosionDamage || 0) * .42);
+              target.corrosionOwner = enemy.corrosionOwner || enemy.lastHitBy;
+              beams.push({ x1: enemy.x, y1: enemy.y, x2: target.x, y2: target.y, life: .22, width: 4, color: "#b5e536" });
+            }
+          }
           if (enemy.kind === "splitter") {
             for (const offset of [-1, 1]) {
               const childConfig = ENEMY_DATA.runner;
@@ -4593,7 +4739,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.15.1 · 时停分流与性能优化</div>
+        <div className="status"><i /> 版本 0.16.0 · 全机甲平衡重构</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>

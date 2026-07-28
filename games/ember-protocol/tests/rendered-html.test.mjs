@@ -6,9 +6,11 @@ import {
   teamRunDefeated,
 } from "../team-state.mjs";
 import {
+  droneDamageScaleFor,
   earlyShopDiscountFor,
   earlyWaveXpMultiplier,
   FIRST_SHOP_WAVE,
+  primaryThreatScore,
   prioritizeUltimateTargets,
   skillCooldownFor,
   supplyRewardFor,
@@ -42,7 +44,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.15\.1 · 时停分流与性能优化/);
+  assert.match(html, /版本 0\.16\.0 · 全机甲平衡重构/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -364,9 +366,26 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /const aegisShock/);
   assert.match(page, /const venomCloud/);
   assert.match(page, /const chronoField/);
+  assert.match(page, /assault-guidance/);
+  assert.match(page, /guardian-retaliation/);
+  assert.match(page, /engineer-triage/);
+  assert.match(page, /phantom-afterimage/);
+  assert.match(page, /laser-refraction/);
+  assert.match(page, /frost-brittle/);
+  assert.match(page, /blade-combo/);
+  assert.match(page, /const classUpgradeAvailable/);
+  assert.match(page, /combatStats\.assaultGuidance > 0 \? 1\.1/);
+  assert.match(page, /const guardianBulwark/);
+  assert.match(page, /const engineerRepairPulse/);
+  assert.match(page, /const phaseAfterimage/);
+  assert.match(page, /const beamAngles = combatStats\.laserRefraction > 0/);
+  assert.match(page, /resolvedDamage \*= 1 \+ \(frostStats\?\.frostShatter \|\| 0\)/);
+  assert.match(page, /comboMultiplier = 1\.85/);
+  assert.match(page, /spreadTargets = enemies/);
+  assert.match(page, /droneDamageScaleFor\(build\.classId\)/);
   assert.match(page, /drones: 1,/);
   assert.match(page, /if \(classId === "engineer"\) return \{[^}]*drones: 3/);
-  assert.match(page, /return \{ \.\.\.base, maxHp: 120,[^}]*drones: 1, chronoPower/);
+  assert.match(page, /return \{ \.\.\.base, maxHp: 118,[^}]*drones: 1, chronoPower/);
   assert.match(page, /timeStopped\?: number/);
   assert.match(page, /timeDilated\?: number/);
   assert.match(page, /facing\?: number/);
@@ -493,4 +512,37 @@ test("applies every cooldown reduction to both tactical skill slots", () => {
   assert.equal(skillCooldownFor(8, haste), 6.8, "E receives the same shared cooldown reduction");
   assert.equal(skillCooldownFor(10, .3), 4, "ordinary skills retain the four-second safety floor");
   assert.equal(skillCooldownFor(14, .3, 7), 7, "guardian Q retains its seven-second safety floor");
+});
+
+test("keeps all fourteen launch kits inside one primary-fire budget", () => {
+  const profiles = [
+    ["assault", 50, .58, .05, 1, 1],
+    ["guardian", 84, .98, .05, 1, 1],
+    ["engineer", 31, .48, .05, 3, 1.12],
+    ["phantom", 20, .24, .25, 1, 1],
+    ["laser", 24, .26, .15, 1, 1],
+    ["frost", 52, .68, .05, 1, 1],
+    ["blade", 60, .58, .05, 1, 1],
+    ["gravity", 44, .66, .05, 1, 1],
+    ["thunder", 27, .36, .1, 1, 1],
+    ["sky", 72, .94, .2, 1, 1],
+    ["cinder", 54, .76, .05, 1, 1],
+    ["aegis", 55, .8, .05, 1, 1],
+    ["venom", 29, .42, .1, 1, 1],
+    ["chrono", 34, .52, .05, 1, 1],
+  ].map(([classId, damage, interval, critChance, drones, dronePower]) => ({
+    classId,
+    damage,
+    interval,
+    critChance,
+    drones,
+    dronePower,
+  }));
+
+  const scores = profiles.map(primaryThreatScore);
+  assert.equal(profiles.length, 14);
+  assert.ok(Math.min(...scores) >= 84, `controller launch budget fell too low: ${Math.min(...scores)}`);
+  assert.ok(Math.max(...scores) <= 138, `glass-cannon launch budget exceeded: ${Math.max(...scores)}`);
+  assert.equal(droneDamageScaleFor("engineer"), .22);
+  assert.equal(droneDamageScaleFor("assault"), .26);
 });
