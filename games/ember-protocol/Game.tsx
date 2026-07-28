@@ -203,7 +203,7 @@ type CombatEffect = {
   color: string;
   radius: number;
 };
-type Gem = { x: number; y: number; value: number; life: number; relic?: BossRelicId; relicPieces?: number; heal?: number; coins?: number };
+type Gem = { x: number; y: number; value: number; life: number; relic?: BossRelicId; relicPieces?: number; heal?: number };
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
   elapsed: number;
@@ -4309,13 +4309,11 @@ export default function Home() {
             relicPieces: bossRelic ? (currentWarzone?.id === "archive" ? 2 : 1) : undefined,
           });
           if (Math.random() < coinDropChanceFor(currentWave, elapsed, enemy)) {
-            gems.push({
-              x: enemy.x - 14,
-              y: enemy.y + 12,
-              value: 0,
-              life: 12,
-              coins: coinDropAmountFor(enemy),
-            });
+            const earnedCoins = coinDropAmountFor(enemy);
+            hostCoins += earnedCoins;
+            if (coOpActive) guestCoins += earnedCoins;
+            setCoins(hostCoins);
+            addEffect({ kind: "impact", x: enemy.x, y: enemy.y, color: "#f4c95d", radius: 34 }, .26);
           }
           if (enemy.elite || HEALTH_PACK_ENEMY_KINDS.includes(enemy.kind)) {
             const heal = enemy.kind === "boss"
@@ -4369,18 +4367,6 @@ export default function Home() {
           .filter((entry) => entry.distance < entry.actor.r + 8)
           .sort((a, b) => a.distance - b.distance)[0];
         if (collector) {
-          if (gem.coins) {
-            const pickedCoins = gem.coins;
-            hostCoins += pickedCoins;
-            if (coOpActive) guestCoins += pickedCoins;
-            setCoins(hostCoins);
-            addEffect({ kind: "impact", x: gem.x, y: gem.y, color: "#f4c95d", radius: 44 }, .36);
-            burst(gem.x, gem.y, "#f4c95d", 8);
-            gem.coins = undefined;
-            gem.value = 0;
-            audio?.play("pickup");
-            continue;
-          }
           if (gem.heal) {
             const before = collector.actor.hp;
             collector.actor.hp = Math.min(
@@ -4449,10 +4435,10 @@ export default function Home() {
           }
         }
       }
-      gems = gems.filter((gem) => gem.life > 0 && (gem.value > 0 || Boolean(gem.heal || gem.coins)));
+      gems = gems.filter((gem) => gem.life > 0 && (gem.value > 0 || Boolean(gem.heal)));
       if (gems.length > PERFORMANCE_LIMITS.gems) {
-        const protectedDrops = gems.filter((gem) => Boolean(gem.heal || gem.relic || gem.coins));
-        const xpDrops = gems.filter((gem) => !gem.heal && !gem.relic && !gem.coins && gem.value > 0);
+        const protectedDrops = gems.filter((gem) => Boolean(gem.heal || gem.relic));
+        const xpDrops = gems.filter((gem) => !gem.heal && !gem.relic && gem.value > 0);
         const xpSlots = Math.max(1, PERFORMANCE_LIMITS.gems - protectedDrops.length);
         const keptXp = xpDrops.slice(-xpSlots);
         const mergedXp = xpDrops.slice(0, Math.max(0, xpDrops.length - xpSlots)).reduce((sum, gem) => sum + gem.value, 0);
@@ -4506,15 +4492,6 @@ export default function Home() {
       for(let i=0;i<24;i++){ const x=(i*193)%W,y=(i*317)%H;ctx.beginPath();ctx.arc(x,y,18+(i%4)*9,0,Math.PI*2);ctx.fill();}
       for(const g of gems){
         const dropAlpha=g.life<3?.38+Math.abs(Math.sin(performance.now()/120))*.62:1;
-        if(g.coins){
-          const pulse=1+Math.sin(renderNow/140)*.07;
-          ctx.save();ctx.globalAlpha=dropAlpha;ctx.translate(g.x,g.y);ctx.scale(pulse,pulse);
-          ctx.fillStyle="#f4c95d";ctx.strokeStyle="#fff0a6";ctx.lineWidth=2;ctx.shadowColor="#f4c95d";ctx.shadowBlur=reducedEffects?0:14;
-          ctx.beginPath();ctx.arc(0,0,10+Math.min(4,g.coins),0,Math.PI*2);ctx.fill();ctx.stroke();
-          ctx.fillStyle="#4c3a12";ctx.font="900 12px monospace";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("◈",0,1);ctx.restore();
-          ctx.save();ctx.globalAlpha=dropAlpha;ctx.fillStyle="#ffe58b";ctx.font="900 9px monospace";ctx.textAlign="center";ctx.fillText(`金币 +${g.coins}`,g.x,g.y-18);ctx.restore();
-          continue;
-        }
         if(g.heal){
           const pulse=1+Math.sin(performance.now()/170)*.08;
           ctx.save();ctx.globalAlpha=dropAlpha;ctx.translate(g.x,g.y);ctx.scale(pulse,pulse);
@@ -5251,12 +5228,27 @@ export default function Home() {
       <span className="signaturePreview"><em>套装</em>{SIGNATURE_SETS[item.id].name} · 集齐 3 件解锁专属机制</span>
     </button>)}
   </div>;
+  const signatureCompendium = <section className="signatureCompendium" aria-labelledby="signature-compendium-title">
+    <div className="signatureCompendiumHeading">
+      <span><small>RELIC SET ARCHIVE · 遗物套装介绍</small><h2 id="signature-compendium-title">职业遗物套装图鉴</h2></span>
+      <p>击败 Boss 获得本职业套装部件。每一件都会立即生效，集齐三件后解锁完整的专属机制。</p>
+    </div>
+    <div className="signatureCompendiumGrid">
+      {CLASSES.map((item)=>{
+        const set = SIGNATURE_SETS[item.id];
+        return <article key={item.id}>
+          <header><i>{set.icon}</i><span><small>{item.name}</small><b>{set.name}</b></span></header>
+          <ol>{set.tiers.map((tier,index)=><li key={tier}><em>{index+1} 件</em><span>{tier}</span></li>)}</ol>
+        </article>;
+      })}
+    </div>
+  </section>;
 
   return (
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.17.2 · 生存强化与战术档案</div>
+        <div className="status"><i /> 版本 0.17.3 · 金币自动结算与套装图鉴</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -5287,6 +5279,7 @@ export default function Home() {
           <button className="secondary" onClick={()=>setView("coop")}><span>双人联机</span><small>房间链接 · 自动中继</small></button>
         </div>
         <div className="controls"><span><kbd>WASD</kbd> 移动</span><span><kbd>Q / 空格</kbd> 主技能</span><span><kbd>E</kbd> 副技能</span><span><kbd>R</kbd> 终极大招</span><span><kbd>ESC</kbd> 暂停</span></div>
+        {signatureCompendium}
       </section>}
 
       {view==="loadout" && <section className="loadout">
@@ -5433,7 +5426,7 @@ export default function Home() {
           <div className="shopPanel">
             <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波后补给</div>
             <h2>战场补给站</h2>
-            <p>补给站不再一次性结算金币；金币由击杀敌人后小概率掉落并由全队共享，波数越高掉率越低。前三次补给仍享受逐步递减的价格优惠，并尽量保证至少一件成长配件买得起。</p>
+            <p>补给站不再一次性结算金币；击杀敌人后有概率自动获得少量金币并由全队共享，无需拾取，波数越高获得概率越低。前三次补给仍享受逐步递减的价格优惠，并尽量保证至少一件成长配件买得起。</p>
             <div className="shopWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="shopGrid">{shopItems.map((item)=><button key={item.id} className={`shop-rarity-${item.rarity}`} onClick={()=>buyShopItemRef.current(item.id)} disabled={coins<item.cost}>

@@ -43,7 +43,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.17\.2 · 生存强化与战术档案/);
+  assert.match(html, /版本 0\.17\.3 · 金币自动结算与套装图鉴/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -218,9 +218,11 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.doesNotMatch(page, /waveKills/);
   assert.match(page, /const coinDropChanceFor/);
   assert.match(page, /Math\.random\(\) < coinDropChanceFor/);
-  assert.match(page, /coins: coinDropAmountFor/);
-  assert.match(page, /hostCoins \+= pickedCoins/);
-  assert.match(page, /if \(coOpActive\) guestCoins \+= pickedCoins/);
+  assert.match(page, /const earnedCoins = coinDropAmountFor\(enemy\)/);
+  assert.match(page, /hostCoins \+= earnedCoins/);
+  assert.match(page, /if \(coOpActive\) guestCoins \+= earnedCoins/);
+  assert.doesNotMatch(page, /if \(gem\.coins\)/);
+  assert.doesNotMatch(page, /coins: coinDropAmountFor/);
   assert.match(page, /reward: 0/);
   assert.match(page, /const shouldOpenSupply = \(currentWave - 1\) % SHOP_EVERY_WAVES === 0/);
   assert.match(page, /const GUARDIAN_SHIELD_MAX = 5/);
@@ -309,6 +311,10 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /applyWarzoneBoonToBuild/);
   assert.match(page, /warzoneProjectileScale/);
   assert.match(page, /const SIGNATURE_SETS: Record<ClassId, SignatureSet>/);
+  assert.match(page, /const signatureCompendium = <section className="signatureCompendium"/);
+  assert.match(page, /职业遗物套装图鉴/);
+  assert.match(page, /SIGNATURE_SETS\[item\.id\]/);
+  assert.match(page, /set\.tiers\.map\(\(tier,index\)/);
   assert.match(page, /const applySignatureRelicPieces/);
   assert.match(page, /signaturePieces: 0/);
   assert.match(page, /relicPieces: bossRelic \? \(currentWarzone\?\.id === "archive" \? 2 : 1\) : undefined/);
@@ -378,12 +384,12 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /currentWave - 1\) \* \.04/);
   assert.match(page, /const earnedXp = gem\.value \* xpGainScale\(\) \* earlyWaveXpMultiplier\(currentWave\)/);
   assert.match(page, /const W = 1600, H = 900/);
-  assert.match(page, /type Gem = \{ x: number; y: number; value: number; life: number; relic\?: BossRelicId; relicPieces\?: number; heal\?: number; coins\?: number \}/);
+  assert.match(page, /type Gem = \{ x: number; y: number; value: number; life: number; relic\?: BossRelicId; relicPieces\?: number; heal\?: number \}/);
   assert.match(page, /const HEALTH_PACK_ENEMY_KINDS/);
   assert.match(page, /life: bossRelic \? 35 : 18/);
   assert.match(page, /gems\.push\(\{ x: enemy\.x \+ 18, y: enemy\.y - 12, value: 0, life: 14, heal \}\)/);
   assert.match(page, /gem\.life -= dt/);
-  assert.match(page, /gem\.life > 0 && \(gem\.value > 0 \|\| Boolean\(gem\.heal \|\| gem\.coins\)\)/);
+  assert.match(page, /gem\.life > 0 && \(gem\.value > 0 \|\| Boolean\(gem\.heal\)\)/);
   assert.match(page, /维修包 \$\{Math\.ceil\(g\.life\)\}s/);
   assert.match(page, /entry\.actor\.hp < entry\.actor\.maxHp/);
   assert.match(page, /战地维修包/);
@@ -460,6 +466,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(css, /\.shopGrid button\.shop-rarity-legendary/);
   assert.match(css, /\.ultimateCopy em/);
   assert.match(css, /\.bossNotice/);
+  assert.match(css, /\.signatureCompendiumGrid/);
   assert.match(css, /\.gameWrap\{width:min\(1680px,98vw\)/);
 
   await Promise.all([
