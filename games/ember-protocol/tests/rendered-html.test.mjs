@@ -42,7 +42,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.14\.7 · 前五波与天穹锁定增强/);
+  assert.match(html, /版本 0\.15\.0 · 三机甲与相位蓄能/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -50,7 +50,7 @@ test("server-renders the Ember Protocol game menu", async () => {
   assert.match(html, /终极大招/);
 });
 
-test("ships eleven independent classes, drones, effects, bosses, and generated sprites", async () => {
+test("ships fourteen independent classes, drones, effects, bosses, and generated sprites", async () => {
   const page = await readFile(new URL("../Game.tsx", import.meta.url), "utf8");
   const audio = await readFile(new URL("../audio.ts", import.meta.url), "utf8");
   const css = await readFile(new URL("../game.css", import.meta.url), "utf8");
@@ -59,7 +59,7 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(rootEntry, /games\/ember-protocol\/Game/);
   assert.doesNotMatch(rootEntry, /ember-protocol-v9/);
   assert.match(page, /ember-protocol-v9/);
-  assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost" \| "blade" \| "gravity" \| "thunder" \| "sky" \| "cinder"/);
+  assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost" \| "blade" \| "gravity" \| "thunder" \| "sky" \| "cinder" \| "aegis" \| "venom" \| "chrono"/);
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
   assert.match(page, /t: "upgrade-resume"/);
   assert.match(page, /t: "skill2"; classId: ClassId/);
@@ -353,6 +353,18 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
   assert.match(page, /sky-talon-mech\.webp/);
   assert.match(page, /cinder-forge-mech\.webp/);
   assert.match(page, /v2-support-assets\.webp/);
+  assert.match(page, /aegis-mech\.webp/);
+  assert.match(page, /venom-mech\.webp/);
+  assert.match(page, /chrono-mech\.webp/);
+  assert.match(page, /frontier-support-assets\.webp/);
+  assert.match(page, /phantom-reserve/);
+  assert.match(page, /stats\.dashCharges = Math\.min\(3, stats\.dashCharges \+ 1\)/);
+  assert.match(page, /phantomDashCharges <= 0/);
+  assert.match(page, /phantomDashCharges < stats\.dashCharges/);
+  assert.match(page, /const aegisShock/);
+  assert.match(page, /const venomCloud/);
+  assert.match(page, /const chronoField/);
+  assert.match(page, /corrosionDamage/);
   assert.match(page, /enemy-reinforcements\.webp/);
   assert.match(page, /enemy-reinforcement-projectiles\.webp/);
   assert.doesNotMatch(page, /ctx\.arc\(player\.x/);
@@ -399,6 +411,10 @@ test("ships eleven independent classes, drones, effects, bosses, and generated s
     access(new URL("../public/game/sky-talon-mech.webp", import.meta.url)),
     access(new URL("../public/game/cinder-forge-mech.webp", import.meta.url)),
     access(new URL("../public/game/v2-support-assets.webp", import.meta.url)),
+    access(new URL("../public/game/aegis-mech.webp", import.meta.url)),
+    access(new URL("../public/game/venom-mech.webp", import.meta.url)),
+    access(new URL("../public/game/chrono-mech.webp", import.meta.url)),
+    access(new URL("../public/game/frontier-support-assets.webp", import.meta.url)),
     access(new URL("../public/game/enemy-reinforcements.webp", import.meta.url)),
     access(new URL("../public/game/enemy-reinforcement-projectiles.webp", import.meta.url)),
     access(new URL("../public/game/player-mechs.png", import.meta.url)),

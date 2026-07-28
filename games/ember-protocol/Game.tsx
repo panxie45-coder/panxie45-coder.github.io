@@ -15,7 +15,7 @@ import {
 import { reconcilePausedPeerHp, teamRunDefeated } from "./team-state.mjs";
 
 type View = "menu" | "loadout" | "game" | "coop";
-type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity" | "thunder" | "sky" | "cinder";
+type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity" | "thunder" | "sky" | "cinder" | "aegis" | "venom" | "chrono";
 type EnemyKind =
   | "runner"
   | "crawler"
@@ -75,6 +75,10 @@ type CombatStats = {
   lightningPower: number;
   sniperPower: number;
   burnPower: number;
+  dashCharges: number;
+  aegisPower: number;
+  venomPower: number;
+  chronoPower: number;
 };
 type BuildFrame = CombatStats & { classId: ClassId; maxHp: number };
 type ClassSpec = {
@@ -89,7 +93,7 @@ type ClassSpec = {
   secondaryCooldown: number;
   color: string;
   sprite: number;
-  sheet: "core" | "specialist" | "vanguard" | "expedition";
+  sheet: "core" | "specialist" | "vanguard" | "expedition" | "frontier";
   radius: number;
   renderSize: number;
 };
@@ -111,6 +115,9 @@ type Enemy = Actor & {
   burn?: number;
   burnDamage?: number;
   burnOwner?: PlayerSide;
+  corrosion?: number;
+  corrosionDamage?: number;
+  corrosionOwner?: PlayerSide;
 };
 type Shot = {
   x: number;
@@ -132,6 +139,8 @@ type Shot = {
   chain?: boolean;
   burn?: number;
   burnDamage?: number;
+  corrosion?: number;
+  corrosionDamage?: number;
   freeze?: number;
   skill2?: boolean;
   hitIds?: number[];
@@ -201,6 +210,7 @@ type NetBridge = {
 };
 
 const GAME_ASSETS = {
+  aegisMech: "/game/aegis-mech.webp",
   assassinProjectile: "/game/assassin-projectile.webp",
   bladeMech: "/game/blade-mech.webp",
   bossProjectiles: "/game/boss-projectiles.webp",
@@ -208,11 +218,13 @@ const GAME_ASSETS = {
   bossVariants: "/game/boss-variants.webp",
   bossVariantsV2: "/game/boss-variants-v2.webp",
   cinderForgeMech: "/game/cinder-forge-mech.webp",
+  chronoMech: "/game/chrono-mech.webp",
   enemyMechs: "/game/enemy-mechs.webp",
   enemyReinforcementProjectiles: "/game/enemy-reinforcement-projectiles.webp",
   enemyReinforcements: "/game/enemy-reinforcements.webp",
   enemyProjectiles: "/game/enemy-projectiles.webp",
   frostMech: "/game/frost-mech.webp",
+  frontierSupportAssets: "/game/frontier-support-assets.webp",
   gravityMech: "/game/gravity-mech.webp",
   laserMech: "/game/laser-mech.webp",
   playerMechs: "/game/player-mechs.webp",
@@ -225,6 +237,7 @@ const GAME_ASSETS = {
   v2SupportAssets: "/game/v2-support-assets.webp",
   vanguardDrones: "/game/vanguard-drones.webp",
   vanguardProjectiles: "/game/vanguard-projectiles.webp",
+  venomMech: "/game/venom-mech.webp",
 };
 
 const GAME_IMAGE_CACHE = new Map<string, HTMLImageElement>();
@@ -292,6 +305,7 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
   ],
   phantom: [
     { id: "phantom-fold", classId: "phantom", title: "折跃增程", desc: "相位突进距离 +70", icon: "➟" },
+    { id: "phantom-reserve", classId: "phantom", title: "相位蓄能", desc: "相位突进储存上限 +1，最多储存 3 次并可连续释放", icon: "◌" },
     { id: "phantom-needle", classId: "phantom", title: "虚空针簇", desc: "暴击率 +12%，伤害 +12%", icon: "✧" },
     { id: "phantom-cycle", classId: "phantom", title: "相位回路", desc: "主技能与副技能冷却 -22%", icon: "◌" },
   ],
@@ -329,6 +343,21 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
     { id: "cinder-furnace", classId: "cinder", title: "焚城炉心", desc: "灼烧伤害与持续时间 +28%", icon: "♨" },
     { id: "cinder-nozzle", classId: "cinder", title: "裂焰喷口", desc: "熔岩弹爆炸范围与弹体 +22%", icon: "◆" },
     { id: "cinder-plating", classId: "cinder", title: "黑曜热甲", desc: "生命上限 +26，减伤 +4%", icon: "⬢" },
+  ],
+  aegis: [
+    { id: "aegis-reflection", classId: "aegis", title: "圣盾回响", desc: "光盾震击伤害、击退与反击强度 +26%", icon: "⬡" },
+    { id: "aegis-lance", classId: "aegis", title: "裁决穿心", desc: "主炮伤害 +18%，额外贯穿 1 名敌人", icon: "➤" },
+    { id: "aegis-plating", classId: "aegis", title: "圣金覆甲", desc: "生命上限 +24，额外减伤 4%", icon: "⬢" },
+  ],
+  venom: [
+    { id: "venom-acid", classId: "venom", title: "超蚀酸核", desc: "腐蚀伤害与持续时间 +28%", icon: "☣" },
+    { id: "venom-fangs", classId: "venom", title: "裂甲蜂针", desc: "主炮伤害 +18%，弹体与爆裂范围增大", icon: "✦" },
+    { id: "venom-chitin", classId: "venom", title: "活性甲壳", desc: "移动速度 +9%，额外减伤 4%", icon: "◇" },
+  ],
+  chrono: [
+    { id: "chrono-loop", classId: "chrono", title: "时序增幅", desc: "时间技能伤害与控制时间 +26%", icon: "◴" },
+    { id: "chrono-echo", classId: "chrono", title: "延迟回响", desc: "主炮额外发射 1 枚时序弹，射速略降", icon: "⌁" },
+    { id: "chrono-anchor", classId: "chrono", title: "永恒锚点", desc: "生命上限 +18，主技能与副技能冷却 -15%", icon: "◎" },
   ],
 };
 
@@ -376,6 +405,18 @@ const SECONDARY_UPGRADES: Record<ClassId, Upgrade[]> = {
   cinder: [
     { id: "cinder-secondary-power", classId: "cinder", secondary: true, title: "地雷增压", desc: "熔火地雷伤害 +22%，可无限叠加", icon: "♨", rarity: "rare" },
     { id: "cinder-secondary-scorch", classId: "cinder", secondary: true, title: "焦土核心", desc: "熔火地雷爆炸范围与灼烧时间 +18%，最多强化 3 次", icon: "◆", rarity: "epic" },
+  ],
+  aegis: [
+    { id: "aegis-secondary-power", classId: "aegis", secondary: true, title: "长矛增压", desc: "裁决长矛伤害 +22%，可无限叠加", icon: "➤", rarity: "rare" },
+    { id: "aegis-secondary-lances", classId: "aegis", secondary: true, title: "分光裁决", desc: "裁决长矛额外发射 1 枚，最多 3 枚", icon: "✦", rarity: "epic" },
+  ],
+  venom: [
+    { id: "venom-secondary-power", classId: "venom", secondary: true, title: "毒刺增压", desc: "蝎尾毒刺伤害 +22%，可无限叠加", icon: "☣", rarity: "rare" },
+    { id: "venom-secondary-spines", classId: "venom", secondary: true, title: "裂殖毒针", desc: "蝎尾毒刺额外发射 1 枚，最多 5 枚", icon: "✣", rarity: "epic" },
+  ],
+  chrono: [
+    { id: "chrono-secondary-power", classId: "chrono", secondary: true, title: "飞轮增压", desc: "回溯飞轮伤害 +22%，可无限叠加", icon: "◴", rarity: "rare" },
+    { id: "chrono-secondary-wheels", classId: "chrono", secondary: true, title: "平行时轮", desc: "回溯飞轮额外发射 1 枚，最多 4 枚", icon: "⌁", rarity: "epic" },
   ],
 };
 
@@ -425,6 +466,18 @@ const ULTIMATE_UPGRADES: Record<ClassId, Upgrade[]> = {
     { id: "cinder-ultimate-power", classId: "cinder", ultimate: true, title: "熔城增压", desc: "炼狱推进伤害 +20%，可无限叠加", icon: "♨" },
     { id: "cinder-ultimate-lanes", classId: "cinder", ultimate: true, title: "火墙增殖", desc: "炼狱推进额外生成 1 道火墙，最多 5 道", icon: "▰" },
   ],
+  aegis: [
+    { id: "aegis-ultimate-power", classId: "aegis", ultimate: true, title: "圣域增压", desc: "天穹圣域反击伤害 +20%，可无限叠加", icon: "⬡" },
+    { id: "aegis-ultimate-duration", classId: "aegis", ultimate: true, title: "永续圣域", desc: "圣域保护时间 +0.5 秒，最多 5.4 秒", icon: "✦" },
+  ],
+  venom: [
+    { id: "venom-ultimate-power", classId: "venom", ultimate: true, title: "灾厄增压", desc: "灾厄酸雨伤害 +20%，可无限叠加", icon: "☣" },
+    { id: "venom-ultimate-locks", classId: "venom", ultimate: true, title: "扩散酸雨", desc: "酸雨额外锁定 2 个目标，最多锁定 16 个", icon: "⌖" },
+  ],
+  chrono: [
+    { id: "chrono-ultimate-power", classId: "chrono", ultimate: true, title: "零时增压", desc: "零时刻伤害 +20%，可无限叠加", icon: "◴" },
+    { id: "chrono-ultimate-range", classId: "chrono", ultimate: true, title: "时停扩域", desc: "零时刻半径 +70，最多 650", icon: "◎" },
+  ],
 };
 
 const SHOP_ITEMS: ShopItem[] = [
@@ -472,6 +525,9 @@ const ULTIMATE_NAMES: Record<ClassId, string> = {
   thunder: "天罚雷域",
   sky: "神矛阵列",
   cinder: "炼狱推进",
+  aegis: "天穹圣域",
+  venom: "灾厄酸雨",
+  chrono: "零时刻",
 };
 
 const ULTIMATE_CHARGE_SCALE: Record<ClassId, number> = {
@@ -486,6 +542,9 @@ const ULTIMATE_CHARGE_SCALE: Record<ClassId, number> = {
   thunder: .54,
   sky: .48,
   cinder: .57,
+  aegis: .53,
+  venom: .61,
+  chrono: .49,
 };
 
 const UPGRADE_RARITY: Partial<Record<string, UpgradeRarity>> = {
@@ -501,6 +560,7 @@ const UPGRADE_RARITY: Partial<Record<string, UpgradeRarity>> = {
   "engineer-swarm": "epic",
   "engineer-link": "rare",
   "phantom-fold": "rare",
+  "phantom-reserve": "epic",
   "phantom-needle": "rare",
   "laser-overfocus": "rare",
   "laser-prism": "rare",
@@ -520,6 +580,15 @@ const UPGRADE_RARITY: Partial<Record<string, UpgradeRarity>> = {
   "cinder-furnace": "rare",
   "cinder-nozzle": "rare",
   "cinder-plating": "epic",
+  "aegis-reflection": "rare",
+  "aegis-lance": "rare",
+  "aegis-plating": "epic",
+  "venom-acid": "rare",
+  "venom-fangs": "rare",
+  "venom-chitin": "epic",
+  "chrono-loop": "rare",
+  "chrono-echo": "rare",
+  "chrono-anchor": "epic",
   "assault-ultimate-power": "rare",
   "assault-ultimate-locks": "rare",
   "guardian-ultimate-power": "rare",
@@ -542,6 +611,12 @@ const UPGRADE_RARITY: Partial<Record<string, UpgradeRarity>> = {
   "sky-ultimate-locks": "legendary",
   "cinder-ultimate-power": "rare",
   "cinder-ultimate-lanes": "epic",
+  "aegis-ultimate-power": "rare",
+  "aegis-ultimate-duration": "epic",
+  "venom-ultimate-power": "rare",
+  "venom-ultimate-locks": "epic",
+  "chrono-ultimate-power": "rare",
+  "chrono-ultimate-range": "epic",
 };
 const UPGRADE_RARITY_GROWTH_CAP_WAVE = 12;
 const RARITY_WEIGHTS: Record<UpgradeRarity, number> = { common: 52, rare: 32, epic: 16, legendary: 7 };
@@ -552,6 +627,7 @@ const BASIC_ATTACK_UPGRADE_IDS = new Set([
   "assault-warhead", "guardian-rail", "phantom-needle", "laser-prism",
   "frost-shatter", "blade-edge", "blade-tempo", "gravity-lens",
   "thunder-cycle", "sky-focus", "sky-penetrator", "cinder-nozzle",
+  "aegis-lance", "venom-fangs", "chrono-echo",
 ]);
 const RARITY_LABELS: Record<UpgradeRarity, string> = { common: "普通", rare: "稀有", epic: "史诗", legendary: "传说" };
 const upgradeRarity = (upgrade: Upgrade): UpgradeRarity => upgrade.rarity || UPGRADE_RARITY[upgrade.id] || "common";
@@ -603,6 +679,9 @@ const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) =>
   if (upgrade.id === "thunder-ultimate-locks") return currentBuild.ultimateTargets < 16;
   if (upgrade.id === "sky-ultimate-locks") return currentBuild.ultimateTargets < 9;
   if (upgrade.id === "cinder-ultimate-lanes") return currentBuild.ultimateLanes < 5;
+  if (upgrade.id === "aegis-ultimate-duration") return currentBuild.ultimateDuration < 5.4;
+  if (upgrade.id === "venom-ultimate-locks") return currentBuild.ultimateTargets < 16;
+  if (upgrade.id === "chrono-ultimate-range") return currentBuild.ultimateRange < 650;
   return true;
 };
 const secondaryUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
@@ -617,6 +696,9 @@ const secondaryUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) =
   if (upgrade.id === "thunder-secondary-nodes") return currentBuild.secondaryProjectiles < 6;
   if (upgrade.id === "sky-secondary-locks") return currentBuild.secondaryProjectiles < 3;
   if (upgrade.id === "cinder-secondary-scorch") return currentBuild.secondaryArea < 1.6;
+  if (upgrade.id === "aegis-secondary-lances") return currentBuild.secondaryProjectiles < 2;
+  if (upgrade.id === "venom-secondary-spines") return currentBuild.secondaryProjectiles < 2;
+  if (upgrade.id === "chrono-secondary-wheels") return currentBuild.secondaryProjectiles < 2;
   return true;
 };
 const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>, wave: number) => {
@@ -638,7 +720,8 @@ const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>, wave: n
 const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame, wave: number) => {
   const availableUltimate = ULTIMATE_UPGRADES[classId].filter((upgrade) => ultimateUpgradeAvailable(upgrade, currentBuild));
   const availableSecondary = SECONDARY_UPGRADES[classId].filter((upgrade) => secondaryUpgradeAvailable(upgrade, currentBuild));
-  const classPool = [...CLASS_UPGRADES[classId], ...availableSecondary, ...availableUltimate];
+  const availableClass = CLASS_UPGRADES[classId].filter((upgrade) => upgrade.id !== "phantom-reserve" || currentBuild.dashCharges < 3);
+  const classPool = [...availableClass, ...availableSecondary, ...availableUltimate];
   const fullPool = [...UPGRADES, ...classPool];
   const excluded = new Set<string>();
   const choices: Upgrade[] = [];
@@ -728,6 +811,9 @@ const CLASSES: ClassSpec[] = [
   { id: "thunder", name: "雷霆型", role: "连锁电弧控场", active: "雷链过载：自动串联附近敌人并短暂麻痹", secondary: "电磁脉冲：范围麻痹并扩散多重电弧", passive: "感应雷弹：命中后电弧跳跃至附近目标", ultimate: "天罚雷域：连续标记高威胁目标并降下多轮落雷", cooldown: 12, secondaryCooldown: 9, color: "#48dfff", sprite: 0, sheet: "expedition", radius: 17, renderSize: 86 },
   { id: "sky", name: "天隼型", role: "超远程轨道狙击", active: "贯星狙击：贯穿整条战线并重创首领", secondary: "猎杀标记：向首领或强敌降下三发轨道矛", passive: "弱点照准：高伤害、高暴击、超高速贯穿弹", ultimate: "神矛阵列：轨道光矛依次点杀最高威胁目标", cooldown: 14, secondaryCooldown: 12, color: "#ff6a62", sprite: 1, sheet: "expedition", radius: 15, renderSize: 88 },
   { id: "cinder", name: "熔炉型", role: "重装燃烧推进", active: "焚城喷流：向敌群喷出锥形烈焰并持续灼烧", secondary: "熔火地雷：投射爆炸核心并留下持续灼烧", passive: "熔岩弹：爆炸后点燃范围内敌人", ultimate: "炼狱推进：多道火墙横推战场并留下燃烧地带", cooldown: 13, secondaryCooldown: 10, color: "#ff8a32", sprite: 2, sheet: "expedition", radius: 26, renderSize: 98 },
+  { id: "aegis", name: "圣铠型", role: "圣盾反击", active: "光盾震击：展开双盾、击退敌人并短暂免伤", secondary: "裁决长矛：发射贯穿整条战线的圣光长矛", passive: "圣辉穿刺：主炮贯穿敌阵并削弱前排", ultimate: "天穹圣域：展开移动圣域，修复队友并连续反击", cooldown: 13, secondaryCooldown: 9, color: "#ffd36a", sprite: 0, sheet: "frontier", radius: 24, renderSize: 96 },
+  { id: "venom", name: "蚀蜂型", role: "腐蚀猎杀", active: "腐蚀云爆：引爆酸雾并持续溶解附近敌人", secondary: "蝎尾毒刺：发射分裂腐蚀长钉", passive: "酸蚀弹头：所有弹丸叠加持续腐蚀", ultimate: "灾厄酸雨：锁定敌群降下多轮腐蚀雨", cooldown: 11, secondaryCooldown: 8, color: "#b5e536", sprite: 1, sheet: "frontier", radius: 18, renderSize: 92 },
+  { id: "chrono", name: "时轮型", role: "时间控制", active: "时滞领域：冻结近敌并留下长效减速", secondary: "回溯飞轮：发射多枚贯穿时序刃", passive: "延迟回响：主炮命中造成时滞与减速", ultimate: "零时刻：展开时停穹顶，冻结并多段轰击敌群", cooldown: 14, secondaryCooldown: 10, color: "#f0ad4e", sprite: 2, sheet: "frontier", radius: 20, renderSize: 94 },
 ];
 
 const BOSS_VARIANTS: Record<BossVariant, { name: string; sprite: number; sheet: "core" | "v2"; color: string; hp: number; speed: number; hit: number; range: number }> = {
@@ -827,6 +913,10 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     lightningPower: 1,
     sniperPower: 1,
     burnPower: 1,
+    dashCharges: 1,
+    aegisPower: 1,
+    venomPower: 1,
+    chronoPower: 1,
   };
   if (classId === "assault") return { ...base, maxHp: 116, damage: 46, interval: .6, projectileSpeed: 535, projectileSize: 7.5 };
   if (classId === "guardian") return { ...base, maxHp: 155, speed: 224, damage: 78, interval: 1.05, projectileSpeed: 455, projectileSize: 10, damageReduction: .25 };
@@ -838,7 +928,10 @@ const makeBuild = (classId: ClassId): BuildFrame => {
   if (classId === "gravity") return { ...base, maxHp: 146, speed: 226, damage: 44, interval: .66, magnet: 110, projectileSpeed: 510, projectileSize: 9, damageReduction: .14, gravityPower: 1.12 };
   if (classId === "thunder") return { ...base, maxHp: 112, speed: 274, damage: 27, interval: .36, projectileSpeed: 690, projectileSize: 5.5, critChance: .1, lightningPower: 1.12, ultimateTargets: 8 };
   if (classId === "sky") return { ...base, maxHp: 96, speed: 312, damage: 72, interval: .94, projectileSpeed: 980, projectileSize: 6, critChance: .2, sniperPower: 1.14, ultimateTargets: 4 };
-  return { ...base, maxHp: 162, speed: 204, damage: 54, interval: .76, projectileSpeed: 490, projectileSize: 10, damageReduction: .18, burnPower: 1.15, ultimateLanes: 3 };
+  if (classId === "cinder") return { ...base, maxHp: 162, speed: 204, damage: 54, interval: .76, projectileSpeed: 490, projectileSize: 10, damageReduction: .18, burnPower: 1.15, ultimateLanes: 3 };
+  if (classId === "aegis") return { ...base, maxHp: 150, speed: 225, damage: 58, interval: .76, projectileSpeed: 590, projectileSize: 9, bonusPierce: 1, damageReduction: .2, drones: 1, aegisPower: 1.12, ultimateDuration: 3.4 };
+  if (classId === "venom") return { ...base, maxHp: 112, speed: 286, damage: 30, interval: .38, projectileSpeed: 720, projectileSize: 6.5, critChance: .12, drones: 1, venomPower: 1.15, ultimateTargets: 8 };
+  return { ...base, maxHp: 120, speed: 258, damage: 36, interval: .48, projectileSpeed: 680, projectileSize: 7, damageReduction: .08, drones: 1, chronoPower: 1.12, ultimateRange: 440 };
 };
 
 const projectileTraits = (classId: ClassId, combatStats?: Pick<CombatStats, "bonusPierce" | "projectileSize">): Partial<Shot> => {
@@ -852,7 +945,10 @@ const projectileTraits = (classId: ClassId, combatStats?: Pick<CombatStats, "bon
   if (classId === "gravity") return { slow: 1.4, splash: 48, pierce: 1 };
   if (classId === "thunder") return { chain: true, pierce: 1 };
   if (classId === "sky") return { pierce: 4 + Math.round(combatStats?.bonusPierce || 0) };
-  return { splash: 72 + Math.max(0, (combatStats?.projectileSize || 10) - 10) * 4, burn: 4.2, burnDamage: 8 };
+  if (classId === "cinder") return { splash: 72 + Math.max(0, (combatStats?.projectileSize || 10) - 10) * 4, burn: 4.2, burnDamage: 8 };
+  if (classId === "aegis") return { pierce: 2 + Math.round(combatStats?.bonusPierce || 0), slow: 1.1 };
+  if (classId === "venom") return { pierce: 1, splash: 42, corrosion: 4.8, corrosionDamage: 7 };
+  return { pierce: 2, slow: 2.4 };
 };
 
 const mechPreviewClass = (classInfo: ClassSpec) => {
@@ -863,6 +959,9 @@ const mechPreviewClass = (classInfo: ClassSpec) => {
   if (classInfo.id === "thunder") return "mechPreview thunderPreview";
   if (classInfo.id === "sky") return "mechPreview skyPreview";
   if (classInfo.id === "cinder") return "mechPreview cinderPreview";
+  if (classInfo.id === "aegis") return "mechPreview aegisPreview";
+  if (classInfo.id === "venom") return "mechPreview venomPreview";
+  if (classInfo.id === "chrono") return "mechPreview chronoPreview";
   return `mechPreview mech-${classInfo.sprite}`;
 };
 const mechPreviewAsset = (classInfo: ClassSpec) => classInfo.id === "laser"
@@ -879,7 +978,13 @@ const mechPreviewAsset = (classInfo: ClassSpec) => classInfo.id === "laser"
             ? GAME_ASSETS.skyTalonMech
             : classInfo.id === "cinder"
               ? GAME_ASSETS.cinderForgeMech
-              : GAME_ASSETS.playerMechs;
+              : classInfo.id === "aegis"
+                ? GAME_ASSETS.aegisMech
+                : classInfo.id === "venom"
+                  ? GAME_ASSETS.venomMech
+                  : classInfo.id === "chrono"
+                    ? GAME_ASSETS.chronoMech
+                    : GAME_ASSETS.playerMechs;
 const mechPreviewStyle = (source: string): CSSProperties => ({
   backgroundImage: `url("${source}")`,
 });
@@ -1013,6 +1118,8 @@ export default function Home() {
   const [bossLootNotice, setBossLootNotice] = useState("");
   const [selectedClass, setSelectedClass] = useState<ClassId>("assault");
   const [skillCooldown, setSkillCooldown] = useState(0);
+  const [skillCharges, setSkillCharges] = useState(1);
+  const [skillChargeCap, setSkillChargeCap] = useState(1);
   const [secondarySkillCooldown, setSecondarySkillCooldown] = useState(0);
   const [waitingPeerUpgrade, setWaitingPeerUpgrade] = useState(false);
   const [sound, setSound] = useState(true);
@@ -1252,6 +1359,10 @@ export default function Home() {
   }, [connectToRoom]);
 
   useEffect(() => {
+    window.scrollTo({ top: 0, left: 0 });
+  }, [view]);
+
+  useEffect(() => {
     if (view !== "game") return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1286,6 +1397,7 @@ export default function Home() {
     const ULTIMATE_MAX = 100;
     let build = { ...ownBuildRef.current };
     let stats: CombatStats = { ...build };
+    let phantomDashCharges = build.classId === "phantom" ? build.dashCharges : 1;
     const classSpec = () => CLASSES.find((item) => item.id === build.classId) || CLASSES[0];
     let player: Actor = {
       x: network?.role === "join" ? W / 2 + 52 : W / 2 - 52,
@@ -1309,6 +1421,9 @@ export default function Home() {
     const thunderSprite = getGameImage(GAME_ASSETS.thunderMech);
     const skySprite = getGameImage(GAME_ASSETS.skyTalonMech);
     const cinderSprite = getGameImage(GAME_ASSETS.cinderForgeMech);
+    const aegisSprite = getGameImage(GAME_ASSETS.aegisMech);
+    const venomSprite = getGameImage(GAME_ASSETS.venomMech);
+    const chronoSprite = getGameImage(GAME_ASSETS.chronoMech);
     const enemySprites = getGameImage(GAME_ASSETS.enemyMechs);
     const bossVariantSprites = getGameImage(GAME_ASSETS.bossVariants);
     const bossVariantSpritesV2 = getGameImage(GAME_ASSETS.bossVariantsV2);
@@ -1325,6 +1440,7 @@ export default function Home() {
     const enemyProjectiles = getGameImage(GAME_ASSETS.enemyProjectiles);
     const assassinProjectile = getGameImage(GAME_ASSETS.assassinProjectile);
     const v2SupportAssets = getGameImage(GAME_ASSETS.v2SupportAssets);
+    const frontierSupportAssets = getGameImage(GAME_ASSETS.frontierSupportAssets);
     const unsubscribeNetwork = network?.subscribe((data) => {
       if (data.t === "player" && isAuthority) {
         coOpRunEstablished = true;
@@ -1388,6 +1504,9 @@ export default function Home() {
         if (data.classId === "thunder") thunderChain(remote, remoteBuild, "guest");
         if (data.classId === "sky") railSnipe(remote, remoteBuild, "guest");
         if (data.classId === "cinder") incinerateCone(remote, remoteBuild, "guest");
+        if (data.classId === "aegis") aegisShock(remote, remoteBuild, "guest");
+        if (data.classId === "venom") venomCloud(remote, remoteBuild, "guest");
+        if (data.classId === "chrono") chronoField(remote, remoteBuild, "guest");
         triggerSkillEffect(remote, data.classId, skillStart);
         audio?.play("skill");
       }
@@ -1544,6 +1663,7 @@ export default function Home() {
       setWaitingPeerUpgrade(false);
       build = { ...ownBuildRef.current };
       stats = { ...build };
+      phantomDashCharges = build.classId === "phantom" ? build.dashCharges : 1;
       player = {
         x: network?.role === "join" ? W / 2 + 52 : W / 2 - 52,
         y: H / 2,
@@ -1560,6 +1680,8 @@ export default function Home() {
       setTeammateHp(null);
       setRescueProgress(0);
       setSkillCooldown(0);
+      setSkillCharges(phantomDashCharges);
+      setSkillChargeCap(build.classId === "phantom" ? build.dashCharges : 1);
       setSecondarySkillCooldown(0);
       setWave(1);
       setCoins(0);
@@ -1602,6 +1724,12 @@ export default function Home() {
       if (id === "engineer-link") stats.dronePower *= 1.35;
       if (id === "engineer-repair") stats.repairPower *= 1.4;
       if (id === "phantom-fold") stats.dashDistance += 70;
+      if (id === "phantom-reserve") {
+        stats.dashCharges = Math.min(3, stats.dashCharges + 1);
+        phantomDashCharges = Math.min(stats.dashCharges, phantomDashCharges + 1);
+        setSkillCharges(phantomDashCharges);
+        setSkillChargeCap(stats.dashCharges);
+      }
       if (id === "phantom-needle") { stats.critChance = Math.min(.72, stats.critChance + .12); stats.damage *= 1.12; }
       if (id === "phantom-cycle") stats.skillHaste = Math.max(.45, stats.skillHaste * .78);
       if (id === "laser-overfocus") stats.laserPower *= 1.3;
@@ -1641,6 +1769,23 @@ export default function Home() {
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 26);
         stats.damageReduction = Math.min(.62, stats.damageReduction + .04);
       }
+      if (id === "aegis-reflection") stats.aegisPower *= 1.26;
+      if (id === "aegis-lance") { stats.damage *= 1.18; stats.bonusPierce += 1; }
+      if (id === "aegis-plating") {
+        player.maxHp += 24;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 24);
+        stats.damageReduction = Math.min(.62, stats.damageReduction + .04);
+      }
+      if (id === "venom-acid") stats.venomPower *= 1.28;
+      if (id === "venom-fangs") { stats.damage *= 1.18; stats.projectileSize += 1; }
+      if (id === "venom-chitin") { stats.speed *= 1.09; stats.damageReduction = Math.min(.62, stats.damageReduction + .04); }
+      if (id === "chrono-loop") stats.chronoPower *= 1.26;
+      if (id === "chrono-echo") { stats.multi += 1; stats.interval *= 1.06; }
+      if (id === "chrono-anchor") {
+        player.maxHp += 18;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 18);
+        stats.skillHaste = Math.max(.5, stats.skillHaste * .85);
+      }
       if (id.endsWith("-secondary-power")) stats.secondaryPower *= 1.22;
       if (id === "assault-secondary-salvo") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
       if (id === "guardian-secondary-radius") stats.secondaryArea = Math.min(1.53, stats.secondaryArea * 1.15);
@@ -1659,6 +1804,9 @@ export default function Home() {
         stats.secondaryControl = Math.min(1.65, stats.secondaryControl * 1.18);
         stats.secondaryArea = Math.min(1.65, stats.secondaryArea * 1.18);
       }
+      if (id === "aegis-secondary-lances") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
+      if (id === "venom-secondary-spines") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
+      if (id === "chrono-secondary-wheels") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
       if (id.endsWith("-ultimate-power")) stats.ultimatePower *= 1.2;
       if (id === "assault-ultimate-locks") stats.ultimateTargets = Math.min(ASSAULT_ULTIMATE_TARGET_CAP, stats.ultimateTargets + 2);
       if (id === "guardian-ultimate-duration") stats.ultimateDuration = Math.min(5.4, stats.ultimateDuration + .5);
@@ -1671,6 +1819,9 @@ export default function Home() {
       if (id === "thunder-ultimate-locks") stats.ultimateTargets = Math.min(16, stats.ultimateTargets + 2);
       if (id === "sky-ultimate-locks") stats.ultimateTargets = Math.min(9, stats.ultimateTargets + 1);
       if (id === "cinder-ultimate-lanes") stats.ultimateLanes = Math.min(5, stats.ultimateLanes + 1);
+      if (id === "aegis-ultimate-duration") stats.ultimateDuration = Math.min(5.4, stats.ultimateDuration + .5);
+      if (id === "venom-ultimate-locks") stats.ultimateTargets = Math.min(16, stats.ultimateTargets + 2);
+      if (id === "chrono-ultimate-range") stats.ultimateRange = Math.min(650, stats.ultimateRange + 70);
       if (localUpgradeStartedAlive) {
         player.hp = Math.min(
           player.maxHp,
@@ -1777,6 +1928,9 @@ export default function Home() {
         if (build.classId === "thunder") stats.lightningPower *= 1.15;
         if (build.classId === "sky") stats.sniperPower *= 1.15;
         if (build.classId === "cinder") stats.burnPower *= 1.15;
+        if (build.classId === "aegis") stats.aegisPower *= 1.15;
+        if (build.classId === "venom") stats.venomPower *= 1.15;
+        if (build.classId === "chrono") stats.chronoPower *= 1.15;
       }
       if (id === "ultimate-amplifier") stats.ultimatePower *= 1.12;
       if (id === "ult-battery") setLocalUltimate(localUltimate() + 22);
@@ -1843,13 +1997,28 @@ export default function Home() {
 
     activeSkillRef.current = () => {
       const now = performance.now();
-      if (player.hp <= 0 || now < skillReadyAt || localPaused || pausedRef.current) return;
+      const usesDashCharges = build.classId === "phantom";
+      if (
+        player.hp <= 0 ||
+        localPaused ||
+        pausedRef.current ||
+        (!usesDashCharges && now < skillReadyAt) ||
+        (usesDashCharges && phantomDashCharges <= 0)
+      ) return;
       const spec = classSpec();
       const skillStart = { x: player.x, y: player.y };
       const minimumCooldown = spec.id === "guardian" ? MIN_GUARDIAN_COOLDOWN : 4;
       const cooldownSeconds = skillCooldownFor(spec.cooldown, stats.skillHaste, minimumCooldown);
-      skillReadyAt = now + cooldownSeconds * 1000;
-      setSkillCooldown(Math.ceil((skillReadyAt - now) / 1000));
+      if (usesDashCharges) {
+        phantomDashCharges = Math.max(0, phantomDashCharges - 1);
+        if (skillReadyAt <= 0) skillReadyAt = now + cooldownSeconds * 1000;
+        setSkillCharges(phantomDashCharges);
+        setSkillChargeCap(stats.dashCharges);
+        setSkillCooldown(Math.ceil(Math.max(0, skillReadyAt - now) / 1000));
+      } else {
+        skillReadyAt = now + cooldownSeconds * 1000;
+        setSkillCooldown(Math.ceil((skillReadyAt - now) / 1000));
+      }
       if (network?.role === "join") {
         if (build.classId === "guardian") selfShieldUntil = now + Math.min(GUARDIAN_SHIELD_MAX, stats.shieldDuration, cooldownSeconds - 2) * 1000;
         if (build.classId === "phantom") {
@@ -1891,6 +2060,9 @@ export default function Home() {
       if (build.classId === "thunder") thunderChain(player, stats, "host");
       if (build.classId === "sky") railSnipe(player, stats, "host");
       if (build.classId === "cinder") incinerateCone(player, stats, "host");
+      if (build.classId === "aegis") aegisShock(player, stats, "host");
+      if (build.classId === "venom") venomCloud(player, stats, "host");
+      if (build.classId === "chrono") chronoField(player, stats, "host");
       triggerSkillEffect(player, build.classId, skillStart);
       audio?.play("skill");
     };
@@ -2065,6 +2237,9 @@ export default function Home() {
         thunder: "#48dfff",
         sky: "#ff6a62",
         cinder: "#ff8a32",
+        aegis: "#ffd36a",
+        venom: "#b5e536",
+        chrono: "#f0ad4e",
       };
       const radii: Record<ClassId, number> = {
         assault: 190,
@@ -2078,6 +2253,9 @@ export default function Home() {
         thunder: 290,
         sky: 520,
         cinder: 440,
+        aegis: 300,
+        venom: 340,
+        chrono: 390,
       };
       const color = colors[classId];
       addEffect({ kind: "skill", classId, x: actor.x, y: actor.y, color, radius: radii[classId] }, classId === "frost" ? 1 : .72);
@@ -2311,6 +2489,44 @@ export default function Home() {
       }
       addEffect({ kind: "skill", classId: "cinder", x: actor.x, y: actor.y, x2: actor.x + Math.cos(angle) * range, y2: actor.y + Math.sin(angle) * range, color: "#ff8a32", radius: range }, 1.05);
     };
+    const aegisShock = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      const radius = 300 * combatStats.aegisPower;
+      for (const enemy of enemies) {
+        const distance = dist(actor, enemy);
+        if (enemy.hp <= 0 || distance > radius + enemy.r || distance < 1) continue;
+        const angle = Math.atan2(enemy.y - actor.y, enemy.x - actor.x);
+        enemy.x = clamp(enemy.x + Math.cos(angle) * 135 * combatStats.aegisPower, -80, W + 80);
+        enemy.y = clamp(enemy.y + Math.sin(angle) * 135 * combatStats.aegisPower, -80, H + 80);
+        enemy.stunned = Math.max(enemy.stunned || 0, .5);
+        applyEnemyDamage(enemy, combatStats.damage * 2.35 * combatStats.aegisPower, owner);
+        burst(enemy.x, enemy.y, "#ffd36a", 8);
+      }
+      const shieldUntil = performance.now() + 1150;
+      if (actor === player) selfShieldUntil = Math.max(selfShieldUntil, shieldUntil);
+      else remoteShieldUntil = Math.max(remoteShieldUntil, shieldUntil);
+    };
+    const venomCloud = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      const radius = 340 * combatStats.venomPower;
+      for (const enemy of enemies) {
+        if (enemy.hp <= 0 || dist(actor, enemy) > radius + enemy.r) continue;
+        applyEnemyDamage(enemy, combatStats.damage * 1.7 * combatStats.venomPower, owner);
+        enemy.corrosion = Math.max(enemy.corrosion || 0, 6.2 * combatStats.venomPower);
+        enemy.corrosionDamage = Math.max(enemy.corrosionDamage || 0, combatStats.damage * .58 * combatStats.venomPower);
+        enemy.corrosionOwner = owner;
+        enemy.slow = Math.max(enemy.slow, 2.4);
+        burst(enemy.x, enemy.y, "#b5e536", 8);
+      }
+    };
+    const chronoField = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      const radius = 390 * combatStats.chronoPower;
+      for (const enemy of enemies) {
+        if (enemy.hp <= 0 || dist(actor, enemy) > radius + enemy.r) continue;
+        enemy.frozen = Math.max(enemy.frozen || 0, Math.min(2.6, 1.15 * combatStats.chronoPower));
+        enemy.slow = Math.max(enemy.slow, 6.4 * combatStats.chronoPower);
+        applyEnemyDamage(enemy, combatStats.damage * 2.2 * combatStats.chronoPower, owner);
+        burst(enemy.x, enemy.y, "#f0ad4e", 7);
+      }
+    };
     const executeSecondarySkill = (
       actor: Actor,
       combatStats: BuildFrame | CombatStats,
@@ -2474,6 +2690,46 @@ export default function Home() {
           owner, classId, splash: 145 * secondaryArea, burn: 6.5 * secondaryControl, burnDamage: combatStats.damage * .55 * secondaryPower, skill2: true,
         });
         triggerSecondarySkillEffect(actor, classId, target, 240 * secondaryArea);
+      }
+      if (classId === "aegis") {
+        const lanceCount = 1 + secondaryProjectiles;
+        for (let index = 0; index < lanceCount; index++) {
+          const angle = aimAngle + (index - (lanceCount - 1) / 2) * .12;
+          shots.push({
+            x: actor.x, y: actor.y,
+            vx: Math.cos(angle) * 820, vy: Math.sin(angle) * 820,
+            r: 11, damage: combatStats.damage * 3.35 * combatStats.aegisPower * secondaryPower, life: 2.7,
+            owner, classId, pierce: 5 + Math.round(combatStats.bonusPierce), slow: 1.8, skill2: true,
+          });
+        }
+        triggerSecondarySkillEffect(actor, classId, target, 290);
+      }
+      if (classId === "venom") {
+        const spineCount = 3 + secondaryProjectiles;
+        for (let index = 0; index < spineCount; index++) {
+          const angle = aimAngle + (index - (spineCount - 1) / 2) * .14;
+          shots.push({
+            x: actor.x, y: actor.y,
+            vx: Math.cos(angle) * 760, vy: Math.sin(angle) * 760,
+            r: 8, damage: combatStats.damage * 2.2 * combatStats.venomPower * secondaryPower, life: 2.8,
+            owner, classId, pierce: 2, splash: 68 * secondaryArea,
+            corrosion: 7 * secondaryControl, corrosionDamage: combatStats.damage * .52 * combatStats.venomPower * secondaryPower, skill2: true,
+          });
+        }
+        triggerSecondarySkillEffect(actor, classId, target, 250 * secondaryArea);
+      }
+      if (classId === "chrono") {
+        const wheelCount = 2 + secondaryProjectiles;
+        for (let index = 0; index < wheelCount; index++) {
+          const angle = aimAngle + (index - (wheelCount - 1) / 2) * .17;
+          shots.push({
+            x: actor.x, y: actor.y,
+            vx: Math.cos(angle) * 790, vy: Math.sin(angle) * 790,
+            r: 9, damage: combatStats.damage * 2.7 * combatStats.chronoPower * secondaryPower, life: 2.9,
+            owner, classId, pierce: 4, slow: 5.5 * secondaryControl, freeze: .42 * secondaryControl, skill2: true,
+          });
+        }
+        triggerSecondarySkillEffect(actor, classId, target, 310 * secondaryArea);
       }
     };
     const executeUltimate = (actor: Actor, combatStats: BuildFrame | CombatStats, classId: ClassId, owner: PlayerSide) => {
@@ -2676,6 +2932,69 @@ export default function Home() {
         }
         addEffect({ kind: "ultimate", classId, count: laneCount, x: actor.x, y: actor.y, x2: actor.x + Math.cos(aimAngle) * length, y2: actor.y + Math.sin(aimAngle) * length, color, radius: 310 }, 2.15);
       }
+      if (classId === "aegis") {
+        const shieldUntil = performance.now() + Math.min(5400, combatStats.ultimateDuration * 1000);
+        if (player.hp > 0) {
+          player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .24);
+          selfShieldUntil = Math.max(selfShieldUntil, shieldUntil);
+        }
+        if (remote && remote.hp > 0) {
+          remote.hp = Math.min(remote.maxHp, remote.hp + remote.maxHp * .24);
+          remoteShieldUntil = Math.max(remoteShieldUntil, shieldUntil);
+        }
+        const targets = prioritizeUltimateTargets(enemies, actor, 12);
+        for (const [index, enemy] of targets.entries()) {
+          const orbitAngle = index / Math.max(1, targets.length) * Math.PI * 2;
+          const origin = {
+            x: actor.x + Math.cos(orbitAngle) * 155,
+            y: actor.y + Math.sin(orbitAngle) * 155,
+          };
+          beams.push({ x1: origin.x, y1: origin.y, x2: enemy.x, y2: enemy.y, life: .72, width: 9, color: "#fff2ac" });
+          damageEnemy(enemy, combatStats.damage * 4.6 * combatStats.aegisPower * power);
+          enemy.stunned = Math.max(enemy.stunned || 0, .65);
+          burst(enemy.x, enemy.y, "#ffd36a", 14);
+        }
+        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: 310 }, Math.min(3.1, combatStats.ultimateDuration));
+      }
+      if (classId === "venom") {
+        const targets = prioritizeUltimateTargets(enemies, actor, combatStats.ultimateTargets);
+        for (const [index, target] of targets.entries()) {
+          beams.push({ x1: target.x + (index % 2 ? 42 : -42), y1: -110, x2: target.x, y2: target.y, life: .85, width: 12, color: "#d9ff55" });
+          addEffect({ kind: "ultimate", classId, x: target.x, y: target.y, x2: target.x, y2: -110, color, radius: 118 }, 1.55);
+          for (const enemy of enemies) {
+            if (enemy.hp <= 0 || dist(target, enemy) > 125 + enemy.r) continue;
+            damageEnemy(enemy, combatStats.damage * 4.15 * combatStats.venomPower * power);
+            enemy.corrosion = Math.max(enemy.corrosion || 0, 8.2 * combatStats.venomPower);
+            enemy.corrosionDamage = Math.max(enemy.corrosionDamage || 0, combatStats.damage * .68 * combatStats.venomPower * power);
+            enemy.corrosionOwner = owner;
+            enemy.slow = Math.max(enemy.slow, 4.2);
+          }
+          burst(target.x, target.y, "#b5e536", 20);
+        }
+      }
+      if (classId === "chrono") {
+        const timeRange = clamp(combatStats.ultimateRange, 440, 650);
+        for (const enemy of enemies) {
+          const distance = dist(actor, enemy);
+          if (enemy.hp <= 0 || distance > timeRange + enemy.r) continue;
+          enemy.frozen = Math.max(enemy.frozen || 0, Math.min(4.2, 2.25 * combatStats.chronoPower));
+          enemy.slow = Math.max(enemy.slow, 10 * combatStats.chronoPower);
+          damageEnemy(enemy, combatStats.damage * 5.25 * combatStats.chronoPower * power);
+          for (let echo = 0; echo < 3; echo++) {
+            const angle = echo / 3 * Math.PI * 2 + distance * .01;
+            beams.push({
+              x1: enemy.x + Math.cos(angle) * 70,
+              y1: enemy.y + Math.sin(angle) * 70,
+              x2: enemy.x,
+              y2: enemy.y,
+              life: .46 + echo * .14,
+              width: 5,
+              color: echo % 2 ? "#f0ad4e" : "#caa8ff",
+            });
+          }
+        }
+        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: timeRange }, 2.35);
+      }
       burst(actor.x, actor.y, color, classId === "guardian" || classId === "engineer" ? 26 : 40);
       setHp(Math.ceil(player.hp));
       audio?.play("ultimate");
@@ -2762,7 +3081,21 @@ export default function Home() {
       beams = beams.filter((beam) => beam.life > 0);
       for (const effect of effects) effect.life -= dt;
       effects = effects.filter((effect) => effect.life > 0);
-      const cooldownRemaining = Math.max(0, Math.ceil((skillReadyAt - performance.now()) / 1000));
+      const cooldownNow = performance.now();
+      if (build.classId === "phantom" && phantomDashCharges < stats.dashCharges && skillReadyAt > 0) {
+        const rechargeSeconds = skillCooldownFor(classSpec().cooldown, stats.skillHaste, 4);
+        let chargeRestored = false;
+        while (phantomDashCharges < stats.dashCharges && skillReadyAt > 0 && cooldownNow >= skillReadyAt) {
+          phantomDashCharges += 1;
+          chargeRestored = true;
+          skillReadyAt = phantomDashCharges < stats.dashCharges ? skillReadyAt + rechargeSeconds * 1000 : 0;
+        }
+        if (chargeRestored) {
+          setSkillCharges(phantomDashCharges);
+          setSkillChargeCap(stats.dashCharges);
+        }
+      }
+      const cooldownRemaining = Math.max(0, Math.ceil((skillReadyAt - cooldownNow) / 1000));
       if (cooldownRemaining !== shownCooldown) {
         shownCooldown = cooldownRemaining;
         setSkillCooldown(cooldownRemaining);
@@ -2945,6 +3278,10 @@ export default function Home() {
         if ((enemy.burn || 0) > 0) {
           enemy.burn = Math.max(0, (enemy.burn || 0) - dt);
           applyEnemyDamage(enemy, (enemy.burnDamage || 0) * dt, enemy.burnOwner || enemy.lastHitBy);
+        }
+        if ((enemy.corrosion || 0) > 0) {
+          enemy.corrosion = Math.max(0, (enemy.corrosion || 0) - dt);
+          applyEnemyDamage(enemy, (enemy.corrosionDamage || 0) * dt, enemy.corrosionOwner || enemy.lastHitBy);
         }
         const target = livingActors.reduce((nearest, actor) => dist(enemy, actor) < dist(enemy, nearest) ? actor : nearest);
         const targetDistance = dist(enemy, target);
@@ -3251,6 +3588,13 @@ export default function Home() {
             enemy.burnDamage = Math.max(enemy.burnDamage || 0, (shot.burnDamage || shot.damage * .16) * burnPower);
             enemy.burnOwner = shot.owner || "host";
           }
+          if (shot.corrosion) {
+            const corrosionStats = shot.owner === "guest" ? remoteBuildRef.current : stats;
+            const venomPower = corrosionStats?.venomPower || 1;
+            enemy.corrosion = Math.max(enemy.corrosion || 0, shot.corrosion * venomPower);
+            enemy.corrosionDamage = Math.max(enemy.corrosionDamage || 0, (shot.corrosionDamage || shot.damage * .18) * venomPower);
+            enemy.corrosionOwner = shot.owner || "host";
+          }
           if (shot.splash) {
             for (const nearby of nearbyEnemies(enemy.x, enemy.y, shot.splash)) {
               if (nearby === enemy || nearby.hp <= 0 || dist(enemy, nearby) > shot.splash) continue;
@@ -3258,7 +3602,7 @@ export default function Home() {
             }
             burst(enemy.x, enemy.y, "#f4c95d", 12);
           }
-          const impactColor = shot.slow ? "#8bdcff" : (CLASSES.find((item) => item.id === shot.classId)?.color || "#fff2ba");
+          const impactColor = shot.corrosion ? "#b5e536" : shot.slow ? "#8bdcff" : (CLASSES.find((item) => item.id === shot.classId)?.color || "#fff2ba");
           impactEffect(shot.x, shot.y, impactColor, shot.splash ? 54 : Math.min(38, 18 + shot.damage * .16));
           if (shot.chain) {
             const next = nearbyEnemies(enemy.x, enemy.y, 145)
@@ -3275,7 +3619,7 @@ export default function Home() {
           if ((shot.pierce || 0) > 0) shot.pierce = (shot.pierce || 0) - 1;
           else shot.life = 0;
           audio?.play("hit");
-          burst(shot.x,shot.y,shot.slow?"#a8e9ff":"#fff2ba",4);
+          burst(shot.x,shot.y,shot.corrosion?"#b5e536":shot.slow?"#a8e9ff":"#fff2ba",4);
         }
       }
       for (const enemy of enemies) {
@@ -3576,6 +3920,21 @@ export default function Home() {
             const endX=effect.x2??effect.x,endY=effect.y2??effect.y;const angle=Math.atan2(endY-effect.y,endX-effect.x),length=Math.hypot(endX-effect.x,endY-effect.y);
             ctx.translate(effect.x,effect.y);ctx.rotate(angle);const laneCount=clamp(effect.count??3,3,5);ctx.fillStyle="rgba(255,103,47,.18)";
             for(let lane=0;lane<laneCount;lane++){const offset=(lane-(laneCount-1)/2)*118;ctx.beginPath();ctx.moveTo(0,offset-38);for(let step=1;step<=8;step++){ctx.lineTo(length*step/8,offset-30-Math.sin(step*2+progress*7)*26);}for(let step=8;step>=0;step--){ctx.lineTo(length*step/8,offset+30+Math.sin(step*2.2+progress*7)*26);}ctx.closePath();ctx.fill();ctx.stroke();}
+          }else if(effect.classId==="aegis"){
+            ctx.translate(effect.x,effect.y);ctx.rotate(progress*.55);ctx.fillStyle="rgba(255,211,106,.1)";ctx.lineWidth=5;
+            for(let ring=1;ring<=3;ring++){const ringRadius=radius*(.3+ring*.2);ctx.beginPath();for(let index=0;index<8;index++){const angle=index/8*Math.PI*2;const x=Math.cos(angle)*ringRadius,y=Math.sin(angle)*ringRadius;if(index)ctx.lineTo(x,y);else ctx.moveTo(x,y);}ctx.closePath();ctx.fill();ctx.stroke();}
+            for(let index=0;index<8;index++){const angle=index/8*Math.PI*2-progress*.8;ctx.save();ctx.rotate(angle);ctx.strokeRect(radius*.56,-20,radius*.28,40);ctx.restore();}
+          }else if(effect.classId==="venom"){
+            const topY=effect.y2??effect.y-radius;ctx.lineWidth=4;
+            for(let index=0;index<9;index++){const angle=index/9*Math.PI*2+progress*2.4;const orbit=radius*(.32+(index%3)*.13);const x=effect.x+Math.cos(angle)*orbit,y=effect.y+Math.sin(angle)*orbit;ctx.beginPath();ctx.arc(x,y,6+(index%2)*3,0,Math.PI*2);ctx.fill();ctx.stroke();}
+            ctx.setLineDash([9,8]);ctx.beginPath();ctx.moveTo(effect.x,topY);ctx.lineTo(effect.x,effect.y);ctx.stroke();ctx.setLineDash([]);
+            ctx.globalAlpha=alpha*.34;ctx.beginPath();ctx.arc(effect.x,effect.y,radius*.78,0,Math.PI*2);ctx.fill();
+          }else if(effect.classId==="chrono"){
+            ctx.translate(effect.x,effect.y);ctx.lineWidth=4;ctx.fillStyle="rgba(202,168,255,.08)";
+            for(let ring=1;ring<=3;ring++){ctx.beginPath();ctx.arc(0,0,radius*(.22*ring),-Math.PI/2,-Math.PI/2+Math.PI*2*progress);ctx.stroke();}
+            ctx.beginPath();ctx.arc(0,0,radius*.76,0,Math.PI*2);ctx.fill();ctx.stroke();
+            for(let index=0;index<12;index++){const angle=index/12*Math.PI*2;ctx.beginPath();ctx.moveTo(Math.cos(angle)*radius*.64,Math.sin(angle)*radius*.64);ctx.lineTo(Math.cos(angle)*radius*.76,Math.sin(angle)*radius*.76);ctx.stroke();}
+            ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.cos(-Math.PI/2+progress*4.5)*radius*.5,Math.sin(-Math.PI/2+progress*4.5)*radius*.5);ctx.moveTo(0,0);ctx.lineTo(Math.cos(-Math.PI/2-progress*2.2)*radius*.34,Math.sin(-Math.PI/2-progress*2.2)*radius*.34);ctx.stroke();
           }else{
             ctx.lineWidth=8*(1-progress)+3;ctx.beginPath();ctx.arc(effect.x,effect.y,radius,0,Math.PI*2);ctx.stroke();
           }
@@ -3705,10 +4064,23 @@ export default function Home() {
             const endX=effect.x2??effect.x,endY=effect.y2??effect.y;const angle=Math.atan2(endY-effect.y,endX-effect.x),length=Math.hypot(endX-effect.x,endY-effect.y);ctx.translate(effect.x,effect.y);ctx.rotate(angle);ctx.fillStyle="rgba(255,111,42,.2)";
             ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(length,-length*.48);for(let step=7;step>=0;step--){const x=length*step/7;ctx.lineTo(x,Math.sin(step*2+progress*8)*22);}ctx.lineTo(length,length*.48);ctx.closePath();ctx.fill();ctx.stroke();
           }
+          if(effect.classId==="aegis"){
+            ctx.translate(effect.x,effect.y);ctx.rotate(progress*Math.PI*.45);ctx.fillStyle="rgba(255,211,106,.12)";
+            for(let index=0;index<6;index++){ctx.save();ctx.rotate(index/6*Math.PI*2);ctx.beginPath();ctx.moveTo(radius*.25,-radius*.14);ctx.lineTo(radius*.92,-radius*.28);ctx.lineTo(radius,radius*.28);ctx.lineTo(radius*.25,radius*.14);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();}
+          }
+          if(effect.classId==="venom"){
+            ctx.globalAlpha=alpha*.72;ctx.fillStyle="rgba(181,229,54,.25)";
+            for(let index=0;index<8;index++){const angle=index/8*Math.PI*2-progress*2;const orbit=radius*(.32+(index%2)*.24);ctx.beginPath();ctx.arc(effect.x+Math.cos(angle)*orbit,effect.y+Math.sin(angle)*orbit,4+index%3,0,Math.PI*2);ctx.fill();ctx.stroke();}
+          }
+          if(effect.classId==="chrono"){
+            ctx.translate(effect.x,effect.y);ctx.lineWidth=3;
+            for(let ring=1;ring<=3;ring++){ctx.beginPath();ctx.arc(0,0,radius*ring/3,-Math.PI/2,-Math.PI/2+Math.PI*2*progress);ctx.stroke();}
+            ctx.lineWidth=5;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.cos(progress*4.4-Math.PI/2)*radius*.72,Math.sin(progress*4.4-Math.PI/2)*radius*.72);ctx.stroke();
+          }
         }
         ctx.restore();
       }
-      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1, blade: 0, gravity: 1, thunder: 0, sky: 1, cinder: 2 };
+      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1, blade: 0, gravity: 1, thunder: 0, sky: 1, cinder: 2, aegis: 0, venom: 1, chrono: 2 };
       const projectileDimensions: Record<ClassId, [number, number]> = {
         assault: [34, 18],
         guardian: [38, 22],
@@ -3721,6 +4093,9 @@ export default function Home() {
         thunder: [44, 20],
         sky: [58, 17],
         cinder: [42, 24],
+        aegis: [52, 23],
+        venom: [51, 22],
+        chrono: [49, 25],
       };
       for(const s of shots){
         if(s.hostile){
@@ -3771,12 +4146,13 @@ export default function Home() {
         }
         const sprite=projectileSpriteIndex[s.classId];
         const classInfo=CLASSES.find((item)=>item.id===s.classId)||CLASSES[0];
-        const projectileImage=classInfo.sheet==="specialist"?specialistProjectiles:classInfo.sheet==="vanguard"?vanguardProjectiles:classInfo.sheet==="expedition"?v2SupportAssets:projectileSprites;
+        const projectileImage=classInfo.sheet==="specialist"?specialistProjectiles:classInfo.sheet==="vanguard"?vanguardProjectiles:classInfo.sheet==="expedition"?v2SupportAssets:classInfo.sheet==="frontier"?frontierSupportAssets:projectileSprites;
         if(!projectileImage.complete||!projectileImage.naturalWidth){
           ctx.fillStyle="#fff2ba";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();continue;
         }
-        const projectileColumns=classInfo.sheet==="expedition"?3:2;
-        const cellW=projectileImage.naturalWidth/projectileColumns,cellH=classInfo.sheet==="core"||classInfo.sheet==="expedition"?projectileImage.naturalHeight/2:projectileImage.naturalHeight;
+        const packedSupportSheet=classInfo.sheet==="expedition"||classInfo.sheet==="frontier";
+        const projectileColumns=packedSupportSheet?3:2;
+        const cellW=projectileImage.naturalWidth/projectileColumns,cellH=classInfo.sheet==="core"||packedSupportSheet?projectileImage.naturalHeight/2:projectileImage.naturalHeight;
         const [baseDrawW,baseDrawH]=projectileDimensions[s.classId];
         const drawW=baseDrawW*(s.skill2?1.38:1),drawH=baseDrawH*(s.skill2?1.38:1);
         ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));
@@ -3786,7 +4162,7 @@ export default function Home() {
           ctx.beginPath();ctx.moveTo(drawW*.55,0);ctx.lineTo(0,-drawH*.82);ctx.lineTo(-drawW*.55,0);ctx.lineTo(0,drawH*.82);ctx.closePath();ctx.fill();ctx.stroke();
           ctx.globalAlpha=.8;ctx.beginPath();ctx.arc(0,0,Math.max(drawH,drawW)*.63,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=1;
         }
-        ctx.drawImage(projectileImage,(sprite%projectileColumns)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:classInfo.sheet==="expedition"?cellH:0,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
+        ctx.drawImage(projectileImage,(sprite%projectileColumns)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:packedSupportSheet?cellH:0,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
         ctx.restore();
       }
       const enemySpriteIndex: Partial<Record<EnemyKind, number>> = { runner: 0, crawler: 1, artillery: 2, assassin: 3, brute: 4, commander: 5 };
@@ -3840,6 +4216,11 @@ export default function Home() {
           for(let index=0;index<5;index++){const flameAngle=index/5*Math.PI*2+performance.now()/650;const flameRadius=e.r+7+(index%2)*5;const fx=Math.cos(flameAngle)*flameRadius,fy=Math.sin(flameAngle)*flameRadius;ctx.beginPath();ctx.moveTo(fx,fy-10);ctx.lineTo(fx-5,fy+7);ctx.lineTo(fx+5,fy+7);ctx.closePath();ctx.fill();}
           ctx.restore();
         }
+        if((e.corrosion||0)>0){
+          ctx.save();ctx.translate(e.x,e.y);ctx.fillStyle="rgba(181,229,54,.5)";ctx.strokeStyle="#d9ff55";ctx.shadowColor="#b5e536";ctx.shadowBlur=15;ctx.lineWidth=2;
+          for(let index=0;index<6;index++){const acidAngle=index/6*Math.PI*2-performance.now()/900;const acidRadius=e.r+8+(index%2)*5;const ax=Math.cos(acidAngle)*acidRadius,ay=Math.sin(acidAngle)*acidRadius;ctx.beginPath();ctx.arc(ax,ay,3+(index%3),0,Math.PI*2);ctx.fill();ctx.stroke();}
+          ctx.beginPath();ctx.arc(0,0,e.r+7,0,Math.PI*2);ctx.stroke();ctx.restore();
+        }
         if((e.stunned||0)>0){
           ctx.save();ctx.translate(e.x,e.y);ctx.strokeStyle="#8bf5ff";ctx.lineWidth=2.6;ctx.shadowColor="#48dfff";ctx.shadowBlur=14;
           for(let index=0;index<4;index++){const angle=index/4*Math.PI*2+performance.now()/420;ctx.beginPath();ctx.moveTo(Math.cos(angle)*e.r*.45,Math.sin(angle)*e.r*.45);ctx.lineTo(Math.cos(angle+.18)*(e.r+8),Math.sin(angle+.18)*(e.r+8));ctx.lineTo(Math.cos(angle-.08)*(e.r+18),Math.sin(angle-.08)*(e.r+18));ctx.stroke();}
@@ -3884,7 +4265,13 @@ export default function Home() {
                   ? skySprite
                   : classInfo.id === "cinder"
                     ? cinderSprite
-                    : playerSprites;
+                    : classInfo.id === "aegis"
+                      ? aegisSprite
+                      : classInfo.id === "venom"
+                        ? venomSprite
+                        : classInfo.id === "chrono"
+                          ? chronoSprite
+                          : playerSprites;
         const independentSprite = classInfo.sheet !== "core";
         const cellW = independentSprite ? mechImage.naturalWidth : mechImage.naturalWidth / 2;
         const cellH = independentSprite ? mechImage.naturalHeight : mechImage.naturalHeight / 2;
@@ -3928,16 +4315,17 @@ export default function Home() {
       const drawDrones = (actor: Actor, count: number) => {
         if(count<=0)return;
         const classInfo=CLASSES.find((item)=>item.id===actor.classId)||CLASSES[0];
-        const droneImage=classInfo.sheet==="specialist"?specialistDrones:classInfo.sheet==="vanguard"?vanguardDrones:classInfo.sheet==="expedition"?v2SupportAssets:droneSprites;
+        const droneImage=classInfo.sheet==="specialist"?specialistDrones:classInfo.sheet==="vanguard"?vanguardDrones:classInfo.sheet==="expedition"?v2SupportAssets:classInfo.sheet==="frontier"?frontierSupportAssets:droneSprites;
         if(!droneImage.complete||!droneImage.naturalWidth)return;
-        const droneColumns=classInfo.sheet==="expedition"?3:2;
-        const cellW=droneImage.naturalWidth/droneColumns,cellH=classInfo.sheet==="core"||classInfo.sheet==="expedition"?droneImage.naturalHeight/2:droneImage.naturalHeight;
+        const packedSupportSheet=classInfo.sheet==="expedition"||classInfo.sheet==="frontier";
+        const droneColumns=packedSupportSheet?3:2;
+        const cellW=droneImage.naturalWidth/droneColumns,cellH=classInfo.sheet==="core"||packedSupportSheet?droneImage.naturalHeight/2:droneImage.naturalHeight;
         for(let index=0;index<count;index++){
           const position=dronePosition(actor,index,count);
           const sprite=classInfo.sprite;
           const target=enemies.length?enemies.reduce((nearest,enemy)=>dist(position,enemy)<dist(position,nearest)?enemy:nearest):null;
           const angle=target?Math.atan2(target.y-position.y,target.x-position.x):position.angle+Math.PI/2;
-          const size=classInfo.id==="cinder"?42:classInfo.id==="frost"||classInfo.id==="gravity"?38:classInfo.id==="blade"||classInfo.id==="thunder"||classInfo.id==="sky"?36:32;
+          const size=classInfo.id==="cinder"||classInfo.id==="aegis"?42:classInfo.id==="frost"||classInfo.id==="gravity"||classInfo.id==="chrono"?38:classInfo.id==="blade"||classInfo.id==="thunder"||classInfo.id==="sky"||classInfo.id==="venom"?36:32;
           ctx.save();ctx.translate(position.x,position.y);ctx.rotate(angle);ctx.shadowColor=classInfo.color;ctx.shadowBlur=10;
           ctx.drawImage(droneImage,(sprite%droneColumns)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:0,cellW,cellH,-size/2,-size/2,size,size);
           ctx.restore();
@@ -4082,7 +4470,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.14.7 · 前五波与天穹锁定增强</div>
+        <div className="status"><i /> 版本 0.15.0 · 三机甲与相位蓄能</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -4187,7 +4575,20 @@ export default function Home() {
           <div className="skillDock">
             <ResilientMechPreview key={selectedClassSpec.id} classInfo={selectedClassSpec}/>
             <div><small>{selectedClassSpec.role}</small><b>{selectedClassSpec.active}</b></div>
-            <button onClick={()=>activeSkillRef.current()} disabled={skillCooldown>0||hp<=0}>{hp<=0?"倒地":skillCooldown>0?`${skillCooldown}s`:"Q · 释放"}</button>
+            <button
+              onClick={()=>activeSkillRef.current()}
+              disabled={hp<=0||(selectedClass==="phantom"?skillCharges<=0:skillCooldown>0)}
+            >
+              {hp<=0
+                ?"倒地"
+                :selectedClass==="phantom"
+                  ?skillCharges>0
+                    ?`Q · ${skillCharges}/${skillChargeCap}`
+                    :`${skillCooldown}s · 0/${skillChargeCap}`
+                  :skillCooldown>0
+                    ?`${skillCooldown}s`
+                    :"Q · 释放"}
+            </button>
           </div>
           <div className="skillDock secondarySkillDock">
             <span className="secondarySkillIcon" aria-hidden="true">Ⅱ</span>
