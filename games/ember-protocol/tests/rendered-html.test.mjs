@@ -12,6 +12,7 @@ import {
   FIRST_SHOP_WAVE,
   primaryThreatScore,
   prioritizeUltimateTargets,
+  selectCombatTarget,
   skillCooldownFor,
 } from "../combat-balance.mjs";
 
@@ -43,7 +44,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.18\.1 · 统一机甲美术与战斗视野整理/);
+  assert.match(html, /版本 0\.18\.2 · BOSS近距锁定平衡/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -334,6 +335,9 @@ test("ships sixteen independent classes, evolutions, missions, bosses, and gener
   assert.match(page, /const executeUltimate/);
   assert.match(page, /const strikeTargets = prioritizeUltimateTargets\(enemies, actor, combatStats\.ultimateTargets\)/);
   assert.match(page, /const aimTarget = prioritizeUltimateTargets\(enemies, actor, 1\)\[0\]/);
+  assert.match(page, /const target = selectCombatTarget\(enemies, player\) \|\| enemies\[0\]/);
+  assert.match(page, /const target = selectCombatTarget\(enemies, remote\) \|\| enemies\[0\]/);
+  assert.match(page, /const target=selectCombatTarget\(enemies,position\)/);
   assert.match(page, /const ultimateReach = Math\.hypot\(W, H\) \+ 160/);
   assert.match(page, /const bossTarget = cluster\.find\(\(enemy\) => enemy\.kind === "boss"\)/);
   assert.match(page, /combatStats\.ultimateDuration \* 1000/);
@@ -547,6 +551,23 @@ test("prioritizes bosses for every offensive ultimate and boosts only early-wave
   assert.equal(
     prioritizeUltimateTargets([{ ...targets[2], hp: 0 }, targets[0]], origin, 1)[0]?.kind,
     "runner",
+  );
+
+  assert.equal(
+    selectCombatTarget([
+      { ...targets[0], x: 20, y: 0 },
+      { ...targets[2], x: 390, y: 0, r: 48 },
+    ], origin)?.kind,
+    "boss",
+    "a boss inside the lock radius cannot be displaced by nearby fodder",
+  );
+  assert.equal(
+    selectCombatTarget([
+      { ...targets[0], x: 60, y: 0 },
+      { ...targets[2], x: 620, y: 0, r: 48 },
+    ], origin)?.kind,
+    "runner",
+    "a distant boss cannot steal ordinary shots across the arena",
   );
 
   assert.equal(earlyWaveXpMultiplier(1), 2.25);

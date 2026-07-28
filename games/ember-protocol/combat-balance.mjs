@@ -22,6 +22,29 @@ export const prioritizeUltimateTargets = (enemies, origin, limit) =>
     })
     .slice(0, Math.max(0, Math.round(limit)));
 
+export const BOSS_LOCK_RADIUS = 460;
+
+/**
+ * Basic attacks and tactical skills should not lose a nearby boss merely
+ * because a small enemy is a few pixels closer. Bosses only receive this
+ * priority inside the lock radius, so distant bosses cannot steal all shots.
+ *
+ * @template {{ hp: number; kind?: string; r?: number; x: number; y: number }} T
+ * @param {T[]} enemies
+ * @param {{ x: number; y: number }} origin
+ * @param {number} bossLockRadius
+ * @returns {T | null}
+ */
+export const selectCombatTarget = (enemies, origin, bossLockRadius = BOSS_LOCK_RADIUS) => {
+  const living = enemies.filter((enemy) => enemy.hp > 0);
+  const distanceTo = (enemy) => Math.hypot(enemy.x - origin.x, enemy.y - origin.y);
+  const nearbyBoss = living
+    .filter((enemy) => enemy.kind === "boss" && distanceTo(enemy) <= bossLockRadius + Math.max(0, enemy.r || 0))
+    .sort((a, b) => distanceTo(a) - distanceTo(b))[0];
+  if (nearbyBoss) return nearbyBoss;
+  return living.sort((a, b) => distanceTo(a) - distanceTo(b))[0] || null;
+};
+
 /**
  * Front-load a little more growth before the first boss without changing the
  * established mid/late-game progression curve.

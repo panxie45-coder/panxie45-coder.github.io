@@ -10,6 +10,7 @@ import {
   earlyWaveXpMultiplier,
   FIRST_SHOP_WAVE,
   prioritizeUltimateTargets,
+  selectCombatTarget,
   skillCooldownFor,
 } from "./combat-balance.mjs";
 import { reconcilePausedPeerHp, teamRunDefeated } from "./team-state.mjs";
@@ -3083,9 +3084,7 @@ export default function Home() {
       if (owner) enemy.lastHitBy = owner;
     };
     const fireLaser = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
-      const target = enemies.length
-        ? enemies.reduce((nearest, enemy) => dist(actor, enemy) < dist(actor, nearest) ? enemy : nearest)
-        : null;
+      const target = selectCombatTarget(enemies, actor);
       const angle = target ? Math.atan2(target.y - actor.y, target.x - actor.x) : 0;
       const length = 1550;
       const beamAngles = combatStats.laserRefraction > 1
@@ -3136,9 +3135,11 @@ export default function Home() {
     };
     const fireBlade = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide, multiplier = 1) => {
       const range = combatStats.meleeRange * combatStats.meleePower;
-      const target = enemies
-        .filter((enemy) => enemy.hp > 0 && dist(actor, enemy) <= range + enemy.r)
-        .sort((a, b) => dist(actor, a) - dist(actor, b))[0];
+      const target = selectCombatTarget(
+        enemies.filter((enemy) => enemy.hp > 0 && dist(actor, enemy) <= range + enemy.r),
+        actor,
+        range,
+      );
       if (!target) return false;
       const angle = Math.atan2(target.y - actor.y, target.x - actor.x);
       let comboMultiplier = 1;
@@ -3194,7 +3195,7 @@ export default function Home() {
       syncedY?: number,
     ) => {
       const start = { x: actor.x, y: actor.y };
-      const target = enemies.filter((enemy) => enemy.hp > 0).sort((a, b) => dist(actor, a) - dist(actor, b))[0];
+      const target = selectCombatTarget(enemies, actor);
       if (typeof syncedX === "number" && typeof syncedY === "number") {
         actor.x = clamp(syncedX, 30, W - 30);
         actor.y = clamp(syncedY, 30, H - 30);
@@ -3234,9 +3235,10 @@ export default function Home() {
       const remaining = enemies.filter((enemy) => enemy.hp > 0);
       let source = { x: actor.x, y: actor.y };
       for (let index = 0; index < targetCount && remaining.length; index++) {
-        const target = remaining
-          .filter((enemy) => index === 0 ? dist(source, enemy) < 560 : dist(source, enemy) < 275)
-          .sort((a, b) => dist(source, a) - dist(source, b))[0];
+        const candidates = remaining.filter((enemy) => index === 0 ? dist(source, enemy) < 560 : dist(source, enemy) < 275);
+        const target = index === 0
+          ? selectCombatTarget(candidates, source, 560)
+          : candidates.sort((a, b) => dist(source, a) - dist(source, b))[0];
         if (!target) break;
         const damageScale = Math.max(.54, 1 - index * .09);
         applyEnemyDamage(target, combatStats.damage * 3.15 * combatStats.lightningPower * damageScale, owner);
@@ -3268,7 +3270,7 @@ export default function Home() {
       addEffect({ kind: "skill", classId: "sky", x: actor.x, y: actor.y, x2, y2, color: "#ff6a62", radius: 520 }, .72);
     };
     const incinerateCone = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
-      const target = enemies.filter((enemy) => enemy.hp > 0).sort((a, b) => dist(actor, a) - dist(actor, b))[0];
+      const target = selectCombatTarget(enemies, actor, 470);
       const angle = target ? Math.atan2(target.y - actor.y, target.x - actor.x) : -Math.PI / 2;
       const range = 470;
       for (const enemy of enemies) {
@@ -4259,7 +4261,7 @@ export default function Home() {
       fireClock -= dt;
       if (fireClock <= 0 && enemies.length && player.hp > 0) {
         fireClock = stats.interval;
-        const target = enemies.reduce((a,b) => dist(player,a) < dist(player,b) ? a : b);
+        const target = selectCombatTarget(enemies, player) || enemies[0];
         const a0 = Math.atan2(target.y-player.y,target.x-player.x);
         if (build.classId === "blade") {
           fireBlade(player, stats, "host");
@@ -4283,7 +4285,7 @@ export default function Home() {
       if (remote && remote.hp > 0 && remoteFireClock <= 0 && enemies.length) {
         const remoteStats = remoteBuildRef.current || makeBuild(remote.classId || "assault");
         remoteFireClock = remoteStats.interval;
-        const target = enemies.reduce((a,b) => dist(remote!,a) < dist(remote!,b) ? a : b);
+        const target = selectCombatTarget(enemies, remote) || enemies[0];
         const a = Math.atan2(target.y-remote.y,target.x-remote.x);
         if (remoteStats.classId === "blade") {
           fireBlade(remote, remoteStats, "guest");
@@ -4332,11 +4334,7 @@ export default function Home() {
           shot.homing = Math.max(0, (shot.homing || 0) - dt);
         }
         if (!shot.hostile && (shot.homing || 0) > 0) {
-          const target = enemies.reduce<Enemy | null>(
-            (nearest, enemy) =>
-              enemy.hp <= 0 || (nearest && dist(shot, nearest) <= dist(shot, enemy)) ? nearest : enemy,
-            null,
-          );
+          const target = selectCombatTarget(enemies, shot);
           if (target) {
             const speed = Math.hypot(shot.vx, shot.vy);
             const desired = Math.atan2(target.y - shot.y, target.x - shot.x);
@@ -5690,7 +5688,7 @@ export default function Home() {
         for(let index=0;index<count;index++){
           const position=dronePosition(actor,index,count);
           const sprite=classInfo.sprite;
-          const target=enemies.length?enemies.reduce((nearest,enemy)=>dist(position,enemy)<dist(position,nearest)?enemy:nearest):null;
+          const target=selectCombatTarget(enemies,position);
           const angle=target?Math.atan2(target.y-position.y,target.x-position.x):position.angle+Math.PI/2;
           const size=classInfo.id==="cinder"||classInfo.id==="aegis"?42:classInfo.id==="frost"||classInfo.id==="gravity"||classInfo.id==="chrono"?38:classInfo.id==="blade"||classInfo.id==="thunder"||classInfo.id==="sky"||classInfo.id==="venom"?36:32;
           const droneDrawW=size,droneDrawH=size;
@@ -5874,7 +5872,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.18.1 · 统一机甲美术与战斗视野整理</div>
+        <div className="status"><i /> 版本 0.18.2 · BOSS近距锁定平衡</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
