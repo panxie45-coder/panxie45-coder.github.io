@@ -15,7 +15,7 @@ import {
 import { reconcilePausedPeerHp, teamRunDefeated } from "./team-state.mjs";
 
 type View = "menu" | "loadout" | "game" | "coop";
-type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity" | "thunder" | "sky" | "cinder" | "aegis" | "venom" | "chrono";
+type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity" | "thunder" | "sky" | "cinder" | "aegis" | "venom" | "chrono" | "magnet" | "portal";
 type EnemyKind =
   | "runner"
   | "crawler"
@@ -29,8 +29,12 @@ type EnemyKind =
   | "mortarwasp"
   | "leech"
   | "rammer"
+  | "voidstalker"
+  | "magmahound"
+  | "scrapdrone"
+  | "stormray"
   | "boss";
-type BossVariant = "rift" | "storm" | "weaver" | "forge" | "leviathan" | "mirror" | "warden";
+type BossVariant = "rift" | "storm" | "weaver" | "forge" | "leviathan" | "mirror" | "warden" | "cathedral" | "brood" | "juggernaut";
 type PlayerSide = "host" | "guest";
 type BossRelicId = "titan-core" | "overdrive-core" | "chrono-core";
 type WarzoneId = "forge" | "bastion" | "storm" | "scrapyard" | "void" | "archive";
@@ -105,6 +109,10 @@ type CombatStats = {
   aegisPower: number;
   venomPower: number;
   chronoPower: number;
+  magnetPower: number;
+  portalPower: number;
+  weaponMastery: number;
+  weaponEvolution: number;
   assaultGuidance: number;
   guardianRetaliation: number;
   engineerTriage: number;
@@ -127,7 +135,7 @@ type ClassSpec = {
   secondaryCooldown: number;
   color: string;
   sprite: number;
-  sheet: "core" | "specialist" | "vanguard" | "expedition" | "frontier";
+  sheet: "core" | "specialist" | "vanguard" | "expedition" | "frontier" | "quantum";
   radius: number;
   renderSize: number;
 };
@@ -184,6 +192,7 @@ type Shot = {
   timeStopped?: number;
   skill2?: boolean;
   ultimate?: boolean;
+  evolution?: number;
   hitIds?: number[];
 };
 type Beam = { x1: number; y1: number; x2: number; y2: number; life: number; width: number; color: string };
@@ -204,6 +213,16 @@ type CombatEffect = {
   radius: number;
 };
 type Gem = { x: number; y: number; value: number; life: number; relic?: BossRelicId; relicPieces?: number; heal?: number };
+type BattleMissionFrame = {
+  id: "hunter" | "elite" | "hold";
+  title: string;
+  detail: string;
+  progress: number;
+  target: number;
+  remaining: number;
+  zoneX?: number;
+  zoneY?: number;
+};
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
   elapsed: number;
@@ -223,6 +242,7 @@ type WorldFrame = {
   ultimate: { host: number; guest: number };
   wave: number;
   warzone?: ActiveWarzone;
+  mission?: BattleMissionFrame;
 };
 type NetPayload =
   | { t: "hello" }
@@ -259,6 +279,7 @@ const GAME_ASSETS = {
   bladeMech: "/game/blade-mech.webp",
   bossProjectiles: "/game/boss-projectiles.webp",
   bossProjectilesV2: "/game/boss-projectiles-v2.webp",
+  bossExpansion: "/game/boss-expansion.webp",
   bossVariants: "/game/boss-variants.webp",
   bossVariantsV2: "/game/boss-variants-v2.webp",
   cinderForgeMech: "/game/cinder-forge-mech.webp",
@@ -267,12 +288,14 @@ const GAME_ASSETS = {
   enemyReinforcementProjectiles: "/game/enemy-reinforcement-projectiles.webp",
   enemyReinforcements: "/game/enemy-reinforcements.webp",
   enemyProjectiles: "/game/enemy-projectiles.webp",
+  mapEnemies: "/game/map-enemies.webp",
   frostMech: "/game/frost-mech.webp",
   frontierSupportAssets: "/game/frontier-support-assets.webp",
   gravityMech: "/game/gravity-mech.webp",
   laserMech: "/game/laser-mech.webp",
   playerMechs: "/game/player-mechs.webp",
   projectileMechs: "/game/projectile-mechs.webp",
+  quantumSupport: "/game/quantum-support.webp",
   specialistDrones: "/game/specialist-drones.webp",
   specialistProjectiles: "/game/specialist-projectiles.webp",
   supportDrones: "/game/support-drones.webp",
@@ -412,6 +435,18 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
     { id: "chrono-echo", classId: "chrono", title: "延迟回响", desc: "主炮额外发射 1 枚时序弹，射速略降", icon: "⌁" },
     { id: "chrono-anchor", classId: "chrono", title: "永恒锚点", desc: "生命上限 +18，主技能与副技能冷却 -15%", icon: "◎" },
   ],
+  magnet: [
+    { id: "magnet-capacity", classId: "magnet", title: "超导磁容", desc: "磁场吸收弹幕上限与反击弹数量提高", icon: "◎", rarity: "rare" },
+    { id: "magnet-crush", classId: "magnet", title: "极性碾压", desc: "磁场伤害、牵引力与作用半径 +28%", icon: "◉" },
+    { id: "magnet-armor", classId: "magnet", title: "磁流装甲", desc: "生命上限 +26，减伤 +5%", icon: "▣" },
+    { id: "magnet-feedback", classId: "magnet", title: "弹幕反馈", desc: "每吸收 6 枚敌弹，立刻追加一次高压电弧", icon: "ϟ", rarity: "epic" },
+  ],
+  portal: [
+    { id: "portal-echo", classId: "portal", title: "双门回响", desc: "穿过星门的主炮额外复制一枚延迟弹", icon: "◈", rarity: "rare" },
+    { id: "portal-distance", classId: "portal", title: "折跃测距", desc: "位移距离、技能伤害与星门射程 +24%", icon: "◇" },
+    { id: "portal-salvo", classId: "portal", title: "门径齐射", desc: "星门技能额外发射 2 枚空间长枪", icon: "✦", rarity: "epic" },
+    { id: "portal-shell", classId: "portal", title: "空间护壳", desc: "折跃后获得短暂护盾，生命上限 +18", icon: "⬡" },
+  ],
 };
 
 const SECONDARY_UPGRADES: Record<ClassId, Upgrade[]> = {
@@ -470,6 +505,14 @@ const SECONDARY_UPGRADES: Record<ClassId, Upgrade[]> = {
   chrono: [
     { id: "chrono-secondary-power", classId: "chrono", secondary: true, title: "飞轮增压", desc: "回溯飞轮伤害 +28%，可无限叠加", icon: "◴", rarity: "rare" },
     { id: "chrono-secondary-wheels", classId: "chrono", secondary: true, title: "平行时轮", desc: "回溯飞轮额外发射 1 枚，最多 4 枚", icon: "⌁", rarity: "epic" },
+  ],
+  magnet: [
+    { id: "magnet-secondary-power", classId: "magnet", secondary: true, title: "坍缩增压", desc: "极性坍缩伤害 +28%，可无限叠加", icon: "◎", rarity: "rare" },
+    { id: "magnet-secondary-radius", classId: "magnet", secondary: true, title: "超距牵引", desc: "极性坍缩范围与牵引强度 +18%，最多强化 3 次", icon: "◉", rarity: "epic" },
+  ],
+  portal: [
+    { id: "portal-secondary-power", classId: "portal", secondary: true, title: "长枪增压", desc: "折跃长枪伤害 +28%，可无限叠加", icon: "✦", rarity: "rare" },
+    { id: "portal-secondary-lances", classId: "portal", secondary: true, title: "平行门列", desc: "折跃长枪额外发射 1 枚，最多增加 4 枚", icon: "◈", rarity: "epic" },
   ],
 };
 
@@ -530,6 +573,14 @@ const ULTIMATE_UPGRADES: Record<ClassId, Upgrade[]> = {
   chrono: [
     { id: "chrono-ultimate-power", classId: "chrono", ultimate: true, title: "零时增压", desc: "零时刻伤害 +25%，可无限叠加", icon: "◴" },
     { id: "chrono-ultimate-range", classId: "chrono", ultimate: true, title: "时停扩域", desc: "零时刻半径 +70，最多 650", icon: "◎" },
+  ],
+  magnet: [
+    { id: "magnet-ultimate-power", classId: "magnet", ultimate: true, title: "零极增压", desc: "零极崩灭伤害 +25%，可无限叠加", icon: "◎" },
+    { id: "magnet-ultimate-range", classId: "magnet", ultimate: true, title: "磁界扩域", desc: "零极崩灭半径 +70，最多 680", icon: "◉" },
+  ],
+  portal: [
+    { id: "portal-ultimate-power", classId: "portal", ultimate: true, title: "万门增压", desc: "万门归一伤害 +25%，可无限叠加", icon: "✦" },
+    { id: "portal-ultimate-lanes", classId: "portal", ultimate: true, title: "门列增殖", desc: "星门阵列贯穿射线 +2，最多 18 道", icon: "◈" },
   ],
 };
 
@@ -640,6 +691,8 @@ const SIGNATURE_SETS: Record<ClassId, SignatureSet> = {
   aegis: { name: "天穹圣契", icon: "✧", tiers: ["圣辉共振：圣铠技能强度 +12%", "双生裁决：副技能额外发射 1 支圣矛", "永续圣域：终极持续时间 +0.7 秒，减伤 +2.5%"] },
   venom: { name: "灾厄虫巢", icon: "✤", tiers: ["强酸腺体：腐蚀伤害 +12%", "分裂毒刺：副技能额外分裂 1 枚毒刺", "疫灾扩散：终极锁定 +3，腐蚀强度再次 +12%"] },
   chrono: { name: "零时悖论", icon: "◷", tiers: ["时序放大：时间技能强度 +12%", "回溯双轮：时间控制效果 +15%", "绝对停摆：终极范围 +100、持续时间 +0.5 秒"] },
+  magnet: { name: "零极回路", icon: "◎", tiers: ["磁容扩展：磁场强度 +12%", "弹幕再铸：反击弹额外贯穿 1 名敌人", "绝对磁极：终极吞噬弹幕时追加连锁雷暴"] },
+  portal: { name: "万门星图", icon: "◈", tiers: ["门径校准：空间技能强度 +12%", "平行投影：星门复制弹额外增加 1 枚", "归一坐标：终极射线 +2、折跃后短暂无敌"] },
 };
 
 const ULTIMATE_NAMES: Record<ClassId, string> = {
@@ -657,6 +710,8 @@ const ULTIMATE_NAMES: Record<ClassId, string> = {
   aegis: "天穹圣域",
   venom: "灾厄酸雨",
   chrono: "零时刻",
+  magnet: "零极崩灭",
+  portal: "万门归一",
 };
 
 const ULTIMATE_CHARGE_SCALE: Record<ClassId, number> = {
@@ -674,6 +729,8 @@ const ULTIMATE_CHARGE_SCALE: Record<ClassId, number> = {
   aegis: .53,
   venom: .61,
   chrono: .49,
+  magnet: .47,
+  portal: .52,
 };
 
 const UPGRADE_RARITY: Partial<Record<string, UpgradeRarity>> = {
@@ -757,13 +814,50 @@ const BASIC_ATTACK_UPGRADE_IDS = new Set([
   "assault-warhead", "guardian-rail", "phantom-needle", "laser-prism",
   "frost-shatter", "blade-edge", "blade-tempo", "gravity-lens",
   "thunder-cycle", "sky-focus", "sky-penetrator", "cinder-nozzle",
-  "aegis-lance", "venom-fangs", "chrono-echo",
+  "aegis-lance", "venom-fangs", "chrono-echo", "magnet-crush", "portal-echo",
 ]);
 const MAX_HP_UPGRADE_IDS = new Set([
   "vitality", "bulkhead", "living-alloy",
   "guardian-plating", "frost-armor", "blade-vamp", "gravity-anchor",
   "cinder-plating", "aegis-plating", "chrono-anchor",
+  "magnet-armor", "portal-shell",
 ]);
+const WEAPON_EVOLUTION_NAMES: Record<ClassId, [string, string]> = {
+  assault: ["蜂群弹仓", "泰坦战斗部"],
+  guardian: ["连发震轨", "破城磁轨"],
+  engineer: ["蜂巢脉冲", "母巢重炮"],
+  phantom: ["相位针雨", "虚空穿刺"],
+  laser: ["棱镜速射", "恒星射线"],
+  frost: ["霜晶连弹", "永冻重核"],
+  blade: ["流光连刃", "裂界斩波"],
+  gravity: ["引力弹幕", "奇点炮芯"],
+  thunder: ["电弧洪流", "天雷重核"],
+  sky: ["猎星连狙", "贯星神矛"],
+  cinder: ["火雨喷口", "炼狱熔核"],
+  aegis: ["圣辉连矛", "裁决重矛"],
+  venom: ["腐蚀蜂群", "灾厄毒核"],
+  chrono: ["时序回响", "永恒锚弹"],
+  magnet: ["磁暴回流", "零极重核"],
+  portal: ["千门齐射", "维度长枪"],
+};
+const weaponEvolutionChoices = (classId: ClassId): Upgrade[] => [
+  {
+    id: "weapon-evolution-fast",
+    classId,
+    title: WEAPON_EVOLUTION_NAMES[classId][0],
+    desc: "武器进化：射速 +22%、额外弹丸 +1、弹体 +1；单发伤害 -8%",
+    icon: "✦",
+    rarity: "legendary",
+  },
+  {
+    id: "weapon-evolution-heavy",
+    classId,
+    title: WEAPON_EVOLUTION_NAMES[classId][1],
+    desc: "武器进化：伤害 +42%、弹体 +3、获得范围爆破；射击间隔 +12%",
+    icon: "◆",
+    rarity: "legendary",
+  },
+];
 const RARITY_LABELS: Record<UpgradeRarity, string> = { common: "普通", rare: "稀有", epic: "史诗", legendary: "传说" };
 const createRelicPickupReport = (
   relic: BossRelic,
@@ -841,6 +935,8 @@ const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) =>
   if (upgrade.id === "aegis-ultimate-duration") return currentBuild.ultimateDuration < 5.4;
   if (upgrade.id === "venom-ultimate-locks") return currentBuild.ultimateTargets < 16;
   if (upgrade.id === "chrono-ultimate-range") return currentBuild.ultimateRange < 650;
+  if (upgrade.id === "magnet-ultimate-range") return currentBuild.ultimateRange < 680;
+  if (upgrade.id === "portal-ultimate-lanes") return currentBuild.ultimateLanes < 18;
   return true;
 };
 const secondaryUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
@@ -858,6 +954,8 @@ const secondaryUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) =
   if (upgrade.id === "aegis-secondary-lances") return currentBuild.secondaryProjectiles < 2;
   if (upgrade.id === "venom-secondary-spines") return currentBuild.secondaryProjectiles < 2;
   if (upgrade.id === "chrono-secondary-wheels") return currentBuild.secondaryProjectiles < 2;
+  if (upgrade.id === "magnet-secondary-radius") return currentBuild.secondaryArea < 1.6;
+  if (upgrade.id === "portal-secondary-lances") return currentBuild.secondaryProjectiles < 4;
   return true;
 };
 const classUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
@@ -896,6 +994,11 @@ const rollUpgradeChoices = (classId: ClassId, currentBuild: BuildFrame, wave: nu
   const fullPool = [...UPGRADES, ...classPool];
   const excluded = new Set<string>();
   const choices: Upgrade[] = [];
+  if (currentBuild.weaponMastery >= 3 && currentBuild.weaponEvolution === 0) {
+    const evolutionChoices = weaponEvolutionChoices(classId);
+    choices.push(...evolutionChoices);
+    evolutionChoices.forEach((choice) => excluded.add(choice.id));
+  }
   while (choices.length < 5) {
     const choice = weightedUpgradePick(fullPool, excluded, wave);
     if (!choice) break;
@@ -986,6 +1089,9 @@ const PERFORMANCE_LIMITS = {
   coopShots: 940,
   gems: 260,
   beams: 150,
+  particles: 260,
+  effects: 90,
+  networkShots: 560,
   highEnemyCount: 155,
   extremeEnemyCount: 220,
 } as const;
@@ -1005,9 +1111,11 @@ const CLASSES: ClassSpec[] = [
   { id: "aegis", name: "圣铠型", role: "圣盾反击", active: "光盾裁决：短暂护体并反击最多六个高威胁目标", secondary: "裁决长矛：发射贯穿整条战线的圣光长矛", passive: "圣辉穿刺：主炮贯穿敌阵并削弱前排", ultimate: "天穹圣域：展开移动圣域，修复队友并连续反击", cooldown: 13, secondaryCooldown: 9, color: "#ffd36a", sprite: 0, sheet: "frontier", radius: 24, renderSize: 96 },
   { id: "venom", name: "蚀蜂型", role: "腐蚀猎杀", active: "腐蚀云爆：引爆酸雾并持续溶解附近敌人", secondary: "蝎尾毒刺：发射分裂腐蚀长钉", passive: "传染酸蚀：腐蚀目标死亡时向两名近敌扩散", ultimate: "灾厄酸雨：锁定敌群降下多轮腐蚀雨", cooldown: 11, secondaryCooldown: 8, color: "#b5e536", sprite: 1, sheet: "frontier", radius: 18, renderSize: 92 },
   { id: "chrono", name: "时轮型", role: "时间控制", active: "时停领域：锁死敌人朝向并静止范围内全部弹幕", secondary: "回溯飞轮：发射贯穿时序刃，短暂停止命中目标", passive: "延迟回响：主炮造成时间迟滞，不产生冰冻", ultimate: "零时刻：展开大型时停穹顶，使敌人与弹幕完全静止", cooldown: 14, secondaryCooldown: 10, color: "#f0ad4e", sprite: 2, sheet: "frontier", radius: 20, renderSize: 94 },
+  { id: "magnet", name: "磁暴型", role: "弹幕回收反击", active: "磁暴回收：吞噬附近敌方弹幕并转化为反击电浆", secondary: "极性坍缩：牵引敌人与弹幕后爆发", passive: "磁化弹：命中削弱并牵引目标", ultimate: "零极崩灭：建立巨型磁场，吞噬弹幕并持续压缩敌群", cooldown: 13, secondaryCooldown: 10, color: "#a878ff", sprite: 0, sheet: "quantum", radius: 22, renderSize: 98 },
+  { id: "portal", name: "星门型", role: "空间折跃炮击", active: "双门跃迁：折跃至高威胁目标侧面并释放环形齐射", secondary: "折跃长枪：从双重星门复制空间长枪", passive: "门径回响：主炮穿过星门后产生延迟复制弹", ultimate: "万门归一：展开星门阵列，从多方向连续贯穿敌群", cooldown: 11, secondaryCooldown: 8, color: "#59baff", sprite: 1, sheet: "quantum", radius: 17, renderSize: 92 },
 ];
 
-const BOSS_VARIANTS: Record<BossVariant, { name: string; sprite: number; sheet: "core" | "v2"; color: string; hp: number; speed: number; hit: number; range: number }> = {
+const BOSS_VARIANTS: Record<BossVariant, { name: string; sprite: number; sheet: "core" | "v2" | "expansion"; color: string; hp: number; speed: number; hit: number; range: number }> = {
   rift: { name: "裂界泰坦", sprite: 0, sheet: "core", color: "#ff4f7c", hp: 1, speed: 1, hit: 1, range: 305 },
   storm: { name: "雷暴航母", sprite: 1, sheet: "core", color: "#5ca9ff", hp: .86, speed: 1.18, hit: .9, range: 385 },
   weaver: { name: "深渊织母", sprite: 2, sheet: "core", color: "#b37cff", hp: .92, speed: 1.24, hit: .82, range: 255 },
@@ -1015,6 +1123,9 @@ const BOSS_VARIANTS: Record<BossVariant, { name: string; sprite: number; sheet: 
   leviathan: { name: "吞星利维坦", sprite: 0, sheet: "v2", color: "#4d98ff", hp: 1.38, speed: .88, hit: 1.08, range: 270 },
   mirror: { name: "镜界仲裁者", sprite: 1, sheet: "v2", color: "#ff68d7", hp: 1.08, speed: 1.08, hit: .92, range: 350 },
   warden: { name: "时蚀守望者", sprite: 2, sheet: "v2", color: "#66eadf", hp: 1.24, speed: .72, hit: 1.02, range: 315 },
+  cathedral: { name: "星渊大教堂", sprite: 0, sheet: "expansion", color: "#a57dff", hp: 1.52, speed: .7, hit: 1.05, range: 410 },
+  brood: { name: "噬界母巢", sprite: 1, sheet: "expansion", color: "#e35f96", hp: 1.42, speed: .9, hit: .92, range: 300 },
+  juggernaut: { name: "钢城攻坚王", sprite: 2, sheet: "expansion", color: "#e98245", hp: 1.72, speed: .65, hit: 1.18, range: 335 },
 };
 
 const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; radius: number; color: string; cooldown: number }> = {
@@ -1030,6 +1141,10 @@ const ENEMY_DATA: Record<EnemyKind, { hp: number; speed: number; hit: number; ra
   mortarwasp: { hp: 84, speed: 63, hit: 11, radius: 19, color: "#efa330", cooldown: 2.7 },
   leech: { hp: 118, speed: 52, hit: 10, radius: 21, color: "#a56cff", cooldown: 2.25 },
   rammer: { hp: 230, speed: 48, hit: 20, radius: 29, color: "#568dc9", cooldown: 3.8 },
+  voidstalker: { hp: 132, speed: 61, hit: 11, radius: 22, color: "#a96cff", cooldown: 2.7 },
+  magmahound: { hp: 176, speed: 88, hit: 15, radius: 24, color: "#ff7440", cooldown: 1.45 },
+  scrapdrone: { hp: 108, speed: 58, hit: 10, radius: 21, color: "#c58c52", cooldown: 2.45 },
+  stormray: { hp: 124, speed: 74, hit: 9, radius: 23, color: "#54dfff", cooldown: 2.15 },
   boss: { hp: 3400, speed: 42, hit: 15, radius: 48, color: "#f06b66", cooldown: 2.2 },
 };
 const ENEMY_XP: Record<EnemyKind, number> = {
@@ -1045,9 +1160,13 @@ const ENEMY_XP: Record<EnemyKind, number> = {
   mortarwasp: 7,
   leech: 8,
   rammer: 11,
+  voidstalker: 9,
+  magmahound: 10,
+  scrapdrone: 8,
+  stormray: 9,
   boss: 55,
 };
-const HEALTH_PACK_ENEMY_KINDS: EnemyKind[] = ["brute", "commander", "leech", "rammer", "boss"];
+const HEALTH_PACK_ENEMY_KINDS: EnemyKind[] = ["brute", "commander", "leech", "rammer", "magmahound", "voidstalker", "boss"];
 const ENEMY_ATTACK_MODE: Record<EnemyKind, "melee" | "ranged"> = {
   runner: "melee",
   crawler: "melee",
@@ -1061,6 +1180,10 @@ const ENEMY_ATTACK_MODE: Record<EnemyKind, "melee" | "ranged"> = {
   mortarwasp: "ranged",
   leech: "ranged",
   rammer: "melee",
+  voidstalker: "ranged",
+  magmahound: "melee",
+  scrapdrone: "ranged",
+  stormray: "ranged",
   boss: "ranged",
 };
 
@@ -1108,6 +1231,10 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     aegisPower: 1,
     venomPower: 1,
     chronoPower: 1,
+    magnetPower: 1,
+    portalPower: 1,
+    weaponMastery: 0,
+    weaponEvolution: 0,
     assaultGuidance: 0,
     guardianRetaliation: 0,
     engineerTriage: 0,
@@ -1130,24 +1257,31 @@ const makeBuild = (classId: ClassId): BuildFrame => {
   if (classId === "cinder") return { ...base, maxHp: 162, speed: 204, damage: 54, interval: .76, projectileSpeed: 490, projectileSize: 10, damageReduction: .18, burnPower: 1.15, ultimateLanes: 3 };
   if (classId === "aegis") return { ...base, maxHp: 148, speed: 225, damage: 55, interval: .8, projectileSpeed: 590, projectileSize: 9, bonusPierce: 1, damageReduction: .18, drones: 1, aegisPower: 1.08, ultimateDuration: 3.4 };
   if (classId === "venom") return { ...base, maxHp: 110, speed: 284, damage: 29, interval: .42, projectileSpeed: 710, projectileSize: 6.5, critChance: .1, drones: 1, venomPower: 1.1, ultimateTargets: 8 };
-  return { ...base, maxHp: 118, speed: 256, damage: 34, interval: .52, projectileSpeed: 670, projectileSize: 7, damageReduction: .06, drones: 1, chronoPower: 1.08, ultimateRange: 440 };
+  if (classId === "chrono") return { ...base, maxHp: 118, speed: 256, damage: 34, interval: .52, projectileSpeed: 670, projectileSize: 7, damageReduction: .06, drones: 1, chronoPower: 1.08, ultimateRange: 440 };
+  if (classId === "magnet") return { ...base, maxHp: 145, speed: 224, damage: 47, interval: .65, projectileSpeed: 520, projectileSize: 9, damageReduction: .14, magnetPower: 1.12, ultimateRange: 450 };
+  return { ...base, maxHp: 106, speed: 305, damage: 30, interval: .34, projectileSpeed: 900, projectileSize: 6, critChance: .16, portalPower: 1.12, ultimateLanes: 8 };
 };
 
-const projectileTraits = (classId: ClassId, combatStats?: Pick<CombatStats, "bonusPierce" | "projectileSize">): Partial<Shot> => {
-  if (classId === "assault") return { splash: 54 };
-  if (classId === "guardian") return { pierce: 2 };
-  if (classId === "engineer") return { chain: true };
-  if (classId === "phantom") return { pierce: 1 };
-  if (classId === "laser") return { pierce: 4 };
-  if (classId === "frost") return { slow: 2.8 };
-  if (classId === "blade") return { pierce: 1 };
-  if (classId === "gravity") return { slow: 1.4, splash: 48, pierce: 1 };
-  if (classId === "thunder") return { chain: true, pierce: 1 };
-  if (classId === "sky") return { pierce: 4 + Math.round(combatStats?.bonusPierce || 0) };
-  if (classId === "cinder") return { splash: 72 + Math.max(0, (combatStats?.projectileSize || 10) - 10) * 4, burn: 4.2, burnDamage: 8 };
-  if (classId === "aegis") return { pierce: 2 + Math.round(combatStats?.bonusPierce || 0), slow: 1.1 };
-  if (classId === "venom") return { pierce: 1, splash: 42, corrosion: 4.8, corrosionDamage: 7 };
-  return { pierce: 2, slow: 2.4, temporal: 2.4 };
+const projectileTraits = (classId: ClassId, combatStats?: Pick<CombatStats, "bonusPierce" | "projectileSize" | "weaponEvolution">): Partial<Shot> => {
+  const traits: Partial<Shot> = classId === "assault" ? { splash: 54 }
+    : classId === "guardian" ? { pierce: 2 }
+      : classId === "engineer" ? { chain: true }
+        : classId === "phantom" ? { pierce: 1 }
+          : classId === "laser" ? { pierce: 4 }
+            : classId === "frost" ? { slow: 2.8 }
+              : classId === "blade" ? { pierce: 1 }
+                : classId === "gravity" ? { slow: 1.4, splash: 48, pierce: 1 }
+                  : classId === "thunder" ? { chain: true, pierce: 1 }
+                    : classId === "sky" ? { pierce: 4 + Math.round(combatStats?.bonusPierce || 0) }
+                      : classId === "cinder" ? { splash: 72 + Math.max(0, (combatStats?.projectileSize || 10) - 10) * 4, burn: 4.2, burnDamage: 8 }
+                        : classId === "aegis" ? { pierce: 2 + Math.round(combatStats?.bonusPierce || 0), slow: 1.1 }
+                          : classId === "venom" ? { pierce: 1, splash: 42, corrosion: 4.8, corrosionDamage: 7 }
+                            : classId === "chrono" ? { pierce: 2, slow: 2.4, temporal: 2.4 }
+                              : classId === "magnet" ? { chain: true, slow: 1.5, splash: 44 }
+                                : { pierce: 3, homing: .16 };
+  if (combatStats?.weaponEvolution === 1) traits.pierce = (traits.pierce || 0) + 1;
+  if (combatStats?.weaponEvolution === 2) traits.splash = Math.max(traits.splash || 0, 68 + Math.max(0, (combatStats.projectileSize || 6) - 6) * 3);
+  return traits;
 };
 
 const mechPreviewClass = (classInfo: ClassSpec) => {
@@ -1161,6 +1295,8 @@ const mechPreviewClass = (classInfo: ClassSpec) => {
   if (classInfo.id === "aegis") return "mechPreview aegisPreview";
   if (classInfo.id === "venom") return "mechPreview venomPreview";
   if (classInfo.id === "chrono") return "mechPreview chronoPreview";
+  if (classInfo.id === "magnet") return "mechPreview magnetPreview";
+  if (classInfo.id === "portal") return "mechPreview portalPreview";
   return `mechPreview mech-${classInfo.sprite}`;
 };
 const mechPreviewAsset = (classInfo: ClassSpec) => classInfo.id === "laser"
@@ -1183,6 +1319,8 @@ const mechPreviewAsset = (classInfo: ClassSpec) => classInfo.id === "laser"
                   ? GAME_ASSETS.venomMech
                   : classInfo.id === "chrono"
                     ? GAME_ASSETS.chronoMech
+                    : classInfo.id === "magnet" || classInfo.id === "portal"
+                      ? GAME_ASSETS.quantumSupport
                     : GAME_ASSETS.playerMechs;
 const mechPreviewStyle = (source: string): CSSProperties => ({
   backgroundImage: `url("${source}")`,
@@ -1329,6 +1467,16 @@ const applySignatureRelicPieces = (source: BuildFrame, amount = 1): BuildFrame =
       if (tier === 2) next.secondaryControl *= 1.15;
       if (tier === 3) { next.ultimateRange = Math.min(650, next.ultimateRange + 100); next.ultimateDuration += .5; }
     }
+    if (source.classId === "magnet") {
+      if (tier === 1) next.magnetPower *= 1.12;
+      if (tier === 2) next.bonusPierce += 1;
+      if (tier === 3) { next.magnetPower *= 1.16; next.ultimateRange = Math.min(680, next.ultimateRange + 90); }
+    }
+    if (source.classId === "portal") {
+      if (tier === 1) next.portalPower *= 1.12;
+      if (tier === 2) next.multi += 1;
+      if (tier === 3) { next.ultimateLanes = Math.min(18, next.ultimateLanes + 2); next.dashDistance += 45; }
+    }
   }
   next.signaturePieces = targetPieces;
   return next;
@@ -1413,6 +1561,7 @@ export default function Home() {
   const [routeChoices, setRouteChoices] = useState<WarzoneRoute[] | null>(null);
   const [waitingRoute, setWaitingRoute] = useState(false);
   const [warzoneState, setWarzoneState] = useState<ActiveWarzone | null>(null);
+  const [battleMission, setBattleMission] = useState<BattleMissionFrame | null>(null);
   const [signaturePieces, setSignaturePieces] = useState(0);
   const [selectedClass, setSelectedClass] = useState<ClassId>("assault");
   const [skillCooldown, setSkillCooldown] = useState(0);
@@ -1681,7 +1830,7 @@ export default function Home() {
     let nextSurgeAt = 22, surgeRemaining = 0, surgeSpawnClock = 0;
     let active = true, localPaused = false, currentXp = 0, currentLevel = 1, currentKills = 0;
     let netClock = 0, worldClock = 0, remoteFireClock = 0, gameOverSent = false, nextEnemyId = 1, simulationFrame = 0;
-    let selfShieldUntil = 0, remoteShieldUntil = 0, skillReadyAt = 0, secondarySkillReadyAt = 0, shownCooldown = -1, shownSecondaryCooldown = -1;
+    let selfShieldUntil = 0, remoteShieldUntil = 0, skillReadyAt = 0, secondarySkillReadyAt = 0, shownCooldown = -1, shownSecondaryCooldown = -1, shownSecond = -1;
     let hostReviveProgress = 0, guestReviveProgress = 0;
     let localUpgradeDone = false, waitingForRemoteUpgrade = false;
     let localUpgradeStartedAlive = false, localUpgradeStartHp = 0;
@@ -1691,6 +1840,9 @@ export default function Home() {
     let hostBladeCombo = 0, guestBladeCombo = 0;
     let currentWave = 1, nextWaveAt = WAVE_INTERVAL_SECONDS, lastBossWave = 0;
     let currentWarzone: ActiveWarzone | null = null;
+    let activeMission: BattleMissionFrame | null = null;
+    let missionDeadline = 0, nextMissionWave = 2, missionUiClock = 0;
+    let lastSkillCast: { owner: PlayerSide; classId: ClassId; at: number } | null = null;
     let pendingRouteChoice = false;
     let bossBag: BossVariant[] = [];
     let previousBossVariant: BossVariant | null = null;
@@ -1731,9 +1883,12 @@ export default function Home() {
     const aegisSprite = getGameImage(GAME_ASSETS.aegisMech);
     const venomSprite = getGameImage(GAME_ASSETS.venomMech);
     const chronoSprite = getGameImage(GAME_ASSETS.chronoMech);
+    const quantumSupport = getGameImage(GAME_ASSETS.quantumSupport);
     const enemySprites = getGameImage(GAME_ASSETS.enemyMechs);
+    const mapEnemySprites = getGameImage(GAME_ASSETS.mapEnemies);
     const bossVariantSprites = getGameImage(GAME_ASSETS.bossVariants);
     const bossVariantSpritesV2 = getGameImage(GAME_ASSETS.bossVariantsV2);
+    const bossExpansionSprites = getGameImage(GAME_ASSETS.bossExpansion);
     const enemyReinforcementSprites = getGameImage(GAME_ASSETS.enemyReinforcements);
     const bossProjectileSprites = getGameImage(GAME_ASSETS.bossProjectiles);
     const bossProjectileSpritesV2 = getGameImage(GAME_ASSETS.bossProjectilesV2);
@@ -1815,6 +1970,9 @@ export default function Home() {
         if (data.classId === "aegis") aegisShock(remote, remoteBuild, "guest");
         if (data.classId === "venom") venomCloud(remote, remoteBuild, "guest");
         if (data.classId === "chrono") chronoField(remote, remoteBuild, "guest");
+        if (data.classId === "magnet") magnetHarvest(remote, remoteBuild, "guest");
+        if (data.classId === "portal") portalShift(remote, remoteBuild, "guest", data.x, data.y);
+        tryCoopCombo(remote, data.classId, "guest");
         triggerSkillEffect(remote, data.classId, skillStart);
         audio?.play("skill");
       }
@@ -1873,6 +2031,8 @@ export default function Home() {
           currentWarzone = frame.warzone || null;
           setWarzoneState(currentWarzone);
         }
+        activeMission = frame.mission || null;
+        setBattleMission(activeMission);
       }
       if (data.t === "levelup" && !isAuthority) {
         currentLevel = data.level;
@@ -1992,12 +2152,13 @@ export default function Home() {
       elapsed = 0; spawnClock = 0; fireClock = 0; nextSurgeAt = 22; surgeRemaining = 0; surgeSpawnClock = 0; currentXp = 0; currentLevel = 1; currentKills = 0;
       netClock = 0; worldClock = 0; remoteFireClock = 0; gameOverSent = false; simulationFrame = 0;
       nextEnemyId = 1;
-      selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; secondarySkillReadyAt = 0; shownCooldown = -1; shownSecondaryCooldown = -1;
+      selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; secondarySkillReadyAt = 0; shownCooldown = -1; shownSecondaryCooldown = -1; shownSecond = -1;
       hostReviveProgress = 0; guestReviveProgress = 0;
       hostCoins = 0; guestCoins = 0; hostUltimate = 0; guestUltimate = 0;
       hostBladeCombo = 0; guestBladeCombo = 0;
       currentWave = 1; nextWaveAt = WAVE_INTERVAL_SECONDS; lastBossWave = 0;
       currentWarzone = null; pendingRouteChoice = false;
+      activeMission = null; missionDeadline = 0; nextMissionWave = 2; missionUiClock = 0; lastSkillCast = null;
       bossBag = [];
       previousBossVariant = null;
       localUpgradeRerolls = 0; localShopRerolls = 0; shopStock = []; recentShopIds = [];
@@ -2042,10 +2203,12 @@ export default function Home() {
       setRouteChoices(null);
       setWaitingRoute(false);
       setWarzoneState(null);
+      setBattleMission(null);
       setSignaturePieces(build.signaturePieces);
     };
     resetRef.current = reset;
     applyUpgradeRef.current = (id) => {
+      if (BASIC_ATTACK_UPGRADE_IDS.has(id)) stats.weaponMastery += 1;
       if (id === "rapid") stats.interval *= .86;
       if (id === "damage") stats.damage *= 1.22;
       if (id === "multi") { stats.multi += 1; stats.interval *= 1.08; }
@@ -2152,6 +2315,34 @@ export default function Home() {
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 18);
         stats.skillHaste = Math.max(.5, stats.skillHaste * .85);
       }
+      if (id === "magnet-capacity") { stats.magnetPower *= 1.2; stats.projectileSize += 1; }
+      if (id === "magnet-crush") { stats.magnetPower *= 1.28; stats.damage *= 1.12; }
+      if (id === "magnet-armor") {
+        player.maxHp += 26;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 26);
+        stats.damageReduction = Math.min(.62, stats.damageReduction + .05);
+      }
+      if (id === "magnet-feedback") stats.magnetPower *= 1.24;
+      if (id === "portal-echo") { stats.multi += 1; stats.interval *= 1.06; }
+      if (id === "portal-distance") { stats.portalPower *= 1.24; stats.dashDistance += 55; }
+      if (id === "portal-salvo") stats.secondaryProjectiles = Math.min(4, stats.secondaryProjectiles + 2);
+      if (id === "portal-shell") {
+        player.maxHp += 18;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 18);
+      }
+      if (id === "weapon-evolution-fast" && stats.weaponEvolution === 0) {
+        stats.weaponEvolution = 1;
+        stats.interval *= .78;
+        stats.multi += 1;
+        stats.projectileSize += 1;
+        stats.damage *= .92;
+      }
+      if (id === "weapon-evolution-heavy" && stats.weaponEvolution === 0) {
+        stats.weaponEvolution = 2;
+        stats.damage *= 1.42;
+        stats.projectileSize += 3;
+        stats.interval *= 1.12;
+      }
       if (id.endsWith("-secondary-power")) stats.secondaryPower *= 1.28;
       if (id === "assault-secondary-salvo") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
       if (id === "guardian-secondary-radius") stats.secondaryArea = Math.min(1.53, stats.secondaryArea * 1.15);
@@ -2173,6 +2364,8 @@ export default function Home() {
       if (id === "aegis-secondary-lances") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
       if (id === "venom-secondary-spines") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
       if (id === "chrono-secondary-wheels") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
+      if (id === "magnet-secondary-radius") stats.secondaryArea = Math.min(1.65, stats.secondaryArea * 1.18);
+      if (id === "portal-secondary-lances") stats.secondaryProjectiles = Math.min(4, stats.secondaryProjectiles + 1);
       if (id.endsWith("-ultimate-power")) stats.ultimatePower *= 1.25;
       if (id === "assault-ultimate-locks") stats.ultimateTargets = Math.min(ASSAULT_ULTIMATE_TARGET_CAP, stats.ultimateTargets + 2);
       if (id === "guardian-ultimate-duration") stats.ultimateDuration = Math.min(5.4, stats.ultimateDuration + .5);
@@ -2188,6 +2381,8 @@ export default function Home() {
       if (id === "aegis-ultimate-duration") stats.ultimateDuration = Math.min(5.4, stats.ultimateDuration + .5);
       if (id === "venom-ultimate-locks") stats.ultimateTargets = Math.min(16, stats.ultimateTargets + 2);
       if (id === "chrono-ultimate-range") stats.ultimateRange = Math.min(650, stats.ultimateRange + 70);
+      if (id === "magnet-ultimate-range") stats.ultimateRange = Math.min(680, stats.ultimateRange + 70);
+      if (id === "portal-ultimate-lanes") stats.ultimateLanes = Math.min(18, stats.ultimateLanes + 2);
       if (localUpgradeStartedAlive) {
         player.hp = Math.min(
           player.maxHp,
@@ -2492,6 +2687,9 @@ export default function Home() {
       if (build.classId === "aegis") aegisShock(player, stats, "host");
       if (build.classId === "venom") venomCloud(player, stats, "host");
       if (build.classId === "chrono") chronoField(player, stats, "host");
+      if (build.classId === "magnet") magnetHarvest(player, stats, "host");
+      if (build.classId === "portal") portalShift(player, stats, "host");
+      tryCoopCombo(player, build.classId, "host");
       triggerSkillEffect(player, build.classId, skillStart);
       audio?.play("skill");
     };
@@ -2572,6 +2770,10 @@ export default function Home() {
       addEvolvedEnemy("leech", 205, 9);
       addEvolvedEnemy("rammer", 240, 9);
       addEvolvedEnemy("commander", 285, 5, 130);
+      if (currentWarzone?.id === "void") addEvolvedEnemy("voidstalker", 42, 16, 75);
+      if (currentWarzone?.id === "forge") addEvolvedEnemy("magmahound", 38, 17, 70);
+      if (currentWarzone?.id === "scrapyard") addEvolvedEnemy("scrapdrone", 36, 17, 70);
+      if (currentWarzone?.id === "storm") addEvolvedEnemy("stormray", 34, 18, 65);
       const totalWeight = candidates.reduce((sum, entry) => sum + entry.weight, 0);
       let enemyRoll = Math.random() * totalWeight;
       let kind: EnemyKind = "runner";
@@ -2614,7 +2816,7 @@ export default function Home() {
     const spawnBoss = () => {
       const config = ENEMY_DATA.boss;
       if (!bossBag.length) {
-        bossBag = shuffled<BossVariant>(["rift", "storm", "leviathan", "weaver", "mirror", "forge", "warden"]);
+        bossBag = shuffled<BossVariant>(["rift", "storm", "leviathan", "weaver", "mirror", "forge", "warden", "cathedral", "brood", "juggernaut"]);
         const nextIndex = bossBag.length - 1;
         if (previousBossVariant && bossBag[nextIndex] === previousBossVariant && bossBag.length > 1) {
           [bossBag[0], bossBag[nextIndex]] = [bossBag[nextIndex], bossBag[0]];
@@ -2635,7 +2837,7 @@ export default function Home() {
         id: nextEnemyId++,
         x: W / 2,
         y: -70,
-        r: bossVariant === "leviathan" ? 60 : bossVariant === "warden" ? 54 : bossVariant === "mirror" ? 47 : config.radius,
+        r: bossVariant === "juggernaut" ? 64 : bossVariant === "brood" ? 57 : bossVariant === "cathedral" ? 61 : bossVariant === "leviathan" ? 60 : bossVariant === "warden" ? 54 : bossVariant === "mirror" ? 47 : config.radius,
         hp: maxHp,
         maxHp,
         speed: (config.speed + Math.min(10, currentWave * .85)) * variant.speed * routeSpeedScale,
@@ -2653,6 +2855,68 @@ export default function Home() {
       setBossLootNotice(`⚠ 第 ${currentWave} 波 · ${variant.name}入侵`);
       audio?.play("ultimate");
     };
+    const finishBattleMission = (success: boolean) => {
+      if (!activeMission) return;
+      if (success) {
+        const reward = 10 + currentWave * 3;
+        hostCoins += reward;
+        if (remote) guestCoins += reward;
+        hostUltimate = clamp(hostUltimate + 10, 0, ULTIMATE_MAX);
+        if (remote) guestUltimate = clamp(guestUltimate + 10, 0, ULTIMATE_MAX);
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .08);
+        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + remote.maxHp * .08);
+        setCoins(hostCoins);
+        setUltimateEnergy(hostUltimate);
+        setHp(Math.ceil(player.hp));
+        setBossLootNotice(`✓ 战场任务完成 · 全队获得 ${reward} 金币、10% 大招能量与应急维修`);
+        audio?.play("upgrade");
+      } else {
+        setBossLootNotice("✕ 战场任务失败 · 奖励信号已撤离");
+      }
+      activeMission = null;
+      missionDeadline = 0;
+      setBattleMission(null);
+    };
+    const startBattleMission = () => {
+      if (activeMission || currentWave < nextMissionWave) return;
+      const missionId = shuffled<BattleMissionFrame["id"]>(["hunter", "elite", "hold"])[0];
+      const remaining = missionId === "hold" ? 46 : 42;
+      if (missionId === "hunter") {
+        activeMission = {
+          id: missionId,
+          title: "清剿协议",
+          detail: "在限时内消灭指定数量的敌人",
+          progress: 0,
+          target: 16 + currentWave * 3,
+          remaining,
+        };
+      } else if (missionId === "elite") {
+        activeMission = {
+          id: missionId,
+          title: "猎首悬赏",
+          detail: "击破精英或首领单位",
+          progress: 0,
+          target: 2 + Math.floor(currentWave / 2),
+          remaining,
+        };
+      } else {
+        activeMission = {
+          id: missionId,
+          title: "信标坚守",
+          detail: "至少一名队员留在信标范围内，进度可累积",
+          progress: 0,
+          target: 13,
+          remaining,
+          zoneX: W * (.35 + Math.random() * .3),
+          zoneY: H * (.35 + Math.random() * .3),
+        };
+      }
+      missionDeadline = elapsed + remaining;
+      nextMissionWave = currentWave + 2 + Math.floor(Math.random() * 2);
+      setBattleMission({ ...activeMission });
+      setBossLootNotice(`◆ 随机任务 · ${activeMission.title}`);
+      audio?.play("skill");
+    };
     const burst = (x:number,y:number,color:string,n=8) => {
       if (enemies.length > PERFORMANCE_LIMITS.extremeEnemyCount || shots.length > PERFORMANCE_LIMITS.coopShots * .72) {
         n = Math.max(2, Math.ceil(n * .48));
@@ -2660,11 +2924,11 @@ export default function Home() {
         n = Math.max(3, Math.ceil(n * .68));
       }
       for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2,s=40+Math.random()*120; particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:.35+Math.random()*.35,color}); }
-      if (particles.length > 360) particles.splice(0, particles.length - 360);
+      if (particles.length > PERFORMANCE_LIMITS.particles) particles.splice(0, particles.length - PERFORMANCE_LIMITS.particles);
     };
     const addEffect = (effect: Omit<CombatEffect, "life" | "duration">, duration: number) => {
       effects.push({ ...effect, life: duration, duration });
-      if (effects.length > 120) effects.splice(0, effects.length - 120);
+      if (effects.length > PERFORMANCE_LIMITS.effects) effects.splice(0, effects.length - PERFORMANCE_LIMITS.effects);
     };
     const impactEffect = (x: number, y: number, color: string, radius = 24) => {
       addEffect({ kind: "impact", x, y, color, radius }, .28);
@@ -2685,6 +2949,8 @@ export default function Home() {
         aegis: "#ffd36a",
         venom: "#b5e536",
         chrono: "#f0ad4e",
+        magnet: "#a878ff",
+        portal: "#59baff",
       };
       const radii: Record<ClassId, number> = {
         assault: 190,
@@ -2701,6 +2967,8 @@ export default function Home() {
         aegis: 300,
         venom: 340,
         chrono: 390,
+        magnet: 360,
+        portal: 440,
       };
       const color = colors[classId];
       const effectDuration = classId === "chrono" ? 1.5 : classId === "frost" ? 1 : .72;
@@ -3061,6 +3329,117 @@ export default function Home() {
         shot.timeStopped = Math.max(shot.timeStopped || 0, stopDuration);
       }
     };
+    const magnetHarvest = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
+      const radius = 315 * combatStats.magnetPower;
+      const absorbed = shots
+        .filter((shot) => shot.hostile && dist(actor, shot) <= radius + shot.r)
+        .slice(0, Math.round(26 * combatStats.magnetPower));
+      const absorbedSet = new Set(absorbed);
+      if (absorbed.length) shots = shots.filter((shot) => !absorbedSet.has(shot));
+      const targets = prioritizeUltimateTargets(enemies, actor, Math.max(3, Math.min(18, 6 + absorbed.length)));
+      const salvo = Math.max(6, Math.min(22, 6 + absorbed.length));
+      for (let index = 0; index < salvo; index++) {
+        const target = targets[index % Math.max(1, targets.length)];
+        const angle = target ? Math.atan2(target.y - actor.y, target.x - actor.x) : index / salvo * Math.PI * 2;
+        shots.push({
+          x: actor.x, y: actor.y,
+          vx: Math.cos(angle) * 690, vy: Math.sin(angle) * 690,
+          r: 8, damage: combatStats.damage * (1.4 + absorbed.length * .035) * combatStats.magnetPower,
+          life: 2.4, owner, classId: "magnet", chain: true, splash: 52, homing: .48, skill2: true,
+        });
+      }
+      for (const enemy of enemies) {
+        const distance = dist(actor, enemy);
+        if (enemy.hp <= 0 || distance > radius + enemy.r || distance < 1) continue;
+        const angle = Math.atan2(actor.y - enemy.y, actor.x - enemy.x);
+        const pull = Math.min(90, distance * .24) * combatStats.magnetPower;
+        enemy.x += Math.cos(angle) * pull;
+        enemy.y += Math.sin(angle) * pull;
+        enemy.slow = Math.max(enemy.slow, 1.6);
+        applyEnemyDamage(enemy, combatStats.damage * .85 * combatStats.magnetPower, owner);
+      }
+      addEffect({ kind: "skill", classId: "magnet", x: actor.x, y: actor.y, color: "#a878ff", radius }, .9);
+    };
+    const portalShift = (
+      actor: Actor,
+      combatStats: BuildFrame | CombatStats,
+      owner: PlayerSide,
+      syncedX?: number,
+      syncedY?: number,
+    ) => {
+      const start = { x: actor.x, y: actor.y };
+      const target = prioritizeUltimateTargets(enemies, actor, 1)[0];
+      if (target) {
+        const side = target.x > W / 2 ? -1 : 1;
+        actor.x = clamp(target.x + side * Math.min(180, 110 * combatStats.portalPower), 34, W - 34);
+        actor.y = clamp(target.y + Math.sin(elapsed) * 70, 34, H - 34);
+      } else if (typeof syncedX === "number" && typeof syncedY === "number") {
+        actor.x = clamp(syncedX, 34, W - 34);
+        actor.y = clamp(syncedY, 34, H - 34);
+      }
+      if (actor === player) selfShieldUntil = Math.max(selfShieldUntil, performance.now() + 760);
+      else remoteShieldUntil = Math.max(remoteShieldUntil, performance.now() + 760);
+      const salvo = 8 + Math.round(combatStats.secondaryProjectiles);
+      for (let index = 0; index < salvo; index++) {
+        const angle = index / salvo * Math.PI * 2;
+        shots.push({
+          x: actor.x, y: actor.y,
+          vx: Math.cos(angle) * 820, vy: Math.sin(angle) * 820,
+          r: 7, damage: combatStats.damage * 1.75 * combatStats.portalPower, life: 2.2,
+          owner, classId: "portal", pierce: 3, homing: .18, skill2: true,
+        });
+      }
+      beams.push({ x1: start.x, y1: start.y, x2: actor.x, y2: actor.y, life: .45, width: 18, color: "#59baff" });
+      addEffect({ kind: "dash", classId: "portal", x: start.x, y: start.y, x2: actor.x, y2: actor.y, color: "#59baff", radius: 76 }, .58);
+    };
+    const tryCoopCombo = (actor: Actor, classId: ClassId, owner: PlayerSide) => {
+      const now = performance.now();
+      const previous = lastSkillCast;
+      lastSkillCast = { owner, classId, at: now };
+      if (!previous || previous.owner === owner || now - previous.at > 2800) return;
+      const pair = [previous.classId, classId].sort().join("+");
+      const comboCenter = remote && remote.hp > 0
+        ? { x: (player.x + remote.x) / 2, y: (player.y + remote.y) / 2 }
+        : { x: actor.x, y: actor.y };
+      let comboName = "";
+      if (pair === "frost+laser") {
+        comboName = "棱镜冰爆";
+        for (const enemy of enemies) {
+          if (enemy.hp <= 0) continue;
+          enemy.frozen = Math.max(enemy.frozen || 0, 1.25);
+          applyEnemyDamage(enemy, 68 + (enemy.frozen || 0) * 18, owner);
+        }
+        beams.push({ x1: 0, y1: comboCenter.y, x2: W, y2: comboCenter.y, life: .72, width: 22, color: "#d8f7ff" });
+      } else if (pair === "assault+gravity") {
+        comboName = "奇点饱和轰炸";
+        const target = prioritizeUltimateTargets(enemies, comboCenter, 1)[0] || comboCenter;
+        for (const enemy of enemies) {
+          const distance = dist(target, enemy);
+          if (distance > 440) continue;
+          const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
+          enemy.x += Math.cos(angle) * Math.min(190, distance * .42);
+          enemy.y += Math.sin(angle) * Math.min(190, distance * .42);
+          applyEnemyDamage(enemy, 95, owner);
+        }
+        addEffect({ kind: "ultimate", classId: "gravity", x: target.x, y: target.y, color: "#f4c95d", radius: 330 }, 1.6);
+      } else if (pair === "engineer+guardian") {
+        comboName = "堡垒蜂巢";
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .16);
+        if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + remote.maxHp * .16);
+        selfShieldUntil = Math.max(selfShieldUntil, now + 1700);
+        remoteShieldUntil = Math.max(remoteShieldUntil, now + 1700);
+      } else if (pair === "magnet+portal") {
+        comboName = "零距磁门";
+        shots = shots.filter((shot) => !shot.hostile);
+        for (const enemy of enemies) applyEnemyDamage(enemy, enemy.kind === "boss" ? 260 : 420, owner);
+        addEffect({ kind: "ultimate", classId: "portal", x: comboCenter.x, y: comboCenter.y, color: "#c5a8ff", radius: 560 }, 1.8);
+      }
+      if (!comboName) return;
+      lastSkillCast = null;
+      setBossLootNotice(`⚭ 双人组合技 · ${comboName}`);
+      burst(comboCenter.x, comboCenter.y, "#efffff", 32);
+      audio?.play("ultimate");
+    };
     const executeSecondarySkill = (
       actor: Actor,
       combatStats: BuildFrame | CombatStats,
@@ -3266,6 +3645,40 @@ export default function Home() {
         }
         triggerSecondarySkillEffect(actor, classId, target, 310 * secondaryArea);
       }
+      if (classId === "magnet") {
+        const radius = 360 * combatStats.magnetPower * secondaryArea;
+        const hostileNearby = shots.filter((shot) => shot.hostile && dist(actor, shot) < radius);
+        const hostileSet = new Set(hostileNearby);
+        shots = shots.filter((shot) => !hostileSet.has(shot));
+        for (const enemy of enemies) {
+          const distance = dist(actor, enemy);
+          if (enemy.hp <= 0 || distance > radius + enemy.r) continue;
+          const angle = Math.atan2(actor.y - enemy.y, actor.x - enemy.x);
+          enemy.x += Math.cos(angle) * Math.min(210, distance * .55);
+          enemy.y += Math.sin(angle) * Math.min(210, distance * .55);
+          enemy.stunned = Math.max(enemy.stunned || 0, .65);
+          applyEnemyDamage(enemy, combatStats.damage * 3.15 * combatStats.magnetPower * secondaryPower, owner);
+        }
+        triggerSecondarySkillEffect(actor, classId, undefined, radius);
+      }
+      if (classId === "portal") {
+        const lanceCount = 2 + secondaryProjectiles;
+        for (let index = 0; index < lanceCount; index++) {
+          const angle = aimAngle + (index - (lanceCount - 1) / 2) * .12;
+          const gateOffset = index % 2 ? 72 : -72;
+          const originX = actor.x - Math.sin(angle) * gateOffset;
+          const originY = actor.y + Math.cos(angle) * gateOffset;
+          shots.push({
+            x: originX, y: originY,
+            vx: Math.cos(angle) * 980, vy: Math.sin(angle) * 980,
+            r: 10, damage: combatStats.damage * 3.1 * combatStats.portalPower * secondaryPower,
+            life: 2.7, owner, classId, pierce: 6, homing: .12, skill2: true,
+          });
+          addEffect({ kind: "impact", classId, x: originX, y: originY, color: "#59baff", radius: 58 }, .55);
+        }
+        triggerSecondarySkillEffect(actor, classId, target, 330);
+      }
+      tryCoopCombo(actor, classId, owner);
     };
     const executeUltimate = (actor: Actor, combatStats: BuildFrame | CombatStats, classId: ClassId, owner: PlayerSide) => {
       const power = combatStats.ultimatePower;
@@ -3559,6 +3972,45 @@ export default function Home() {
         }
         addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: timeRange }, stopDuration);
       }
+      if (classId === "magnet") {
+        const magneticRange = clamp(combatStats.ultimateRange, 450, 680);
+        const absorbedCount = shots.filter((shot) => shot.hostile && dist(actor, shot) <= magneticRange + shot.r).length;
+        shots = shots.filter((shot) => !shot.hostile || dist(actor, shot) > magneticRange + shot.r);
+        for (const enemy of enemies) {
+          const distance = dist(actor, enemy);
+          if (enemy.hp <= 0 || distance > magneticRange + enemy.r) continue;
+          const angle = Math.atan2(actor.y - enemy.y, actor.x - enemy.x);
+          enemy.x += Math.cos(angle) * Math.min(360, distance * .78);
+          enemy.y += Math.sin(angle) * Math.min(360, distance * .78);
+          enemy.stunned = Math.max(enemy.stunned || 0, 1.25);
+          damageEnemy(enemy, combatStats.damage * (5.2 + Math.min(4, absorbedCount * .08)) * combatStats.magnetPower * power);
+          beams.push({ x1: enemy.x, y1: enemy.y, x2: actor.x, y2: actor.y, life: .7, width: 6, color: "#c5a8ff" });
+        }
+        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: magneticRange }, 2.3);
+      }
+      if (classId === "portal") {
+        const laneCount = clamp(Math.round(combatStats.ultimateLanes), 8, 18);
+        for (let index = 0; index < laneCount; index++) {
+          const gateAngle = index / laneCount * Math.PI * 2;
+          const gate = {
+            x: actor.x + Math.cos(gateAngle) * 320,
+            y: actor.y + Math.sin(gateAngle) * 250,
+          };
+          const target = prioritizeUltimateTargets(enemies, gate, 1)[0];
+          const shotAngle = target ? Math.atan2(target.y - gate.y, target.x - gate.x) : gateAngle + Math.PI;
+          const endX = gate.x + Math.cos(shotAngle) * ultimateReach;
+          const endY = gate.y + Math.sin(shotAngle) * ultimateReach;
+          beams.push({ x1: gate.x, y1: gate.y, x2: endX, y2: endY, life: .78 + index * .025, width: 13, color: index % 2 ? "#b88cff" : "#59baff" });
+          for (const enemy of enemies) {
+            const along = (enemy.x - gate.x) * Math.cos(shotAngle) + (enemy.y - gate.y) * Math.sin(shotAngle);
+            const perpendicular = Math.abs((enemy.x - gate.x) * Math.sin(shotAngle) - (enemy.y - gate.y) * Math.cos(shotAngle));
+            if (along <= 0 || along >= ultimateReach || perpendicular > enemy.r + 18) continue;
+            damageEnemy(enemy, combatStats.damage * 3.7 * combatStats.portalPower * power);
+          }
+          addEffect({ kind: "impact", classId, x: gate.x, y: gate.y, color: "#59baff", radius: 64 }, 1.1);
+        }
+        addEffect({ kind: "ultimate", classId, count: laneCount, x: actor.x, y: actor.y, color, radius: 520 }, 2.2);
+      }
       burst(actor.x, actor.y, color, classId === "guardian" || classId === "engineer" ? 26 : 40);
       setHp(Math.ceil(player.hp));
       audio?.play("ultimate");
@@ -3599,6 +4051,13 @@ export default function Home() {
     );
     const sendWorld = () => {
       if (!network?.connected() || !isAuthority) return;
+      const highNetworkLoad = enemies.length > PERFORMANCE_LIMITS.highEnemyCount || shots.length > PERFORMANCE_LIMITS.networkShots;
+      const snapshotShots = highNetworkLoad
+        ? [
+            ...shots.filter((shot) => shot.hostile).slice(-Math.floor(PERFORMANCE_LIMITS.networkShots * .55)),
+            ...shots.filter((shot) => !shot.hostile).slice(-Math.floor(PERFORMANCE_LIMITS.networkShots * .45)),
+          ]
+        : shots;
       void network.send({
         t: "world",
         frame: {
@@ -3610,15 +4069,16 @@ export default function Home() {
           host: { x: player.x, y: player.y, hp: player.hp, maxHp: player.maxHp, classId: player.classId },
           guest: remote ? { x: remote.x, y: remote.y, hp: remote.hp, maxHp: remote.maxHp, classId: remote.classId } : undefined,
           enemies,
-          shots,
+          shots: snapshotShots,
           gems,
-          beams,
-          effects,
+          beams: highNetworkLoad ? beams.slice(-90) : beams,
+          effects: highNetworkLoad ? effects.slice(-60) : effects,
           revive: { host: hostReviveProgress, guest: guestReviveProgress },
           wallet: { host: hostCoins, guest: guestCoins },
           ultimate: { host: hostUltimate, guest: guestUltimate },
           wave: currentWave,
           warzone: currentWarzone || undefined,
+          mission: activeMission || undefined,
         },
       });
     };
@@ -3674,7 +4134,29 @@ export default function Home() {
       if (!isAuthority) return;
 
       elapsed += dt;
-      setSeconds(Math.floor(elapsed));
+      const elapsedSecond = Math.floor(elapsed);
+      if (elapsedSecond !== shownSecond) {
+        shownSecond = elapsedSecond;
+        setSeconds(elapsedSecond);
+      }
+      if (activeMission) {
+        activeMission.remaining = Math.max(0, missionDeadline - elapsed);
+        if (activeMission.id === "hold") {
+          const holding = [player, ...(remote ? [remote] : [])].some(
+            (actor) => actor.hp > 0 && Math.hypot(actor.x - (activeMission?.zoneX || W / 2), actor.y - (activeMission?.zoneY || H / 2)) <= 155,
+          );
+          if (holding) activeMission.progress = Math.min(activeMission.target, activeMission.progress + dt);
+        }
+        if (activeMission.progress >= activeMission.target) finishBattleMission(true);
+        else if (activeMission.remaining <= 0) finishBattleMission(false);
+        else {
+          missionUiClock -= dt;
+          if (missionUiClock <= 0) {
+            missionUiClock = .2;
+            setBattleMission({ ...activeMission });
+          }
+        }
+      }
       for (const pending of pendingMissileWaves) pending.delay -= dt;
       for (const pending of pendingMissileWaves.filter((entry) => entry.delay <= 0)) {
         fireMissileWave(pending.actor, pending.combatStats, pending.owner);
@@ -3723,6 +4205,7 @@ export default function Home() {
         currentWave += 1;
         nextWaveAt += WAVE_INTERVAL_SECONDS;
         setWave(currentWave);
+        startBattleMission();
         if (currentWarzone && currentWave > currentWarzone.expiresAtWave) {
           currentWarzone = null;
           setWarzoneState(null);
@@ -3785,13 +4268,13 @@ export default function Home() {
             const spread=(i-(stats.multi-1)/2)*.14;
             const angle=a0+spread;
             const damage = Math.random() < stats.critChance ? stats.damage * 2 : stats.damage;
-            shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5,owner:"host",classId:build.classId,...projectileTraits(build.classId,stats)});
+            shots.push({x:player.x,y:player.y,vx:Math.cos(angle)*stats.projectileSpeed,vy:Math.sin(angle)*stats.projectileSpeed,r:stats.projectileSize,damage,life:1.5,owner:"host",classId:build.classId,evolution:stats.weaponEvolution,...projectileTraits(build.classId,stats)});
           }
         }
         for (let i = 0; i < stats.drones; i++) {
           const droneAngle = a0 + (i % 2 ? .22 : -.22);
           const origin = dronePosition(player, i, stats.drones);
-          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*droneDamageScaleFor(build.classId)*stats.dronePower,life:1.6,owner:"host",classId:build.classId,...projectileTraits(build.classId,stats)});
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*droneDamageScaleFor(build.classId)*stats.dronePower,life:1.6,owner:"host",classId:build.classId,evolution:stats.weaponEvolution,...projectileTraits(build.classId,stats)});
         }
         audio?.play("shot");
         burst(player.x+Math.cos(a0)*18,player.y+Math.sin(a0)*18,"#f4c95d",3);
@@ -3809,13 +4292,13 @@ export default function Home() {
             const spread=(i-(remoteStats.multi-1)/2)*.14;
             const shotAngle=a+spread;
             const damage = Math.random() < remoteStats.critChance ? remoteStats.damage * 2 : remoteStats.damage;
-            shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId,remoteStats)});
+            shots.push({x:remote.x,y:remote.y,vx:Math.cos(shotAngle)*remoteStats.projectileSpeed,vy:Math.sin(shotAngle)*remoteStats.projectileSpeed,r:remoteStats.projectileSize,damage,life:1.5,owner:"guest",classId:remoteStats.classId,evolution:remoteStats.weaponEvolution,...projectileTraits(remoteStats.classId,remoteStats)});
           }
         }
         for (let i = 0; i < remoteStats.drones; i++) {
           const droneAngle = a + (i % 2 ? .22 : -.22);
           const origin = dronePosition(remote, i, remoteStats.drones);
-          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*droneDamageScaleFor(remoteStats.classId)*remoteStats.dronePower,life:1.6,owner:"guest",classId:remoteStats.classId,...projectileTraits(remoteStats.classId,remoteStats)});
+          shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*droneDamageScaleFor(remoteStats.classId)*remoteStats.dronePower,life:1.6,owner:"guest",classId:remoteStats.classId,evolution:remoteStats.weaponEvolution,...projectileTraits(remoteStats.classId,remoteStats)});
         }
         audio?.play("ally-shot");
       }
@@ -3939,6 +4422,9 @@ export default function Home() {
                 : enemy.kind === "sniper" ? 465
                   : enemy.kind === "mortarwasp" ? 360
                     : enemy.kind === "leech" ? 245
+                      : enemy.kind === "voidstalker" ? 315
+                        : enemy.kind === "scrapdrone" ? 350
+                          : enemy.kind === "stormray" ? 285
                       : enemy.kind === "boss" ? BOSS_VARIANTS[enemy.bossVariant || "rift"].range
                         : 0;
         const speedScale = !canAct ? 0 : (enemy.timeDilated || 0) > 0 ? .38 : enemy.slow > 0 ? .52 : 1;
@@ -3991,6 +4477,18 @@ export default function Home() {
             enemy.kind === "shieldmite" ? 34 : 29,
           );
           enemy.cooldown = ENEMY_DATA[enemy.kind].cooldown;
+        }
+        if (canAct && enemy.kind === "magmahound" && enemy.cooldown <= 0 && targetDistance < enemy.r + target.r + 92) {
+          const reach = 148;
+          addEffect({
+            kind: "slash", enemyKind: "magmahound",
+            x: enemy.x, y: enemy.y,
+            x2: enemy.x + Math.cos(angle) * reach,
+            y2: enemy.y + Math.sin(angle) * reach,
+            color: "#ff7440", radius: 42,
+          }, .38);
+          applyMeleeStrike(enemy.hit * .78, "#ff7440", 42);
+          enemy.cooldown = ENEMY_DATA.magmahound.cooldown;
         }
         if (canAct && enemy.kind === "boss" && enemy.cooldown <= 0) {
           const phase = enemy.bossPhase || 1;
@@ -4064,6 +4562,63 @@ export default function Home() {
             }
             beams.push({ x1: enemy.x - Math.sin(angle) * 150, y1: enemy.y + Math.cos(angle) * 150, x2: enemy.x + Math.sin(angle) * 150, y2: enemy.y - Math.cos(angle) * 150, life: .4, width: 5, color: "#ff68d7" });
             enemy.cooldown = phase === 1 ? 2.15 : phase === 2 ? 1.62 : 1.25;
+          } else if (variant === "cathedral") {
+            const count = 5 + phase * 3;
+            for (let index = 0; index < count; index++) {
+              const shotAngle = angle + (index - (count - 1) / 2) * .12;
+              shots.push({
+                x: enemy.x, y: enemy.y,
+                vx: Math.cos(shotAngle) * (245 + phase * 22), vy: Math.sin(shotAngle) * (245 + phase * 22),
+                r: 9, damage: enemy.hit * .52, life: 3.6, hostile: true, enemyKind: "boss", bossVariant: variant,
+                homing: index % 2 === 0 ? .34 : undefined,
+              });
+            }
+            const crossAngle = elapsed * .22;
+            beams.push({ x1: enemy.x - Math.cos(crossAngle) * 240, y1: enemy.y - Math.sin(crossAngle) * 240, x2: enemy.x + Math.cos(crossAngle) * 240, y2: enemy.y + Math.sin(crossAngle) * 240, life: .5, width: 7, color: "#bca2ff" });
+            enemy.cooldown = phase === 1 ? 2.55 : phase === 2 ? 1.92 : 1.44;
+          } else if (variant === "brood") {
+            const mineCount = 3 + phase * 2;
+            for (let index = 0; index < mineCount; index++) {
+              const shotAngle = index / mineCount * Math.PI * 2 + elapsed * .18;
+              shots.push({
+                x: enemy.x, y: enemy.y,
+                vx: Math.cos(shotAngle) * (125 + phase * 16), vy: Math.sin(shotAngle) * (125 + phase * 16),
+                r: 12, damage: enemy.hit * .48, life: 4.8, hostile: true, enemyKind: "boss", bossVariant: variant,
+                splash: 82 + phase * 14, homing: phase === 3 ? .18 : undefined,
+              });
+            }
+            if (phase >= 2 && enemies.length < PERFORMANCE_LIMITS.highEnemyCount) {
+              const minionCount = phase + 1;
+              for (let index = 0; index < minionCount; index++) {
+                const spawnAngle = index / minionCount * Math.PI * 2;
+                const config = ENEMY_DATA.voidstalker;
+                enemies.push({
+                  id: nextEnemyId++, x: enemy.x + Math.cos(spawnAngle) * 105, y: enemy.y + Math.sin(spawnAngle) * 105,
+                  r: config.radius, hp: config.hp * (1 + currentWave * .08), maxHp: config.hp * (1 + currentWave * .08),
+                  speed: config.speed, hit: config.hit, color: config.color, kind: "voidstalker", elite: false,
+                  facing: spawnAngle, cooldown: 1.2, slow: 0,
+                });
+              }
+            }
+            enemy.cooldown = phase === 1 ? 3.05 : phase === 2 ? 2.35 : 1.82;
+          } else if (variant === "juggernaut") {
+            const chargeStart = { x: enemy.x, y: enemy.y };
+            const chargeDistance = 72 + phase * 34;
+            enemy.x = clamp(enemy.x + Math.cos(angle) * chargeDistance, -70, W + 70);
+            enemy.y = clamp(enemy.y + Math.sin(angle) * chargeDistance, -70, H + 70);
+            addEffect({ kind: "dash", bossVariant: variant, x: chargeStart.x, y: chargeStart.y, x2: enemy.x, y2: enemy.y, color: "#e98245", radius: 88 }, .58);
+            if (dist(enemy, target) < enemy.r + target.r + 58) applyMeleeStrike(enemy.hit * .72, "#e98245", 64);
+            const drills = 2 + phase;
+            for (let index = 0; index < drills; index++) {
+              const shotAngle = angle + (index - (drills - 1) / 2) * .18;
+              shots.push({
+                x: enemy.x, y: enemy.y,
+                vx: Math.cos(shotAngle) * (265 + phase * 24), vy: Math.sin(shotAngle) * (265 + phase * 24),
+                r: 13, damage: enemy.hit * .65, life: 3.2, hostile: true, enemyKind: "boss", bossVariant: variant,
+                pierce: 1, splash: 88,
+              });
+            }
+            enemy.cooldown = phase === 1 ? 2.85 : phase === 2 ? 2.15 : 1.64;
           } else {
             const rings = phase === 1 ? 1 : phase === 2 ? 2 : 3;
             for (let ring = 0; ring < rings; ring++) {
@@ -4087,12 +4642,15 @@ export default function Home() {
             const projectileSpeed =
               enemy.kind === "sniper" ? 680
                 : enemy.kind === "assassin" ? 490
+                  : enemy.kind === "stormray" ? 420
+                    : enemy.kind === "voidstalker" ? 330
+                      : enemy.kind === "scrapdrone" ? 270
                   : enemy.kind === "commander" ? 290
                     : enemy.kind === "mortarwasp" ? 235
                       : enemy.kind === "leech" ? 250
                         : 280;
             const lateRangedDamage = 1 + Math.min(.3, elapsed / 1200);
-            const damageScale = enemy.kind === "assassin" ? .58 : enemy.kind === "leech" ? .68 : enemy.kind === "mortarwasp" ? .82 : 1;
+            const damageScale = enemy.kind === "assassin" ? .58 : enemy.kind === "stormray" ? .66 : enemy.kind === "voidstalker" ? .72 : enemy.kind === "scrapdrone" ? .76 : enemy.kind === "leech" ? .68 : enemy.kind === "mortarwasp" ? .82 : 1;
             shots.push({
               x: enemy.x + Math.cos(angle) * (enemy.r + 8),
               y: enemy.y + Math.sin(angle) * (enemy.r + 8),
@@ -4103,8 +4661,8 @@ export default function Home() {
               life: enemy.kind === "assassin" ? 1.7 : enemy.kind === "sniper" ? 1.45 : enemy.kind === "mortarwasp" ? 3.1 : 2.4,
               hostile: true,
               enemyKind: enemy.kind,
-              homing: enemy.kind === "commander" ? .75 : enemy.kind === "leech" ? .66 : undefined,
-              splash: enemy.kind === "artillery" ? 68 : enemy.kind === "mortarwasp" ? 92 : undefined,
+              homing: enemy.kind === "commander" ? .75 : enemy.kind === "voidstalker" ? .38 : enemy.kind === "stormray" ? .24 : enemy.kind === "leech" ? .66 : undefined,
+              splash: enemy.kind === "scrapdrone" ? 72 : enemy.kind === "artillery" ? 68 : enemy.kind === "mortarwasp" ? 92 : undefined,
             });
           }
           if (enemy.kind === "leech") enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * .025);
@@ -4162,6 +4720,9 @@ export default function Home() {
                       : shot.enemyKind === "mortarwasp" ? "#ff9a4d"
                         : shot.enemyKind === "leech" ? "#b06cff"
                           : shot.enemyKind === "rammer" ? "#66b8ff"
+                            : shot.enemyKind === "voidstalker" ? "#a96cff"
+                              : shot.enemyKind === "scrapdrone" ? "#c58c52"
+                                : shot.enemyKind === "stormray" ? "#54dfff"
                             : shot.enemyKind === "assassin" ? "#a36cff"
                               : shot.enemyKind === "commander" ? "#d99aff"
                                 : "#ff9a4d";
@@ -4329,6 +4890,8 @@ export default function Home() {
           burst(enemy.x,enemy.y,enemy.color,enemy.kind === "boss" ? 46 : 10);
           impactEffect(enemy.x, enemy.y, enemy.kind === "boss" ? "#ff5b7d" : enemy.elite ? "#f4c95d" : enemy.color, enemy.kind === "boss" ? 180 : enemy.elite ? 72 : 42);
           if (bossRelic) setBossLootNotice(`Boss 已击破 · ${RARITY_LABELS[bossRelic.rarity]}遗物 ${bossRelic.icon} ${bossRelic.title}等待拾取`);
+          if (activeMission?.id === "hunter") activeMission.progress += 1;
+          if (activeMission?.id === "elite" && (enemy.elite || enemy.kind === "boss")) activeMission.progress += 1;
           currentKills++;
           const killer = enemy.lastHitBy || "host";
           const baseEnergyGain = enemy.kind === "boss" ? 30 : enemy.kind === "commander" ? 16 : enemy.elite ? 10 : 6;
@@ -4456,7 +5019,7 @@ export default function Home() {
       worldClock -= dt;
       if (worldClock <= 0) {
         const highNetworkLoad = enemies.length > PERFORMANCE_LIMITS.highEnemyCount || shots.length > PERFORMANCE_LIMITS.soloShots * .72;
-        worldClock = highNetworkLoad ? .1 : .06;
+        worldClock = highNetworkLoad ? .12 : .075;
         sendWorld();
       }
       const guestHp = remote?.hp ?? null;
@@ -4484,12 +5047,42 @@ export default function Home() {
       canvas.dataset.elapsed = String(Math.floor(elapsed));
       const renderNow = performance.now();
       const reducedEffects = enemies.length > PERFORMANCE_LIMITS.highEnemyCount || shots.length > PERFORMANCE_LIMITS.soloShots * .62;
-      ctx.fillStyle="#111814"; ctx.fillRect(0,0,W,H);
-      ctx.strokeStyle="rgba(205,224,187,.055)"; ctx.lineWidth=1;
-      for(let x=0;x<W;x+=48){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
-      for(let y=0;y<H;y+=48){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
-      ctx.fillStyle="rgba(244,201,93,.035)";
-      for(let i=0;i<24;i++){ const x=(i*193)%W,y=(i*317)%H;ctx.beginPath();ctx.arc(x,y,18+(i%4)*9,0,Math.PI*2);ctx.fill();}
+      const mapId=currentWarzone?.id;
+      const mapBase=mapId==="void"?"#070b1b":mapId==="forge"?"#1a0d0b":mapId==="storm"?"#07151d":mapId==="scrapyard"?"#17130e":mapId==="bastion"?"#0d1918":mapId==="archive"?"#151025":"#111814";
+      const mapAccent=mapId==="void"?"rgba(150,120,255,.11)":mapId==="forge"?"rgba(255,104,45,.12)":mapId==="storm"?"rgba(72,223,255,.1)":mapId==="scrapyard"?"rgba(205,157,83,.09)":mapId==="bastion"?"rgba(117,230,218,.08)":mapId==="archive"?"rgba(244,201,93,.09)":"rgba(205,224,187,.055)";
+      ctx.fillStyle=mapBase;ctx.fillRect(0,0,W,H);
+      ctx.strokeStyle=mapAccent;ctx.lineWidth=1;
+      const gridStep=mapId==="bastion"?64:48;
+      for(let x=0;x<W;x+=gridStep){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+      for(let y=0;y<H;y+=gridStep){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+      if(mapId==="void"){
+        ctx.fillStyle="rgba(220,235,255,.72)";
+        for(let i=0;i<48;i++){const x=(i*313)%W,y=(i*197)%H,size=i%7===0?2.2:1;ctx.fillRect(x,y,size,size);}
+        ctx.fillStyle="rgba(110,82,210,.12)";ctx.beginPath();ctx.arc(W*.78,H*.2,150,0,Math.PI*2);ctx.fill();
+      }else if(mapId==="forge"){
+        ctx.strokeStyle="rgba(255,91,37,.22)";ctx.lineWidth=5;
+        for(let i=0;i<5;i++){ctx.beginPath();ctx.moveTo(-40,i*210+40);ctx.lineTo(W*.35,i*210+95);ctx.lineTo(W*.7,i*210+35);ctx.lineTo(W+40,i*210+80);ctx.stroke();}
+      }else if(mapId==="storm"){
+        ctx.strokeStyle="rgba(92,210,255,.18)";ctx.lineWidth=3;
+        for(let i=0;i<5;i++){const x=180+i*330;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x-42,180);ctx.lineTo(x+18,330);ctx.lineTo(x-25,520);ctx.lineTo(x+45,H);ctx.stroke();}
+      }else if(mapId==="scrapyard"){
+        ctx.strokeStyle="rgba(205,157,83,.14)";ctx.lineWidth=3;
+        for(let i=0;i<18;i++){const x=(i*227)%W,y=(i*151)%H;ctx.strokeRect(x,y,95+(i%3)*35,46+(i%4)*18);}
+      }else if(mapId==="archive"){
+        ctx.strokeStyle="rgba(202,168,255,.18)";ctx.lineWidth=2;
+        for(let i=0;i<14;i++){const x=(i*167)%W,y=(i*281)%H;ctx.beginPath();ctx.arc(x,y,24+(i%4)*12,0,Math.PI*2);ctx.stroke();}
+      }else{
+        ctx.fillStyle="rgba(244,201,93,.035)";
+        for(let i=0;i<24;i++){const x=(i*193)%W,y=(i*317)%H;ctx.beginPath();ctx.arc(x,y,18+(i%4)*9,0,Math.PI*2);ctx.fill();}
+      }
+      if(activeMission?.id==="hold"){
+        const zoneX=activeMission.zoneX||W/2,zoneY=activeMission.zoneY||H/2;
+        const progress=clamp(activeMission.progress/activeMission.target,0,1);
+        ctx.save();ctx.translate(zoneX,zoneY);ctx.fillStyle="rgba(117,230,218,.08)";ctx.strokeStyle="#75e6da";ctx.lineWidth=4;ctx.shadowColor="#75e6da";ctx.shadowBlur=reducedEffects?0:18;
+        ctx.beginPath();ctx.arc(0,0,155,0,Math.PI*2);ctx.fill();ctx.stroke();
+        ctx.strokeStyle="#f4c95d";ctx.lineWidth=8;ctx.beginPath();ctx.arc(0,0,167,-Math.PI/2,-Math.PI/2+Math.PI*2*progress);ctx.stroke();
+        ctx.fillStyle="#dffcf5";ctx.font="900 16px monospace";ctx.textAlign="center";ctx.fillText("任务信标",0,5);ctx.restore();
+      }
       for(const g of gems){
         const dropAlpha=g.life<3?.38+Math.abs(Math.sin(performance.now()/120))*.62:1;
         if(g.heal){
@@ -4512,7 +5105,7 @@ export default function Home() {
       for(let particleIndex=0;particleIndex<particles.length;particleIndex+=(reducedEffects?2:1)){const p=particles[particleIndex];ctx.globalAlpha=Math.max(0,p.life*2);ctx.fillStyle=p.color;ctx.fillRect(p.x-2,p.y-2,4,4);} ctx.globalAlpha=1;
       for(const beam of beams){
         ctx.save();ctx.globalAlpha=clamp(beam.life*4,0,1);ctx.lineCap="round";
-        ctx.strokeStyle=beam.color;ctx.shadowColor=beam.color;ctx.shadowBlur=18;ctx.lineWidth=beam.width;
+        ctx.strokeStyle=beam.color;ctx.shadowColor=beam.color;ctx.shadowBlur=reducedEffects?0:18;ctx.lineWidth=beam.width;
         ctx.beginPath();ctx.moveTo(beam.x1,beam.y1);ctx.lineTo(beam.x2,beam.y2);ctx.stroke();
         ctx.strokeStyle="rgba(255,255,255,.9)";ctx.shadowBlur=4;ctx.lineWidth=Math.max(2,beam.width*.24);
         ctx.beginPath();ctx.moveTo(beam.x1,beam.y1);ctx.lineTo(beam.x2,beam.y2);ctx.stroke();ctx.restore();
@@ -4520,7 +5113,7 @@ export default function Home() {
       for(const effect of effects){
         const progress=clamp(1-effect.life/effect.duration,0,1);
         const alpha=clamp(effect.life/effect.duration,0,1);
-        ctx.save();ctx.globalAlpha=alpha;ctx.strokeStyle=effect.color;ctx.fillStyle=effect.color;ctx.shadowColor=effect.color;ctx.shadowBlur=16;ctx.lineCap="round";
+        ctx.save();ctx.globalAlpha=alpha;ctx.strokeStyle=effect.color;ctx.fillStyle=effect.color;ctx.shadowColor=effect.color;ctx.shadowBlur=reducedEffects?0:16;ctx.lineCap="round";
         if(effect.kind==="impact"){
           const radius=6+effect.radius*progress;
           ctx.lineWidth=Math.max(2,7*(1-progress));
@@ -4679,6 +5272,11 @@ export default function Home() {
             const endX=effect.x2??effect.x,endY=effect.y2??effect.y;
             ctx.translate((effect.x+endX)/2,(effect.y+endY)/2);ctx.rotate(angle);ctx.globalAlpha=alpha*.92;
             ctx.drawImage(enemyReinforcementProjectiles,(sprite%3)*cellW,Math.floor(sprite/3)*cellH,cellW,cellH,-66,-38,132,76);
+          }else if(effect.enemyKind==="magmahound"&&mapEnemySprites.complete&&mapEnemySprites.naturalWidth){
+            const cellW=mapEnemySprites.naturalWidth/4,cellH=mapEnemySprites.naturalHeight/2;
+            const endX=effect.x2??effect.x,endY=effect.y2??effect.y;
+            ctx.translate((effect.x+endX)/2,(effect.y+endY)/2);ctx.rotate(angle);ctx.globalAlpha=alpha*.94;
+            ctx.drawImage(mapEnemySprites,cellW,cellH,cellW,cellH,-76,-42,152,84);
           }else{
             ctx.translate(effect.x,effect.y);ctx.rotate(angle);
             ctx.lineWidth=18*(1-progress)+4;
@@ -4797,7 +5395,7 @@ export default function Home() {
         }
         ctx.restore();
       }
-      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1, blade: 0, gravity: 1, thunder: 0, sky: 1, cinder: 2, aegis: 0, venom: 1, chrono: 2 };
+      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1, blade: 0, gravity: 1, thunder: 0, sky: 1, cinder: 2, aegis: 0, venom: 1, chrono: 2, magnet: 0, portal: 1 };
       const projectileDimensions: Record<ClassId, [number, number]> = {
         assault: [34, 18],
         guardian: [38, 22],
@@ -4813,22 +5411,35 @@ export default function Home() {
         aegis: [52, 23],
         venom: [51, 22],
         chrono: [49, 25],
+        magnet: [50, 25],
+        portal: [58, 22],
       };
       for(const s of shots){
         if(s.hostile){
           if(s.enemyKind==="boss"){
             const variant=s.bossVariant||"rift",bossInfo=BOSS_VARIANTS[variant],sprite=bossInfo.sprite;
-            const bossProjectileImage=bossInfo.sheet==="v2"?bossProjectileSpritesV2:bossProjectileSprites;
+            const bossProjectileImage=bossInfo.sheet==="expansion"?bossExpansionSprites:bossInfo.sheet==="v2"?bossProjectileSpritesV2:bossProjectileSprites;
             if(bossProjectileImage.complete&&bossProjectileImage.naturalWidth){
-              const columns=bossInfo.sheet==="v2"?3:2,rows=bossInfo.sheet==="v2"?1:2;
+              const columns=bossInfo.sheet==="v2"||bossInfo.sheet==="expansion"?3:2,rows=bossInfo.sheet==="v2"?1:2;
               const cellW=bossProjectileImage.naturalWidth/columns,cellH=bossProjectileImage.naturalHeight/rows;
-              const drawW=variant==="warden"?62:variant==="mirror"?66:variant==="leviathan"?82:variant==="forge"?72:variant==="weaver"?64:74;
-              const drawH=variant==="warden"?62:variant==="mirror"?42:variant==="leviathan"?34:variant==="weaver"?52:38;
+              const sourceY=bossInfo.sheet==="expansion"?cellH:Math.floor(sprite/columns)*cellH;
+              const drawW=variant==="juggernaut"?88:variant==="brood"?58:variant==="cathedral"?76:variant==="warden"?62:variant==="mirror"?66:variant==="leviathan"?82:variant==="forge"?72:variant==="weaver"?64:74;
+              const drawH=variant==="juggernaut"?36:variant==="brood"?58:variant==="cathedral"?32:variant==="warden"?62:variant==="mirror"?42:variant==="leviathan"?34:variant==="weaver"?52:38;
               ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));ctx.shadowColor=BOSS_VARIANTS[variant].color;ctx.shadowBlur=reducedEffects?0:18;
-              ctx.drawImage(bossProjectileImage,(sprite%columns)*cellW+4,Math.floor(sprite/columns)*cellH+4,cellW-8,cellH-8,-drawW/2,-drawH/2,drawW,drawH);ctx.restore();
+              ctx.drawImage(bossProjectileImage,(sprite%columns)*cellW+4,sourceY+4,cellW-8,cellH-8,-drawW/2,-drawH/2,drawW,drawH);ctx.restore();
             }else{
               ctx.save();ctx.translate(s.x,s.y);ctx.fillStyle=BOSS_VARIANTS[variant].color;ctx.beginPath();ctx.arc(0,0,s.r+3,0,Math.PI*2);ctx.fill();ctx.restore();
             }
+            continue;
+          }
+          const mapProjectileIndex: Partial<Record<EnemyKind,number>>={voidstalker:0,magmahound:1,scrapdrone:2,stormray:3};
+          const mapProjectile=mapProjectileIndex[s.enemyKind||"runner"];
+          if(mapProjectile!==undefined&&mapEnemySprites.complete&&mapEnemySprites.naturalWidth){
+            const cellW=mapEnemySprites.naturalWidth/4,cellH=mapEnemySprites.naturalHeight/2;
+            const drawSizes:[[number,number],[number,number],[number,number],[number,number]]=[[50,26],[58,35],[48,28],[38,38]];
+            const [drawW,drawH]=drawSizes[mapProjectile];
+            ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));ctx.shadowColor=ENEMY_DATA[s.enemyKind||"runner"].color;ctx.shadowBlur=reducedEffects?0:13;
+            ctx.drawImage(mapEnemySprites,mapProjectile*cellW,cellH,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);ctx.restore();
             continue;
           }
           const reinforcementProjectileIndex: Partial<Record<EnemyKind,number>>={sniper:1,mortarwasp:3,leech:4};
@@ -4863,15 +5474,16 @@ export default function Home() {
         }
         const sprite=projectileSpriteIndex[s.classId];
         const classInfo=CLASSES.find((item)=>item.id===s.classId)||CLASSES[0];
-        const projectileImage=classInfo.sheet==="specialist"?specialistProjectiles:classInfo.sheet==="vanguard"?vanguardProjectiles:classInfo.sheet==="expedition"?v2SupportAssets:classInfo.sheet==="frontier"?frontierSupportAssets:projectileSprites;
+        const projectileImage=classInfo.sheet==="quantum"?quantumSupport:classInfo.sheet==="specialist"?specialistProjectiles:classInfo.sheet==="vanguard"?vanguardProjectiles:classInfo.sheet==="expedition"?v2SupportAssets:classInfo.sheet==="frontier"?frontierSupportAssets:projectileSprites;
         if(!projectileImage.complete||!projectileImage.naturalWidth){
           ctx.fillStyle="#fff2ba";ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();continue;
         }
         const packedSupportSheet=classInfo.sheet==="expedition"||classInfo.sheet==="frontier";
+        const quantumSheet=classInfo.sheet==="quantum";
         const projectileColumns=packedSupportSheet?3:2;
-        const cellW=projectileImage.naturalWidth/projectileColumns,cellH=classInfo.sheet==="core"||packedSupportSheet?projectileImage.naturalHeight/2:projectileImage.naturalHeight;
+        const cellW=projectileImage.naturalWidth/projectileColumns,cellH=quantumSheet?projectileImage.naturalHeight/3:classInfo.sheet==="core"||packedSupportSheet?projectileImage.naturalHeight/2:projectileImage.naturalHeight;
         const [baseDrawW,baseDrawH]=projectileDimensions[s.classId];
-        const projectileScale=s.ultimate?2.2:s.skill2?1.38:1;
+        const projectileScale=(s.ultimate?2.2:s.skill2?1.38:1)*(s.evolution===2?1.42:s.evolution===1?1.14:1);
         const drawW=baseDrawW*projectileScale,drawH=baseDrawH*projectileScale;
         ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));
         ctx.shadowColor=classInfo.color;ctx.shadowBlur=reducedEffects?0:s.ultimate?30:s.skill2?20:8;
@@ -4886,7 +5498,7 @@ export default function Home() {
           ctx.beginPath();ctx.moveTo(drawW*.55,0);ctx.lineTo(0,-drawH*.82);ctx.lineTo(-drawW*.55,0);ctx.lineTo(0,drawH*.82);ctx.closePath();ctx.fill();ctx.stroke();
           ctx.globalAlpha=.8;ctx.beginPath();ctx.arc(0,0,Math.max(drawH,drawW)*.63,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=1;
         }
-        ctx.drawImage(projectileImage,(sprite%projectileColumns)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:packedSupportSheet?cellH:0,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
+        ctx.drawImage(projectileImage,(sprite%projectileColumns)*cellW,quantumSheet?cellH*2:classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:packedSupportSheet?cellH:0,cellW,cellH,-drawW/2,-drawH/2,drawW,drawH);
         ctx.restore();
       }
       for(const s of shots){
@@ -4899,10 +5511,12 @@ export default function Home() {
       }
       const enemySpriteIndex: Partial<Record<EnemyKind, number>> = { runner: 0, crawler: 1, artillery: 2, assassin: 3, brute: 4, commander: 5 };
       const reinforcementEnemyIndex: Partial<Record<EnemyKind, number>> = { shieldmite: 0, sniper: 1, splitter: 2, mortarwasp: 3, leech: 4, rammer: 5 };
+      const mapEnemyIndex: Partial<Record<EnemyKind, number>> = { voidstalker: 0, magmahound: 1, scrapdrone: 2, stormray: 3 };
       for(const e of enemies){
         const sprite = enemySpriteIndex[e.kind]??0;
         const reinforcementSprite = reinforcementEnemyIndex[e.kind];
-        const size = e.r * (e.kind==="boss"?5.35:reinforcementSprite!==undefined?4.55:4.25);
+        const mapSprite = mapEnemyIndex[e.kind];
+        const size = e.r * (e.kind==="boss"?5.35:mapSprite!==undefined?4.7:reinforcementSprite!==undefined?4.55:4.25);
         if(e.x+size<-100||e.x-size>W+100||e.y+size<-100||e.y-size>H+100)continue;
         const enemyFacing=e.facing??Math.atan2(player.y-e.y,player.x-e.x);
         const detailedEnemyFx=!reducedEffects||e.kind==="boss"||e.elite||dist(e,player)<380;
@@ -4913,15 +5527,20 @@ export default function Home() {
         else if(e.elite){ctx.shadowColor="#f4c95d";ctx.shadowBlur=reducedEffects?0:18;}
         if(e.kind==="boss"){
           const bossInfo=BOSS_VARIANTS[e.bossVariant||"rift"];
-          const bossImage=bossInfo.sheet==="v2"?bossVariantSpritesV2:bossVariantSprites;
+          const bossImage=bossInfo.sheet==="expansion"?bossExpansionSprites:bossInfo.sheet==="v2"?bossVariantSpritesV2:bossVariantSprites;
           if(bossImage.complete&&bossImage.naturalWidth){
-            const columns=bossInfo.sheet==="v2"?3:2,rows=bossInfo.sheet==="v2"?1:2;
+            const columns=bossInfo.sheet==="v2"||bossInfo.sheet==="expansion"?3:2,rows=bossInfo.sheet==="v2"?1:2;
             const cellW=bossImage.naturalWidth/columns,cellH=bossImage.naturalHeight/rows;
             const inset=bossInfo.sheet==="v2"?9:0;
-            ctx.drawImage(bossImage,(bossInfo.sprite%columns)*cellW+inset,Math.floor(bossInfo.sprite/columns)*cellH+inset,cellW-inset*2,cellH-inset*2,-size/2,-size/2,size,size);
+            const sourceY=bossInfo.sheet==="expansion"?0:Math.floor(bossInfo.sprite/columns)*cellH;
+            ctx.drawImage(bossImage,(bossInfo.sprite%columns)*cellW+inset,sourceY+inset,cellW-inset*2,cellH-inset*2,-size/2,-size/2,size,size);
           }else{
             ctx.fillStyle=e.color;ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();
           }
+        }else if(mapSprite!==undefined&&mapEnemySprites.complete&&mapEnemySprites.naturalWidth){
+          const cellW=mapEnemySprites.naturalWidth/4,cellH=mapEnemySprites.naturalHeight/2;
+          const mapDrawW=size*.75;
+          ctx.drawImage(mapEnemySprites,mapSprite*cellW,0,cellW,cellH,-mapDrawW/2,-size/2,mapDrawW,size);
         }else if(reinforcementSprite!==undefined&&enemyReinforcementSprites.complete&&enemyReinforcementSprites.naturalWidth){
           const cellW=enemyReinforcementSprites.naturalWidth/3,cellH=enemyReinforcementSprites.naturalHeight/2;
           ctx.drawImage(enemyReinforcementSprites,(reinforcementSprite%3)*cellW,Math.floor(reinforcementSprite/3)*cellH,cellW,cellH,-size/2,-size/2,size,size);
@@ -4939,7 +5558,7 @@ export default function Home() {
           else if(variant==="leviathan"){for(let index=0;index<3;index++){ctx.beginPath();ctx.ellipse(0,0,e.r+22+index*12,e.r*.34+index*4,0,0,Math.PI*2);ctx.stroke();}}
           else if(variant==="mirror"){for(let index=0;index<2;index++){ctx.rotate(Math.PI/4);ctx.strokeRect(-e.r-18-index*11,-e.r-18-index*11,(e.r+18+index*11)*2,(e.r+18+index*11)*2);}}
           else if(variant==="warden"){for(let index=0;index<12;index++){const angle=index/12*Math.PI*2;ctx.beginPath();ctx.moveTo(Math.cos(angle)*(e.r+12),Math.sin(angle)*(e.r+12));ctx.lineTo(Math.cos(angle)*(e.r+29),Math.sin(angle)*(e.r+29));ctx.stroke();}ctx.beginPath();ctx.arc(0,0,e.r+22,0,Math.PI*2);ctx.stroke();}
-          else{ctx.beginPath();const sides=variant==="forge"?4:variant==="storm"?8:6;for(let index=0;index<sides;index++){const angle=index/sides*Math.PI*2;const radius=e.r+18;const px=Math.cos(angle)*radius,py=Math.sin(angle)*radius;if(index)ctx.lineTo(px,py);else ctx.moveTo(px,py);}ctx.closePath();ctx.stroke();}
+          else{ctx.beginPath();const sides=variant==="juggernaut"?4:variant==="cathedral"?12:variant==="forge"?4:variant==="storm"?8:6;for(let index=0;index<sides;index++){const angle=index/sides*Math.PI*2;const radius=e.r+18;const px=Math.cos(angle)*radius,py=Math.sin(angle)*radius;if(index)ctx.lineTo(px,py);else ctx.moveTo(px,py);}ctx.closePath();ctx.stroke();}
           ctx.restore();
         }else if(e.kind==="shieldmite"&&(e.barrier||0)>0){
           ctx.save();ctx.strokeStyle="#72fff2";ctx.fillStyle="rgba(83,214,206,.12)";ctx.lineWidth=3;ctx.shadowColor="#53d6ce";ctx.shadowBlur=12;ctx.beginPath();ctx.arc(e.x,e.y,e.r+13,-Math.PI*.85,-Math.PI*.15);ctx.stroke();ctx.fill();ctx.restore();
@@ -5011,19 +5630,24 @@ export default function Home() {
                       ? aegisSprite
                       : classInfo.id === "venom"
                         ? venomSprite
-                        : classInfo.id === "chrono"
+                      : classInfo.id === "chrono"
                           ? chronoSprite
+                          : classInfo.id === "magnet" || classInfo.id === "portal"
+                            ? quantumSupport
                           : playerSprites;
-        const independentSprite = classInfo.sheet !== "core";
-        const cellW = independentSprite ? mechImage.naturalWidth : mechImage.naturalWidth / 2;
-        const cellH = independentSprite ? mechImage.naturalHeight : mechImage.naturalHeight / 2;
+        const quantumSheet = classInfo.sheet === "quantum";
+        const independentSprite = classInfo.sheet !== "core" && !quantumSheet;
+        const cellW = quantumSheet ? mechImage.naturalWidth / 2 : independentSprite ? mechImage.naturalWidth : mechImage.naturalWidth / 2;
+        const cellH = quantumSheet ? mechImage.naturalHeight / 3 : independentSprite ? mechImage.naturalHeight : mechImage.naturalHeight / 2;
         const size = classInfo.renderSize;
+        const mechDrawW = quantumSheet ? size * 1.45 : size;
+        const mechDrawH = quantumSheet ? size * .96 : size;
         ctx.save();
         if(actor.hp<=0){ctx.globalAlpha=.34;ctx.filter="grayscale(1) brightness(.72)";}
         ctx.shadowColor=ally?"#78a99d":actor.color;
         ctx.shadowBlur=20;
         if(mechImage.complete&&mechImage.naturalWidth){
-          ctx.drawImage(mechImage,independentSprite?0:(sprite%2)*cellW,independentSprite?0:Math.floor(sprite/2)*cellH,cellW,cellH,actor.x-size/2,actor.y-size/2,size,size);
+          ctx.drawImage(mechImage,independentSprite?0:(sprite%2)*cellW,independentSprite||quantumSheet?0:Math.floor(sprite/2)*cellH,cellW,cellH,actor.x-mechDrawW/2,actor.y-mechDrawH/2,mechDrawW,mechDrawH);
         }else{
           ctx.fillStyle=actor.color;ctx.beginPath();ctx.arc(actor.x,actor.y,actor.r,0,Math.PI*2);ctx.fill();
         }
@@ -5057,19 +5681,21 @@ export default function Home() {
       const drawDrones = (actor: Actor, count: number) => {
         if(count<=0)return;
         const classInfo=CLASSES.find((item)=>item.id===actor.classId)||CLASSES[0];
-        const droneImage=classInfo.sheet==="specialist"?specialistDrones:classInfo.sheet==="vanguard"?vanguardDrones:classInfo.sheet==="expedition"?v2SupportAssets:classInfo.sheet==="frontier"?frontierSupportAssets:droneSprites;
+        const droneImage=classInfo.sheet==="quantum"?quantumSupport:classInfo.sheet==="specialist"?specialistDrones:classInfo.sheet==="vanguard"?vanguardDrones:classInfo.sheet==="expedition"?v2SupportAssets:classInfo.sheet==="frontier"?frontierSupportAssets:droneSprites;
         if(!droneImage.complete||!droneImage.naturalWidth)return;
         const packedSupportSheet=classInfo.sheet==="expedition"||classInfo.sheet==="frontier";
+        const quantumSheet=classInfo.sheet==="quantum";
         const droneColumns=packedSupportSheet?3:2;
-        const cellW=droneImage.naturalWidth/droneColumns,cellH=classInfo.sheet==="core"||packedSupportSheet?droneImage.naturalHeight/2:droneImage.naturalHeight;
+        const cellW=droneImage.naturalWidth/droneColumns,cellH=quantumSheet?droneImage.naturalHeight/3:classInfo.sheet==="core"||packedSupportSheet?droneImage.naturalHeight/2:droneImage.naturalHeight;
         for(let index=0;index<count;index++){
           const position=dronePosition(actor,index,count);
           const sprite=classInfo.sprite;
           const target=enemies.length?enemies.reduce((nearest,enemy)=>dist(position,enemy)<dist(position,nearest)?enemy:nearest):null;
           const angle=target?Math.atan2(target.y-position.y,target.x-position.x):position.angle+Math.PI/2;
           const size=classInfo.id==="cinder"||classInfo.id==="aegis"?42:classInfo.id==="frost"||classInfo.id==="gravity"||classInfo.id==="chrono"?38:classInfo.id==="blade"||classInfo.id==="thunder"||classInfo.id==="sky"||classInfo.id==="venom"?36:32;
+          const droneDrawW=quantumSheet?size*1.45:size,droneDrawH=quantumSheet?size*.96:size;
           ctx.save();ctx.translate(position.x,position.y);ctx.rotate(angle);ctx.shadowColor=classInfo.color;ctx.shadowBlur=10;
-          ctx.drawImage(droneImage,(sprite%droneColumns)*cellW,classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:0,cellW,cellH,-size/2,-size/2,size,size);
+          ctx.drawImage(droneImage,(sprite%droneColumns)*cellW,quantumSheet?cellH:classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:0,cellW,cellH,-droneDrawW/2,-droneDrawH/2,droneDrawW,droneDrawH);
           ctx.restore();
         }
       };
@@ -5248,7 +5874,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.17.3 · 金币自动结算与套装图鉴</div>
+        <div className="status"><i /> 版本 0.18.0 · 星门武器进化与动态战区</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -5358,6 +5984,10 @@ export default function Home() {
             <strong>{relicPickupReport.next}</strong>
           </div>}
           <div className="runModules">
+            {battleMission && <div className="missionBadge">
+              <i>{battleMission.id==="hold"?"◆":battleMission.id==="elite"?"⌖":"✦"}</i>
+              <span><small>{battleMission.title} · {Math.ceil(battleMission.remaining)}s</small><b>{battleMission.detail}</b><em>{Math.min(battleMission.target,battleMission.progress).toFixed(battleMission.id==="hold"?1:0)} / {battleMission.target}</em></span>
+            </div>}
             {activeWarzoneInfo && <div className="warzoneBadge" style={{"--zone-color":activeWarzoneInfo.color} as CSSProperties}>
               <i>{activeWarzoneInfo.icon}</i><span><small>当前战区 · 至第 {warzoneState?.expiresAtWave} 波</small><b>{activeWarzoneInfo.title}</b></span>
             </div>}
@@ -5400,7 +6030,7 @@ export default function Home() {
         </div>
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
-          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>新增三种通用生命上限强化，生命上限类强化获得 1.55 倍抽取权重；基础伤害、射速、多重弹、暴击、弹速与本职业主武器强化获得 1.5 倍权重。稀有、史诗与传说强化会随波数提高概率，并在第 12 波达到上限。达到机制上限的强化会移出奖池，装配完成后恢复 18% 最大生命值。</p>
+          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>完成 3 次基础武器强化后会解锁一次二选一武器进化，可选择高速弹幕或重型爆破路线。生命上限类强化获得 1.55 倍抽取权重；基础伤害、射速、多重弹、暴击、弹速与本职业主武器强化获得 1.5 倍权重。稀有、史诗与传说强化会随波数提高概率，并在第 12 波达到上限。达到机制上限的强化会移出奖池，装配完成后恢复 18% 最大生命值。</p>
             <div className="shopWallet upgradeWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="upgradeGrid">{choices.map((u)=><button key={u.id} className={`${u.ultimate?"ultimateUpgrade ":u.secondary?"secondaryUpgrade ":""}rarity-${u.rarity||"common"}`} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?`终极 · ${RARITY_LABELS[u.rarity||"common"]}`:u.secondary?`副技能 · ${RARITY_LABELS[u.rarity||"common"]}`:u.classId?`本职业 · ${RARITY_LABELS[u.rarity||"common"]}`:RARITY_LABELS[u.rarity||"common"]}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
@@ -5413,7 +6043,7 @@ export default function Home() {
           <div className="routePanel">
             <div className="eyebrow">WARZONE VECTOR · 三波战区决策</div>
             <h2>选择下一条远征路线</h2>
-            <p>每条路线都带来持续三波的战场风险，并立即赋予全队永久收益。遗物回廊会让下一个 Boss 额外掉落一件各自职业的套装部件。</p>
+            <p>每条路线都会切换独立的战场背景、地图专属敌人和持续三波的风险，并立即赋予全队永久收益。遗物回廊会让下一个 Boss 额外掉落一件各自职业的套装部件。</p>
             <div className="routeGrid">{routeChoices.map((route)=><button key={route.id} style={{"--zone-color":route.color} as CSSProperties} onClick={()=>chooseWarzoneRef.current(route.id)}>
               <small>{route.subtitle}</small><i>{route.icon}</i><b>{route.title}</b>
               <span className="routeRisk"><em>风险</em>{route.risk}</span>

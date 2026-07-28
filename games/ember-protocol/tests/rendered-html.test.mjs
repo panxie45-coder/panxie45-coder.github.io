@@ -43,7 +43,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.17\.3 · 金币自动结算与套装图鉴/);
+  assert.match(html, /版本 0\.18\.0 · 星门武器进化与动态战区/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -51,7 +51,7 @@ test("server-renders the Ember Protocol game menu", async () => {
   assert.match(html, /终极大招/);
 });
 
-test("ships fourteen independent classes, drones, effects, bosses, and generated sprites", async () => {
+test("ships sixteen independent classes, evolutions, missions, bosses, and generated sprites", async () => {
   const page = await readFile(new URL("../Game.tsx", import.meta.url), "utf8");
   const audio = await readFile(new URL("../audio.ts", import.meta.url), "utf8");
   const css = await readFile(new URL("../game.css", import.meta.url), "utf8");
@@ -60,7 +60,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(rootEntry, /games\/ember-protocol\/Game/);
   assert.doesNotMatch(rootEntry, /ember-protocol-v9/);
   assert.match(page, /ember-protocol-v9/);
-  assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost" \| "blade" \| "gravity" \| "thunder" \| "sky" \| "cinder" \| "aegis" \| "venom" \| "chrono"/);
+  assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost" \| "blade" \| "gravity" \| "thunder" \| "sky" \| "cinder" \| "aegis" \| "venom" \| "chrono" \| "magnet" \| "portal"/);
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
   assert.match(page, /t: "upgrade-resume"/);
   assert.match(page, /t: "skill2"; classId: ClassId/);
@@ -184,7 +184,8 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /const availableSecondary = SECONDARY_UPGRADES\[classId\]\.filter\(\(upgrade\) => secondaryUpgradeAvailable\(upgrade, currentBuild\)\)/);
   assert.doesNotMatch(page, /const signature = weightedUpgradePick\(CLASS_UPGRADES\[classId\], excluded\)/);
   assert.doesNotMatch(page, /每次至少包含一项本职业强化/);
-  assert.match(page, /新增三种通用生命上限强化，生命上限类强化获得 1\.55 倍抽取权重/);
+  assert.match(page, /生命上限类强化获得 1\.55 倍抽取权重/);
+  assert.match(page, /完成 3 次基础武器强化后会解锁一次二选一武器进化/);
   assert.match(page, /技能说明仅在整备与暂停页面显示，不占用战斗视野/);
   assert.match(page, /副技能 · \$\{RARITY_LABELS/);
   assert.match(page, /本职业 · \$\{RARITY_LABELS/);
@@ -200,7 +201,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /id\.endsWith\("-ultimate-power"\)\) stats\.ultimatePower \*= 1\.25/);
   assert.match(page, /const salvoCount = Math\.max\(16, targets\.length \* 3\)/);
   assert.match(page, /r: 15,[\s\S]*splash: 82,[\s\S]*ultimate: true/);
-  assert.match(page, /const projectileScale=s\.ultimate\?2\.2:s\.skill2\?1\.38:1/);
+  assert.match(page, /const projectileScale=\(s\.ultimate\?2\.2:s\.skill2\?1\.38:1\)\*\(s\.evolution===2\?1\.42/);
   assert.match(page, /const lateScale = 1 \+ elapsed \/ 250 \+ Math\.pow\(elapsed \/ 720, 1\.55\) \* \.72/);
   assert.match(page, /const lateRangedDamage = 1 \+ Math\.min\(\.3, elapsed \/ 1200\)/);
   assert.match(page, /const ASSAULT_ULTIMATE_TARGET_CAP = 20/);
@@ -358,7 +359,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /当前机体完整度/);
   assert.match(page, /player\.maxHp \* \.18/);
   assert.match(page, /const nearbyEnemies/);
-  assert.match(page, /worldClock = highNetworkLoad \? \.1 : \.06/);
+  assert.match(page, /worldClock = highNetworkLoad \? \.12 : \.075/);
   assert.match(audio, /\| "skill"/);
   assert.match(audio, /\| "ultimate"/);
   assert.match(page, /audio\?\.play\("skill"\)/);
@@ -442,11 +443,20 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /enemy\.facing = angle/);
   assert.match(page, /const PERFORMANCE_LIMITS/);
   assert.match(page, /const enemyAiStride = enemies\.length > PERFORMANCE_LIMITS\.extremeEnemyCount/);
+  assert.match(page, /const enemyGrid = new Map<string, Enemy\[\]>/);
+  assert.match(page, /shots: snapshotShots/);
   assert.match(page, /if \(gems\.length > PERFORMANCE_LIMITS\.gems\)/);
   assert.match(page, /const highNetworkLoad = enemies\.length > PERFORMANCE_LIMITS\.highEnemyCount/);
   assert.match(page, /corrosionDamage/);
   assert.match(page, /enemy-reinforcements\.webp/);
   assert.match(page, /enemy-reinforcement-projectiles\.webp/);
+  assert.match(page, /quantum-support\.webp/);
+  assert.match(page, /map-enemies\.webp/);
+  assert.match(page, /boss-expansion\.webp/);
+  assert.match(page, /weapon-evolution-fast/);
+  assert.match(page, /const tryCoopCombo/);
+  assert.match(page, /const startBattleMission/);
+  assert.match(page, /cathedral: \{ name: "星渊大教堂"/);
   assert.doesNotMatch(page, /ctx\.arc\(player\.x/);
   assert.doesNotMatch(page, /ctx\.arc\(remote\.x/);
   assert.match(page, /player-mechs\.webp/);
@@ -498,6 +508,9 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
     access(new URL("../public/game/frontier-support-assets.webp", import.meta.url)),
     access(new URL("../public/game/enemy-reinforcements.webp", import.meta.url)),
     access(new URL("../public/game/enemy-reinforcement-projectiles.webp", import.meta.url)),
+    access(new URL("../public/game/quantum-support.webp", import.meta.url)),
+    access(new URL("../public/game/map-enemies.webp", import.meta.url)),
+    access(new URL("../public/game/boss-expansion.webp", import.meta.url)),
     access(new URL("../public/game/player-mechs.png", import.meta.url)),
     access(new URL("../public/game/boss-variants.png", import.meta.url)),
     access(new URL("../public/favicon.svg", import.meta.url)),
@@ -556,7 +569,7 @@ test("applies every cooldown reduction to both tactical skill slots", () => {
   assert.equal(skillCooldownFor(14, .3, 7), 7, "guardian Q retains its seven-second safety floor");
 });
 
-test("keeps all fourteen launch kits inside one primary-fire budget", () => {
+test("keeps all sixteen launch kits inside one primary-fire budget", () => {
   const profiles = [
     ["assault", 50, .58, .05, 1, 1],
     ["guardian", 84, .98, .05, 1, 1],
@@ -572,6 +585,8 @@ test("keeps all fourteen launch kits inside one primary-fire budget", () => {
     ["aegis", 55, .8, .05, 1, 1],
     ["venom", 29, .42, .1, 1, 1],
     ["chrono", 34, .52, .05, 1, 1],
+    ["magnet", 47, .65, .05, 1, 1],
+    ["portal", 30, .34, .16, 1, 1],
   ].map(([classId, damage, interval, critChance, drones, dronePower]) => ({
     classId,
     damage,
@@ -582,7 +597,7 @@ test("keeps all fourteen launch kits inside one primary-fire budget", () => {
   }));
 
   const scores = profiles.map(primaryThreatScore);
-  assert.equal(profiles.length, 14);
+  assert.equal(profiles.length, 16);
   assert.ok(Math.min(...scores) >= 84, `controller launch budget fell too low: ${Math.min(...scores)}`);
   assert.ok(Math.max(...scores) <= 138, `glass-cannon launch budget exceeded: ${Math.max(...scores)}`);
   assert.equal(droneDamageScaleFor("engineer"), .22);
