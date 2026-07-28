@@ -42,7 +42,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.15\.0 · 三机甲与相位蓄能/);
+  assert.match(html, /版本 0\.15\.1 · 时停分流与性能优化/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -310,7 +310,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /当前机体完整度/);
   assert.match(page, /player\.maxHp \* \.18/);
   assert.match(page, /const nearbyEnemies/);
-  assert.match(page, /worldClock = \.06/);
+  assert.match(page, /worldClock = highNetworkLoad \? \.1 : \.06/);
   assert.match(audio, /\| "skill"/);
   assert.match(audio, /\| "ultimate"/);
   assert.match(page, /audio\?\.play\("skill"\)/);
@@ -318,7 +318,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /enemy\.slow = Math\.max/);
   assert.match(page, /frozen\?: number/);
   assert.match(page, /enemy\.frozen = Math\.max/);
-  assert.match(page, /const canAct = \(enemy\.frozen \|\| 0\) <= 0 && \(enemy\.stunned \|\| 0\) <= 0/);
+  assert.match(page, /const canAct = !timeStoppedNow && !frozenNow && !stunnedNow/);
   assert.match(page, /else if \(canAct && ranged && enemy\.cooldown <= 0\)/);
   assert.match(page, /const iceRadius=e\.r\+10/);
   assert.match(page, /type BossVariant = "rift" \| "storm" \| "weaver" \| "forge" \| "leviathan" \| "mirror" \| "warden"/);
@@ -364,6 +364,21 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /const aegisShock/);
   assert.match(page, /const venomCloud/);
   assert.match(page, /const chronoField/);
+  assert.match(page, /drones: 1,/);
+  assert.match(page, /if \(classId === "engineer"\) return \{[^}]*drones: 3/);
+  assert.match(page, /return \{ \.\.\.base, maxHp: 120,[^}]*drones: 1, chronoPower/);
+  assert.match(page, /timeStopped\?: number/);
+  assert.match(page, /timeDilated\?: number/);
+  assert.match(page, /facing\?: number/);
+  assert.match(page, /const activeTimeFields = effects\.filter/);
+  assert.match(page, /shot\.timeStopped = Math\.max/);
+  assert.match(page, /enemy\.timeStopped = Math\.max/);
+  assert.match(page, /if \(\(shot\.timeStopped \|\| 0\) > 0\) continue/);
+  assert.match(page, /enemy\.facing = angle/);
+  assert.match(page, /const PERFORMANCE_LIMITS/);
+  assert.match(page, /const enemyAiStride = enemies\.length > PERFORMANCE_LIMITS\.extremeEnemyCount/);
+  assert.match(page, /if \(gems\.length > PERFORMANCE_LIMITS\.gems\)/);
+  assert.match(page, /const highNetworkLoad = enemies\.length > PERFORMANCE_LIMITS\.highEnemyCount/);
   assert.match(page, /corrosionDamage/);
   assert.match(page, /enemy-reinforcements\.webp/);
   assert.match(page, /enemy-reinforcement-projectiles\.webp/);
