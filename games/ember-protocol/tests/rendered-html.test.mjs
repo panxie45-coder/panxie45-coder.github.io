@@ -44,7 +44,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.17\.0 · 战区路线与职业套装/);
+  assert.match(html, /版本 0\.17\.1 · 强化卡效果提升/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -111,7 +111,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /homing\?: number/);
   assert.match(page, /shot\.homing = Math\.max\(0/);
   assert.match(page, /homing: enemy\.kind === "commander" \? \.75/);
-  assert.match(page, /Math\.min\(\.55, elapsed \/ 900\)/);
+  assert.match(page, /Math\.min\(\.3, elapsed \/ 1200\)/);
   assert.match(page, /const REVIVE_SECONDS = 2/);
   assert.match(page, /const REVIVE_RANGE = 88/);
   assert.match(page, /hostReviveProgress = Math\.min\(REVIVE_SECONDS, hostReviveProgress \+ dt\)/);
@@ -147,6 +147,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /className="skillDock secondarySkillDock"/);
   assert.match(page, /variant\?: "secondary"/);
   assert.match(page, /skill2\?: boolean/);
+  assert.match(page, /ultimate\?: boolean/);
   assert.match(page, /const bladeGradient=/);
   assert.match(page, /const dronePosition/);
   assert.match(page, /const CLASS_UPGRADES/);
@@ -186,9 +187,14 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /secondaryArea: 1/);
   assert.match(page, /secondaryProjectiles: 0/);
   assert.match(page, /secondaryControl: 1/);
-  assert.match(page, /id\.endsWith\("-secondary-power"\)\) stats\.secondaryPower \*= 1\.22/);
+  assert.match(page, /id\.endsWith\("-secondary-power"\)\) stats\.secondaryPower \*= 1\.28/);
   assert.match(page, /ultimatePower: \.9/);
-  assert.match(page, /id\.endsWith\("-ultimate-power"\)\) stats\.ultimatePower \*= 1\.2/);
+  assert.match(page, /id\.endsWith\("-ultimate-power"\)\) stats\.ultimatePower \*= 1\.25/);
+  assert.match(page, /const salvoCount = Math\.max\(16, targets\.length \* 3\)/);
+  assert.match(page, /r: 15,[\s\S]*splash: 82,[\s\S]*ultimate: true/);
+  assert.match(page, /const projectileScale=s\.ultimate\?2\.2:s\.skill2\?1\.38:1/);
+  assert.match(page, /const lateScale = 1 \+ elapsed \/ 250 \+ Math\.pow\(elapsed \/ 720, 1\.55\) \* \.72/);
+  assert.match(page, /const lateRangedDamage = 1 \+ Math\.min\(\.3, elapsed \/ 1200\)/);
   assert.match(page, /const ASSAULT_ULTIMATE_TARGET_CAP = 20/);
   assert.match(page, /最多锁定 20 个/);
   assert.match(page, /currentBuild\.ultimateTargets < ASSAULT_ULTIMATE_TARGET_CAP/);
@@ -245,7 +251,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /let nextSurgeAt = 22, surgeRemaining = 0/);
   assert.match(page, /兽潮来袭/);
   assert.match(page, /const regularBatch = Math\.min/);
-  assert.match(page, /Math\.pow\(elapsed \/ 540, 1\.7\)/);
+  assert.match(page, /Math\.pow\(elapsed \/ 720, 1\.55\) \* \.72/);
   assert.match(page, /addEvolvedEnemy\("artillery", 55/);
   assert.match(page, /addEvolvedEnemy\("commander", 285/);
   assert.match(page, /const coOpScale = remote \? 1\.5 : 1;[\s\S]{0,700}const lateBossWave/);

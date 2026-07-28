@@ -174,6 +174,7 @@ type Shot = {
   timeStop?: number;
   timeStopped?: number;
   skill2?: boolean;
+  ultimate?: boolean;
   hitIds?: number[];
 };
 type Beam = { x1: number; y1: number; x2: number; y2: number; life: number; width: number; color: string };
@@ -315,7 +316,7 @@ const UPGRADES: Upgrade[] = [
   { id: "magnet", title: "拾荒直觉", desc: "拾取范围 +35%", icon: "◎" },
   { id: "armor", title: "偏转装甲", desc: "受到伤害 -8%", icon: "⬢" },
   { id: "critical", title: "弱点演算", desc: "暴击率 +8%", icon: "◈" },
-  { id: "velocity", title: "磁轨加速器", desc: "弹速 +18%，弹体更大", icon: "➤" },
+  { id: "velocity", title: "磁轨加速器", desc: "弹速 +18%，弹体尺寸 +1.5", icon: "➤" },
   { id: "reactor", title: "过载反应炉", desc: "主技能与副技能冷却 -15%", icon: "⌬" },
   { id: "drone", title: "蜂群协议", desc: "增加 1 架当前职业专属无人机", icon: "✣" },
   { id: "repair", title: "纳米修复", desc: "立即回复 35 点生命", icon: "✚" },
@@ -325,78 +326,78 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
   assault: [
     { id: "assault-double-storm", classId: "assault", title: "双重风暴", desc: "导弹风暴追加一轮齐射", icon: "✹" },
     { id: "assault-saturation", classId: "assault", title: "饱和弹舱", desc: "每轮导弹数量 +6", icon: "✦" },
-    { id: "assault-warhead", classId: "assault", title: "炽核战斗部", desc: "火力 +24%，爆炸范围扩大", icon: "◆" },
+    { id: "assault-warhead", classId: "assault", title: "炽核战斗部", desc: "火力 +30%，弹体与爆炸范围显著扩大", icon: "◆" },
     { id: "assault-guidance", classId: "assault", title: "猎群制导", desc: "导弹风暴获得主动索敌与弯道追踪，仅可装配一次", icon: "⌖", rarity: "epic" },
   ],
   guardian: [
     { id: "guardian-fortress", classId: "guardian", title: "永固壁垒", desc: "绝对屏障持续时间 +0.9 秒，最多 5 秒", icon: "⬢" },
-    { id: "guardian-rail", classId: "guardian", title: "震荡轨炮", desc: "重炮伤害 +30%，弹体更大", icon: "▰" },
+    { id: "guardian-rail", classId: "guardian", title: "震荡轨炮", desc: "重炮伤害 +36%，弹体尺寸 +2.2", icon: "▰" },
     { id: "guardian-plating", classId: "guardian", title: "泰坦覆甲", desc: "生命上限 +34，额外减伤 6%", icon: "▣" },
     { id: "guardian-retaliation", classId: "guardian", title: "棱堡反击", desc: "展开绝对屏障时向八方向释放穿甲震波，仅可装配一次", icon: "✣", rarity: "epic" },
   ],
   engineer: [
     { id: "engineer-swarm", classId: "engineer", title: "蜂群扩编", desc: "增加 1 架专属无人机", icon: "✣" },
-    { id: "engineer-link", classId: "engineer", title: "高压链路", desc: "无人机伤害 +28%", icon: "⌁" },
-    { id: "engineer-repair", classId: "engineer", title: "战地工坊", desc: "修复脉冲治疗量 +55%", icon: "✚" },
+    { id: "engineer-link", classId: "engineer", title: "高压链路", desc: "无人机伤害 +34%", icon: "⌁" },
+    { id: "engineer-repair", classId: "engineer", title: "战地工坊", desc: "修复脉冲治疗量 +65%", icon: "✚" },
     { id: "engineer-triage", classId: "engineer", title: "战医蜂群", desc: "修复脉冲同时命令全部无人机发射链式反击弹，仅可装配一次", icon: "✥", rarity: "epic" },
   ],
   phantom: [
     { id: "phantom-fold", classId: "phantom", title: "折跃增程", desc: "相位突进距离 +90", icon: "➟" },
     { id: "phantom-reserve", classId: "phantom", title: "相位蓄能", desc: "相位突进储存上限 +1，最多储存 3 次并可连续释放", icon: "◌" },
-    { id: "phantom-needle", classId: "phantom", title: "虚空针簇", desc: "暴击率 +14%，伤害 +18%", icon: "✧" },
+    { id: "phantom-needle", classId: "phantom", title: "虚空针簇", desc: "暴击率 +14%，伤害 +24%", icon: "✧" },
     { id: "phantom-cycle", classId: "phantom", title: "相位回路", desc: "主技能与副技能冷却 -25%", icon: "◌" },
     { id: "phantom-afterimage", classId: "phantom", title: "坍缩残像", desc: "相位突进终点引爆高伤残像，仅可装配一次", icon: "◇", rarity: "epic" },
   ],
   laser: [
-    { id: "laser-overfocus", classId: "laser", title: "超焦透镜", desc: "聚焦光束伤害与宽度 +38%", icon: "┃" },
-    { id: "laser-prism", classId: "laser", title: "分光棱镜", desc: "弹丸伤害 +20%，额外一发弹丸", icon: "◇" },
+    { id: "laser-overfocus", classId: "laser", title: "超焦透镜", desc: "聚焦光束伤害与宽度 +46%", icon: "┃" },
+    { id: "laser-prism", classId: "laser", title: "分光棱镜", desc: "弹丸伤害 +25%，额外一发弹丸", icon: "◇" },
     { id: "laser-capacitor", classId: "laser", title: "赤曜电容", desc: "主技能与副技能冷却 -24%", icon: "◎" },
     { id: "laser-refraction", classId: "laser", title: "折射阵列", desc: "聚焦光束分裂出两道斜向副光束，仅可装配一次", icon: "✳", rarity: "epic" },
   ],
   frost: [
-    { id: "frost-zero", classId: "frost", title: "绝对零芯", desc: "冻结范围、伤害和减速时长 +35%", icon: "❄" },
-    { id: "frost-shatter", classId: "frost", title: "冰晶爆裂", desc: "炮弹伤害 +26%，弹体更大", icon: "✣" },
+    { id: "frost-zero", classId: "frost", title: "绝对零芯", desc: "冻结范围、伤害和减速时长 +42%", icon: "❄" },
+    { id: "frost-shatter", classId: "frost", title: "冰晶爆裂", desc: "炮弹伤害 +32%，弹体尺寸 +2", icon: "✣" },
     { id: "frost-armor", classId: "frost", title: "低温装甲", desc: "生命上限 +30，额外减伤 6%", icon: "⬡" },
     { id: "frost-brittle", classId: "frost", title: "脆化协议", desc: "霜垒弹丸对已冻结目标额外造成 35% 伤害，仅可装配一次", icon: "✦", rarity: "epic" },
   ],
   blade: [
-    { id: "blade-edge", classId: "blade", title: "延展刃域", desc: "近战范围 +22%，斩击伤害 +20%", icon: "〆" },
+    { id: "blade-edge", classId: "blade", title: "延展刃域", desc: "近战范围 +22%，斩击伤害 +28%", icon: "〆" },
     { id: "blade-vamp", classId: "blade", title: "噬能回路", desc: "斩击修复量 +55%，生命上限 +20", icon: "✚" },
     { id: "blade-tempo", classId: "blade", title: "连斩协议", desc: "斩击间隔 -18%，移动速度 +9%", icon: "⚔" },
     { id: "blade-combo", classId: "blade", title: "三段熔断", desc: "每第三次自动斩击变为高伤破甲重斩，仅可装配一次", icon: "Ⅲ", rarity: "epic" },
   ],
   gravity: [
-    { id: "gravity-collapse", classId: "gravity", title: "坍缩增幅", desc: "奇点范围与伤害 +28%", icon: "◉" },
-    { id: "gravity-lens", classId: "gravity", title: "引力透镜", desc: "炮弹伤害 +18%，额外穿透 1 名敌人", icon: "◌" },
+    { id: "gravity-collapse", classId: "gravity", title: "坍缩增幅", desc: "奇点范围与伤害 +36%", icon: "◉" },
+    { id: "gravity-lens", classId: "gravity", title: "引力透镜", desc: "炮弹伤害 +24%，额外穿透 1 名敌人", icon: "◌" },
     { id: "gravity-anchor", classId: "gravity", title: "事件锚点", desc: "生命上限 +22，主技能与副技能冷却 -15%", icon: "⬢" },
   ],
   thunder: [
-    { id: "thunder-capacitor", classId: "thunder", title: "雷核增压", desc: "连锁闪电伤害与跳跃距离 +25%", icon: "ϟ" },
+    { id: "thunder-capacitor", classId: "thunder", title: "雷核增压", desc: "连锁闪电伤害与跳跃距离 +34%", icon: "ϟ" },
     { id: "thunder-network", classId: "thunder", title: "并联电弧", desc: "主动技能额外锁定 2 个目标", icon: "⌁" },
     { id: "thunder-cycle", classId: "thunder", title: "超导回路", desc: "射击间隔 -10%，主技能与副技能冷却 -12%", icon: "◎" },
   ],
   sky: [
-    { id: "sky-focus", classId: "sky", title: "天穹焦镜", desc: "轨道狙击与暴击伤害 +24%", icon: "⌖" },
+    { id: "sky-focus", classId: "sky", title: "天穹焦镜", desc: "轨道狙击与暴击伤害 +32%", icon: "⌖" },
     { id: "sky-penetrator", classId: "sky", title: "贯星弹芯", desc: "主炮额外穿透 2 名敌人，弹速 +12%", icon: "➤" },
     { id: "sky-thruster", classId: "sky", title: "隼翼推进", desc: "移动速度 +10%，射击间隔 -8%", icon: "△" },
   ],
   cinder: [
-    { id: "cinder-furnace", classId: "cinder", title: "焚城炉心", desc: "灼烧伤害与持续时间 +28%", icon: "♨" },
-    { id: "cinder-nozzle", classId: "cinder", title: "裂焰喷口", desc: "熔岩弹爆炸范围与弹体 +22%", icon: "◆" },
+    { id: "cinder-furnace", classId: "cinder", title: "焚城炉心", desc: "灼烧伤害与持续时间 +36%", icon: "♨" },
+    { id: "cinder-nozzle", classId: "cinder", title: "裂焰喷口", desc: "熔岩弹爆炸范围与弹体 +28%", icon: "◆" },
     { id: "cinder-plating", classId: "cinder", title: "黑曜热甲", desc: "生命上限 +26，减伤 +4%", icon: "⬢" },
   ],
   aegis: [
-    { id: "aegis-reflection", classId: "aegis", title: "圣盾回响", desc: "光盾震击伤害、击退与反击强度 +26%", icon: "⬡" },
-    { id: "aegis-lance", classId: "aegis", title: "裁决穿心", desc: "主炮伤害 +18%，额外贯穿 1 名敌人", icon: "➤" },
+    { id: "aegis-reflection", classId: "aegis", title: "圣盾回响", desc: "光盾震击伤害、击退与反击强度 +34%", icon: "⬡" },
+    { id: "aegis-lance", classId: "aegis", title: "裁决穿心", desc: "主炮伤害 +24%，额外贯穿 1 名敌人", icon: "➤" },
     { id: "aegis-plating", classId: "aegis", title: "圣金覆甲", desc: "生命上限 +24，额外减伤 4%", icon: "⬢" },
   ],
   venom: [
-    { id: "venom-acid", classId: "venom", title: "超蚀酸核", desc: "腐蚀伤害与持续时间 +28%", icon: "☣" },
-    { id: "venom-fangs", classId: "venom", title: "裂甲蜂针", desc: "主炮伤害 +18%，弹体与爆裂范围增大", icon: "✦" },
+    { id: "venom-acid", classId: "venom", title: "超蚀酸核", desc: "腐蚀伤害与持续时间 +36%", icon: "☣" },
+    { id: "venom-fangs", classId: "venom", title: "裂甲蜂针", desc: "主炮伤害 +24%，弹体尺寸 +1.6", icon: "✦" },
     { id: "venom-chitin", classId: "venom", title: "活性甲壳", desc: "移动速度 +9%，额外减伤 4%", icon: "◇" },
   ],
   chrono: [
-    { id: "chrono-loop", classId: "chrono", title: "时序增幅", desc: "时间技能伤害与控制时间 +26%", icon: "◴" },
+    { id: "chrono-loop", classId: "chrono", title: "时序增幅", desc: "时间技能伤害与控制时间 +34%", icon: "◴" },
     { id: "chrono-echo", classId: "chrono", title: "延迟回响", desc: "主炮额外发射 1 枚时序弹，射速略降", icon: "⌁" },
     { id: "chrono-anchor", classId: "chrono", title: "永恒锚点", desc: "生命上限 +18，主技能与副技能冷却 -15%", icon: "◎" },
   ],
@@ -404,59 +405,59 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
 
 const SECONDARY_UPGRADES: Record<ClassId, Upgrade[]> = {
   assault: [
-    { id: "assault-secondary-power", classId: "assault", secondary: true, title: "标枪增压", desc: "爆破标枪伤害 +22%，可无限叠加", icon: "➤", rarity: "rare" },
+    { id: "assault-secondary-power", classId: "assault", secondary: true, title: "标枪增压", desc: "爆破标枪伤害 +28%，可无限叠加", icon: "➤", rarity: "rare" },
     { id: "assault-secondary-salvo", classId: "assault", secondary: true, title: "分裂标枪", desc: "爆破标枪额外发射 1 枚，最多 3 枚", icon: "✹", rarity: "epic" },
   ],
   guardian: [
-    { id: "guardian-secondary-power", classId: "guardian", secondary: true, title: "壁垒增压", desc: "震荡壁垒伤害 +22%，可无限叠加", icon: "⬢", rarity: "rare" },
+    { id: "guardian-secondary-power", classId: "guardian", secondary: true, title: "壁垒增压", desc: "震荡壁垒伤害 +28%，可无限叠加", icon: "⬢", rarity: "rare" },
     { id: "guardian-secondary-radius", classId: "guardian", secondary: true, title: "扩张力场", desc: "震荡范围与击退距离 +15%，最多强化 3 次", icon: "◉", rarity: "epic" },
   ],
   engineer: [
-    { id: "engineer-secondary-power", classId: "engineer", secondary: true, title: "猎群增压", desc: "追猎蜂群伤害 +22%，可无限叠加", icon: "✣", rarity: "rare" },
+    { id: "engineer-secondary-power", classId: "engineer", secondary: true, title: "猎群增压", desc: "追猎蜂群伤害 +28%，可无限叠加", icon: "✣", rarity: "rare" },
     { id: "engineer-secondary-swarm", classId: "engineer", secondary: true, title: "蜂群扩列", desc: "追猎蜂群额外发射 2 枚脉冲弹，最多增加 6 枚", icon: "⌁", rarity: "epic" },
   ],
   phantom: [
-    { id: "phantom-secondary-power", classId: "phantom", secondary: true, title: "回刃增压", desc: "相位回刃伤害 +22%，可无限叠加", icon: "✧", rarity: "rare" },
+    { id: "phantom-secondary-power", classId: "phantom", secondary: true, title: "回刃增压", desc: "相位回刃伤害 +28%，可无限叠加", icon: "✧", rarity: "rare" },
     { id: "phantom-secondary-blades", classId: "phantom", secondary: true, title: "裂相刃阵", desc: "相位回刃额外发射 1 枚，最多 5 枚", icon: "◇", rarity: "epic" },
   ],
   laser: [
-    { id: "laser-secondary-power", classId: "laser", secondary: true, title: "棱镜增压", desc: "棱镜十字伤害 +22%，可无限叠加", icon: "┃", rarity: "rare" },
+    { id: "laser-secondary-power", classId: "laser", secondary: true, title: "棱镜增压", desc: "棱镜十字伤害 +28%，可无限叠加", icon: "┃", rarity: "rare" },
     { id: "laser-secondary-facets", classId: "laser", secondary: true, title: "多面棱镜", desc: "棱镜十字增加 1 条交叉轴，最多 4 条轴", icon: "✳", rarity: "epic" },
   ],
   frost: [
-    { id: "frost-secondary-power", classId: "frost", secondary: true, title: "冰枪增压", desc: "冰狱长枪伤害 +22%，可无限叠加", icon: "❄", rarity: "rare" },
+    { id: "frost-secondary-power", classId: "frost", secondary: true, title: "冰枪增压", desc: "冰狱长枪伤害 +28%，可无限叠加", icon: "❄", rarity: "rare" },
     { id: "frost-secondary-control", classId: "frost", secondary: true, title: "深寒裂解", desc: "冰枪冻结、减速与碎裂范围 +18%，最多强化 3 次", icon: "✣", rarity: "epic" },
   ],
   blade: [
-    { id: "blade-secondary-power", classId: "blade", secondary: true, title: "圆舞增压", desc: "旋刃圆舞伤害 +22%，可无限叠加", icon: "⚔", rarity: "rare" },
+    { id: "blade-secondary-power", classId: "blade", secondary: true, title: "圆舞增压", desc: "旋刃圆舞伤害 +28%，可无限叠加", icon: "⚔", rarity: "rare" },
     { id: "blade-secondary-radius", classId: "blade", secondary: true, title: "延展圆舞", desc: "旋刃圆舞范围 +15%，最多强化 3 次", icon: "〆", rarity: "epic" },
   ],
   gravity: [
-    { id: "gravity-secondary-power", classId: "gravity", secondary: true, title: "斥力增压", desc: "斥力反转伤害 +22%，可无限叠加", icon: "◉", rarity: "rare" },
+    { id: "gravity-secondary-power", classId: "gravity", secondary: true, title: "斥力增压", desc: "斥力反转伤害 +28%，可无限叠加", icon: "◉", rarity: "rare" },
     { id: "gravity-secondary-radius", classId: "gravity", secondary: true, title: "反转扩域", desc: "斥力反转范围与击退距离 +15%，最多强化 3 次", icon: "◎", rarity: "epic" },
   ],
   thunder: [
-    { id: "thunder-secondary-power", classId: "thunder", secondary: true, title: "脉冲增压", desc: "电磁脉冲伤害 +22%，可无限叠加", icon: "ϟ", rarity: "rare" },
+    { id: "thunder-secondary-power", classId: "thunder", secondary: true, title: "脉冲增压", desc: "电磁脉冲伤害 +28%，可无限叠加", icon: "ϟ", rarity: "rare" },
     { id: "thunder-secondary-nodes", classId: "thunder", secondary: true, title: "扩散节点", desc: "电磁脉冲额外锁定 2 个目标，最多增加 6 个", icon: "⌁", rarity: "epic" },
   ],
   sky: [
-    { id: "sky-secondary-power", classId: "sky", secondary: true, title: "猎杀增压", desc: "猎杀标记伤害 +22%，可无限叠加", icon: "⌖", rarity: "rare" },
+    { id: "sky-secondary-power", classId: "sky", secondary: true, title: "猎杀增压", desc: "猎杀标记伤害 +28%，可无限叠加", icon: "⌖", rarity: "rare" },
     { id: "sky-secondary-locks", classId: "sky", secondary: true, title: "多重标记", desc: "猎杀标记额外降下 1 发轨道矛，最多 6 发", icon: "✦", rarity: "legendary" },
   ],
   cinder: [
-    { id: "cinder-secondary-power", classId: "cinder", secondary: true, title: "地雷增压", desc: "熔火地雷伤害 +22%，可无限叠加", icon: "♨", rarity: "rare" },
+    { id: "cinder-secondary-power", classId: "cinder", secondary: true, title: "地雷增压", desc: "熔火地雷伤害 +28%，可无限叠加", icon: "♨", rarity: "rare" },
     { id: "cinder-secondary-scorch", classId: "cinder", secondary: true, title: "焦土核心", desc: "熔火地雷爆炸范围与灼烧时间 +18%，最多强化 3 次", icon: "◆", rarity: "epic" },
   ],
   aegis: [
-    { id: "aegis-secondary-power", classId: "aegis", secondary: true, title: "长矛增压", desc: "裁决长矛伤害 +22%，可无限叠加", icon: "➤", rarity: "rare" },
+    { id: "aegis-secondary-power", classId: "aegis", secondary: true, title: "长矛增压", desc: "裁决长矛伤害 +28%，可无限叠加", icon: "➤", rarity: "rare" },
     { id: "aegis-secondary-lances", classId: "aegis", secondary: true, title: "分光裁决", desc: "裁决长矛额外发射 1 枚，最多 3 枚", icon: "✦", rarity: "epic" },
   ],
   venom: [
-    { id: "venom-secondary-power", classId: "venom", secondary: true, title: "毒刺增压", desc: "蝎尾毒刺伤害 +22%，可无限叠加", icon: "☣", rarity: "rare" },
+    { id: "venom-secondary-power", classId: "venom", secondary: true, title: "毒刺增压", desc: "蝎尾毒刺伤害 +28%，可无限叠加", icon: "☣", rarity: "rare" },
     { id: "venom-secondary-spines", classId: "venom", secondary: true, title: "裂殖毒针", desc: "蝎尾毒刺额外发射 1 枚，最多 5 枚", icon: "✣", rarity: "epic" },
   ],
   chrono: [
-    { id: "chrono-secondary-power", classId: "chrono", secondary: true, title: "飞轮增压", desc: "回溯飞轮伤害 +22%，可无限叠加", icon: "◴", rarity: "rare" },
+    { id: "chrono-secondary-power", classId: "chrono", secondary: true, title: "飞轮增压", desc: "回溯飞轮伤害 +28%，可无限叠加", icon: "◴", rarity: "rare" },
     { id: "chrono-secondary-wheels", classId: "chrono", secondary: true, title: "平行时轮", desc: "回溯飞轮额外发射 1 枚，最多 4 枚", icon: "⌁", rarity: "epic" },
   ],
 };
@@ -464,59 +465,59 @@ const SECONDARY_UPGRADES: Record<ClassId, Upgrade[]> = {
 const ASSAULT_ULTIMATE_TARGET_CAP = 20;
 const ULTIMATE_UPGRADES: Record<ClassId, Upgrade[]> = {
   assault: [
-    { id: "assault-ultimate-power", classId: "assault", ultimate: true, title: "天穹增压", desc: "天穹火雨伤害 +20%，可无限叠加", icon: "✹" },
+    { id: "assault-ultimate-power", classId: "assault", ultimate: true, title: "天穹增压", desc: "天穹火雨伤害 +25%，可无限叠加", icon: "✹" },
     { id: "assault-ultimate-locks", classId: "assault", ultimate: true, title: "多重锁定", desc: "天穹火雨锁定目标 +2，最多锁定 20 个", icon: "⌖" },
   ],
   guardian: [
-    { id: "guardian-ultimate-power", classId: "guardian", ultimate: true, title: "壁垒震波", desc: "不灭要塞震波伤害 +20%，可无限叠加", icon: "⬢" },
+    { id: "guardian-ultimate-power", classId: "guardian", ultimate: true, title: "壁垒震波", desc: "不灭要塞震波伤害 +25%，可无限叠加", icon: "⬢" },
     { id: "guardian-ultimate-duration", classId: "guardian", ultimate: true, title: "持久阵地", desc: "不灭要塞持续时间 +0.5 秒，最多 5.4 秒", icon: "▣" },
   ],
   engineer: [
-    { id: "engineer-ultimate-power", classId: "engineer", ultimate: true, title: "蜂群超频", desc: "蜂群超载伤害 +20%，可无限叠加", icon: "✣" },
+    { id: "engineer-ultimate-power", classId: "engineer", ultimate: true, title: "蜂群超频", desc: "蜂群超载伤害 +25%，可无限叠加", icon: "✣" },
     { id: "engineer-ultimate-locks", classId: "engineer", ultimate: true, title: "协同猎杀", desc: "蜂群锁定目标 +3，最多锁定 20 个", icon: "⌁" },
   ],
   phantom: [
-    { id: "phantom-ultimate-power", classId: "phantom", ultimate: true, title: "处决增幅", desc: "虚空猎杀伤害 +20%，可无限叠加", icon: "✧" },
+    { id: "phantom-ultimate-power", classId: "phantom", ultimate: true, title: "处决增幅", desc: "虚空猎杀伤害 +25%，可无限叠加", icon: "✧" },
     { id: "phantom-ultimate-locks", classId: "phantom", ultimate: true, title: "猎杀名单", desc: "连锁处决目标 +2，最多锁定 13 个", icon: "⌖" },
   ],
   laser: [
-    { id: "laser-ultimate-power", classId: "laser", ultimate: true, title: "审判增压", desc: "赤曜审判伤害 +20%，可无限叠加", icon: "┃" },
+    { id: "laser-ultimate-power", classId: "laser", ultimate: true, title: "审判增压", desc: "赤曜审判伤害 +25%，可无限叠加", icon: "┃" },
     { id: "laser-ultimate-lanes", classId: "laser", ultimate: true, title: "全向扩列", desc: "赤曜审判放射光束 +2，最多 16 束", icon: "✳" },
   ],
   frost: [
-    { id: "frost-ultimate-power", classId: "frost", ultimate: true, title: "永冻增压", desc: "永冻纪元伤害 +20%，可无限叠加", icon: "❄" },
+    { id: "frost-ultimate-power", classId: "frost", ultimate: true, title: "永冻增压", desc: "永冻纪元伤害 +25%，可无限叠加", icon: "❄" },
     { id: "frost-ultimate-lanes", classId: "frost", ultimate: true, title: "冰川分束", desc: "永冻纪元寒冰光束 +1，最多 4 束", icon: "〽" },
   ],
   blade: [
-    { id: "blade-ultimate-power", classId: "blade", ultimate: true, title: "断界增压", desc: "红莲断界伤害 +20%，可无限叠加", icon: "⚔" },
+    { id: "blade-ultimate-power", classId: "blade", ultimate: true, title: "断界增压", desc: "红莲断界伤害 +25%，可无限叠加", icon: "⚔" },
     { id: "blade-ultimate-echoes", classId: "blade", ultimate: true, title: "残像连斩", desc: "断界追击斩 +1，最多 4 重斩击", icon: "〆" },
   ],
   gravity: [
-    { id: "gravity-ultimate-power", classId: "gravity", ultimate: true, title: "视界增压", desc: "事件视界伤害 +20%，可无限叠加", icon: "◉" },
+    { id: "gravity-ultimate-power", classId: "gravity", ultimate: true, title: "视界增压", desc: "事件视界伤害 +25%，可无限叠加", icon: "◉" },
     { id: "gravity-ultimate-range", classId: "gravity", ultimate: true, title: "视界扩张", desc: "事件视界半径 +80，最多 670", icon: "◎" },
   ],
   thunder: [
-    { id: "thunder-ultimate-power", classId: "thunder", ultimate: true, title: "雷域增压", desc: "天罚雷域伤害 +20%，可无限叠加", icon: "ϟ" },
+    { id: "thunder-ultimate-power", classId: "thunder", ultimate: true, title: "雷域增压", desc: "天罚雷域伤害 +25%，可无限叠加", icon: "ϟ" },
     { id: "thunder-ultimate-locks", classId: "thunder", ultimate: true, title: "风暴标记", desc: "天罚雷域额外锁定 2 个目标，最多 16 个", icon: "⌁" },
   ],
   sky: [
-    { id: "sky-ultimate-power", classId: "sky", ultimate: true, title: "轨道增压", desc: "神矛阵列伤害 +20%，可无限叠加", icon: "⌖" },
+    { id: "sky-ultimate-power", classId: "sky", ultimate: true, title: "轨道增压", desc: "神矛阵列伤害 +25%，可无限叠加", icon: "⌖" },
     { id: "sky-ultimate-locks", classId: "sky", ultimate: true, title: "多重照准", desc: "神矛阵列额外锁定 1 个目标，最多 9 个", icon: "✦" },
   ],
   cinder: [
-    { id: "cinder-ultimate-power", classId: "cinder", ultimate: true, title: "熔城增压", desc: "炼狱推进伤害 +20%，可无限叠加", icon: "♨" },
+    { id: "cinder-ultimate-power", classId: "cinder", ultimate: true, title: "熔城增压", desc: "炼狱推进伤害 +25%，可无限叠加", icon: "♨" },
     { id: "cinder-ultimate-lanes", classId: "cinder", ultimate: true, title: "火墙增殖", desc: "炼狱推进额外生成 1 道火墙，最多 5 道", icon: "▰" },
   ],
   aegis: [
-    { id: "aegis-ultimate-power", classId: "aegis", ultimate: true, title: "圣域增压", desc: "天穹圣域反击伤害 +20%，可无限叠加", icon: "⬡" },
+    { id: "aegis-ultimate-power", classId: "aegis", ultimate: true, title: "圣域增压", desc: "天穹圣域反击伤害 +25%，可无限叠加", icon: "⬡" },
     { id: "aegis-ultimate-duration", classId: "aegis", ultimate: true, title: "永续圣域", desc: "圣域保护时间 +0.5 秒，最多 5.4 秒", icon: "✦" },
   ],
   venom: [
-    { id: "venom-ultimate-power", classId: "venom", ultimate: true, title: "灾厄增压", desc: "灾厄酸雨伤害 +20%，可无限叠加", icon: "☣" },
+    { id: "venom-ultimate-power", classId: "venom", ultimate: true, title: "灾厄增压", desc: "灾厄酸雨伤害 +25%，可无限叠加", icon: "☣" },
     { id: "venom-ultimate-locks", classId: "venom", ultimate: true, title: "扩散酸雨", desc: "酸雨额外锁定 2 个目标，最多锁定 16 个", icon: "⌖" },
   ],
   chrono: [
-    { id: "chrono-ultimate-power", classId: "chrono", ultimate: true, title: "零时增压", desc: "零时刻伤害 +20%，可无限叠加", icon: "◴" },
+    { id: "chrono-ultimate-power", classId: "chrono", ultimate: true, title: "零时增压", desc: "零时刻伤害 +25%，可无限叠加", icon: "◴" },
     { id: "chrono-ultimate-range", classId: "chrono", ultimate: true, title: "时停扩域", desc: "零时刻半径 +70，最多 650", icon: "◎" },
   ],
 };
@@ -1990,7 +1991,7 @@ export default function Home() {
       if (id === "magnet") stats.magnet *= 1.35;
       if (id === "armor") stats.damageReduction = Math.min(.55, stats.damageReduction + .08);
       if (id === "critical") stats.critChance = Math.min(.65, stats.critChance + .08);
-      if (id === "velocity") { stats.projectileSpeed *= 1.18; stats.projectileSize += .7; }
+      if (id === "velocity") { stats.projectileSpeed *= 1.18; stats.projectileSize += 1.5; }
       if (id === "reactor") stats.skillHaste = Math.max(.5, stats.skillHaste * .85);
       if (id === "drone") stats.drones += 1;
       if (id === "repair" && player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 35);
@@ -2000,10 +2001,10 @@ export default function Home() {
       }
       if (id === "assault-double-storm") stats.missileWaves += 1;
       if (id === "assault-saturation") stats.missileCount += 6;
-      if (id === "assault-warhead") { stats.damage *= 1.24; stats.projectileSize += 1.2; }
+      if (id === "assault-warhead") { stats.damage *= 1.3; stats.projectileSize += 1.8; }
       if (id === "assault-guidance") stats.assaultGuidance = 1;
       if (id === "guardian-fortress") stats.shieldDuration = Math.min(GUARDIAN_SHIELD_MAX, stats.shieldDuration + .9);
-      if (id === "guardian-rail") { stats.damage *= 1.3; stats.projectileSize += 1.6; }
+      if (id === "guardian-rail") { stats.damage *= 1.36; stats.projectileSize += 2.2; }
       if (id === "guardian-plating") {
         player.maxHp += 34;
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 34);
@@ -2011,8 +2012,8 @@ export default function Home() {
       }
       if (id === "guardian-retaliation") stats.guardianRetaliation = 1;
       if (id === "engineer-swarm") stats.drones += 1;
-      if (id === "engineer-link") stats.dronePower *= 1.28;
-      if (id === "engineer-repair") stats.repairPower *= 1.55;
+      if (id === "engineer-link") stats.dronePower *= 1.34;
+      if (id === "engineer-repair") stats.repairPower *= 1.65;
       if (id === "engineer-triage") stats.engineerTriage = 1;
       if (id === "phantom-fold") stats.dashDistance += 90;
       if (id === "phantom-reserve") {
@@ -2021,22 +2022,22 @@ export default function Home() {
         setSkillCharges(phantomDashCharges);
         setSkillChargeCap(stats.dashCharges);
       }
-      if (id === "phantom-needle") { stats.critChance = Math.min(.72, stats.critChance + .14); stats.damage *= 1.18; }
+      if (id === "phantom-needle") { stats.critChance = Math.min(.72, stats.critChance + .14); stats.damage *= 1.24; }
       if (id === "phantom-cycle") stats.skillHaste = Math.max(.45, stats.skillHaste * .75);
       if (id === "phantom-afterimage") stats.phantomAfterimage = 1;
-      if (id === "laser-overfocus") stats.laserPower *= 1.38;
-      if (id === "laser-prism") { stats.damage *= 1.2; stats.multi += 1; }
+      if (id === "laser-overfocus") stats.laserPower *= 1.46;
+      if (id === "laser-prism") { stats.damage *= 1.25; stats.multi += 1; }
       if (id === "laser-capacitor") stats.skillHaste = Math.max(.5, stats.skillHaste * .76);
       if (id === "laser-refraction") stats.laserRefraction = 1;
-      if (id === "frost-zero") stats.frostPower *= 1.35;
-      if (id === "frost-shatter") { stats.damage *= 1.26; stats.projectileSize += 1.45; }
+      if (id === "frost-zero") stats.frostPower *= 1.42;
+      if (id === "frost-shatter") { stats.damage *= 1.32; stats.projectileSize += 2; }
       if (id === "frost-armor") {
         player.maxHp += 30;
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 30);
         stats.damageReduction = Math.min(.6, stats.damageReduction + .06);
       }
       if (id === "frost-brittle") stats.frostShatter = .35;
-      if (id === "blade-edge") { stats.meleeRange *= 1.22; stats.meleePower *= 1.2; }
+      if (id === "blade-edge") { stats.meleeRange *= 1.22; stats.meleePower *= 1.28; }
       if (id === "blade-vamp") {
         stats.repairPower *= 1.55;
         player.maxHp += 20;
@@ -2044,44 +2045,44 @@ export default function Home() {
       }
       if (id === "blade-tempo") { stats.interval = Math.max(.24, stats.interval * .82); stats.speed *= 1.09; }
       if (id === "blade-combo") stats.bladeCombo = 1;
-      if (id === "gravity-collapse") stats.gravityPower *= 1.28;
-      if (id === "gravity-lens") { stats.damage *= 1.18; stats.multi += 1; }
+      if (id === "gravity-collapse") stats.gravityPower *= 1.36;
+      if (id === "gravity-lens") { stats.damage *= 1.24; stats.multi += 1; }
       if (id === "gravity-anchor") {
         player.maxHp += 22;
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 22);
         stats.skillHaste = Math.max(.5, stats.skillHaste * .85);
       }
-      if (id === "thunder-capacitor") stats.lightningPower *= 1.25;
+      if (id === "thunder-capacitor") stats.lightningPower *= 1.34;
       if (id === "thunder-network") stats.ultimateTargets = Math.min(16, stats.ultimateTargets + 2);
       if (id === "thunder-cycle") { stats.interval = Math.max(.18, stats.interval * .9); stats.skillHaste = Math.max(.5, stats.skillHaste * .88); }
-      if (id === "sky-focus") { stats.sniperPower *= 1.24; stats.critChance = Math.min(.72, stats.critChance + .04); }
+      if (id === "sky-focus") { stats.sniperPower *= 1.32; stats.critChance = Math.min(.72, stats.critChance + .04); }
       if (id === "sky-penetrator") { stats.projectileSpeed *= 1.12; stats.bonusPierce += 2; }
       if (id === "sky-thruster") { stats.speed *= 1.1; stats.interval = Math.max(.3, stats.interval * .92); }
-      if (id === "cinder-furnace") stats.burnPower *= 1.28;
-      if (id === "cinder-nozzle") { stats.projectileSize *= 1.22; stats.damage *= 1.08; }
+      if (id === "cinder-furnace") stats.burnPower *= 1.36;
+      if (id === "cinder-nozzle") { stats.projectileSize *= 1.28; stats.damage *= 1.08; }
       if (id === "cinder-plating") {
         player.maxHp += 26;
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 26);
         stats.damageReduction = Math.min(.62, stats.damageReduction + .04);
       }
-      if (id === "aegis-reflection") stats.aegisPower *= 1.26;
-      if (id === "aegis-lance") { stats.damage *= 1.18; stats.bonusPierce += 1; }
+      if (id === "aegis-reflection") stats.aegisPower *= 1.34;
+      if (id === "aegis-lance") { stats.damage *= 1.24; stats.bonusPierce += 1; }
       if (id === "aegis-plating") {
         player.maxHp += 24;
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 24);
         stats.damageReduction = Math.min(.62, stats.damageReduction + .04);
       }
-      if (id === "venom-acid") stats.venomPower *= 1.28;
-      if (id === "venom-fangs") { stats.damage *= 1.18; stats.projectileSize += 1; }
+      if (id === "venom-acid") stats.venomPower *= 1.36;
+      if (id === "venom-fangs") { stats.damage *= 1.24; stats.projectileSize += 1.6; }
       if (id === "venom-chitin") { stats.speed *= 1.09; stats.damageReduction = Math.min(.62, stats.damageReduction + .04); }
-      if (id === "chrono-loop") stats.chronoPower *= 1.26;
+      if (id === "chrono-loop") stats.chronoPower *= 1.34;
       if (id === "chrono-echo") { stats.multi += 1; stats.interval *= 1.06; }
       if (id === "chrono-anchor") {
         player.maxHp += 18;
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 18);
         stats.skillHaste = Math.max(.5, stats.skillHaste * .85);
       }
-      if (id.endsWith("-secondary-power")) stats.secondaryPower *= 1.22;
+      if (id.endsWith("-secondary-power")) stats.secondaryPower *= 1.28;
       if (id === "assault-secondary-salvo") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
       if (id === "guardian-secondary-radius") stats.secondaryArea = Math.min(1.53, stats.secondaryArea * 1.15);
       if (id === "engineer-secondary-swarm") stats.secondaryProjectiles = Math.min(6, stats.secondaryProjectiles + 2);
@@ -2102,7 +2103,7 @@ export default function Home() {
       if (id === "aegis-secondary-lances") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
       if (id === "venom-secondary-spines") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
       if (id === "chrono-secondary-wheels") stats.secondaryProjectiles = Math.min(2, stats.secondaryProjectiles + 1);
-      if (id.endsWith("-ultimate-power")) stats.ultimatePower *= 1.2;
+      if (id.endsWith("-ultimate-power")) stats.ultimatePower *= 1.25;
       if (id === "assault-ultimate-locks") stats.ultimateTargets = Math.min(ASSAULT_ULTIMATE_TARGET_CAP, stats.ultimateTargets + 2);
       if (id === "guardian-ultimate-duration") stats.ultimateDuration = Math.min(5.4, stats.ultimateDuration + .5);
       if (id === "engineer-ultimate-locks") stats.ultimateTargets = Math.min(20, stats.ultimateTargets + 3);
@@ -2508,7 +2509,7 @@ export default function Home() {
       const routeHitScale = routeId === "void" ? 1.16 : routeId === "archive" ? 1.08 : 1;
       const eliteChance = clamp((elapsed - 48) / 620, 0, .16) + routeEliteBonus;
       const elite = kind === "commander" || Math.random() < eliteChance;
-      const lateScale = 1 + elapsed / 185 + Math.pow(elapsed / 540, 1.7);
+      const lateScale = 1 + elapsed / 250 + Math.pow(elapsed / 720, 1.55) * .72;
       const maxHp = config.hp * lateScale * coOpScale * (elite ? 1.75 : 1) * routeHpScale;
       enemies.push({
         id: nextEnemyId++,
@@ -2517,7 +2518,7 @@ export default function Home() {
         r: config.radius * (elite ? 1.16 : 1),
         hp: maxHp,
         maxHp,
-        speed: (config.speed + Math.min(16, elapsed * .035)) * routeSpeedScale,
+        speed: (config.speed + Math.min(12, elapsed * .024)) * routeSpeedScale,
         hit: config.hit * (elite ? 1.28 : 1) * routeHitScale,
         color: config.color,
         kind,
@@ -2555,8 +2556,8 @@ export default function Home() {
         r: bossVariant === "leviathan" ? 60 : bossVariant === "warden" ? 54 : bossVariant === "mirror" ? 47 : config.radius,
         hp: maxHp,
         maxHp,
-        speed: (config.speed + Math.min(12, currentWave * 1.2)) * variant.speed * routeSpeedScale,
-        hit: config.hit * variant.hit * (1 + Math.min(.32, currentWave * .025)) * routeHitScale,
+        speed: (config.speed + Math.min(10, currentWave * .85)) * variant.speed * routeSpeedScale,
+        hit: config.hit * variant.hit * (1 + Math.min(.24, currentWave * .018)) * routeHitScale,
         color: variant.color,
         kind: "boss",
         elite: true,
@@ -3226,14 +3227,38 @@ export default function Home() {
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 42 * combatStats.repairPower);
         if (remote && remote.hp > 0) remote.hp = Math.min(remote.maxHp, remote.hp + 42 * combatStats.repairPower);
         const targets = prioritizeUltimateTargets(enemies, actor, combatStats.ultimateTargets);
-        for (let index = 0; index < Math.max(12, targets.length * 2); index++) {
-          const orbitAngle = index / Math.max(12, targets.length * 2) * Math.PI * 2;
-          const origin = { x: actor.x + Math.cos(orbitAngle) * 92, y: actor.y + Math.sin(orbitAngle) * 92 };
+        const salvoCount = Math.max(16, targets.length * 3);
+        for (const [index, target] of targets.entries()) {
+          const lockAngle = index / Math.max(1, targets.length) * Math.PI * 2;
+          const lockOrigin = {
+            x: actor.x + Math.cos(lockAngle) * 118,
+            y: actor.y + Math.sin(lockAngle) * 118,
+          };
+          beams.push({ x1: lockOrigin.x, y1: lockOrigin.y, x2: target.x, y2: target.y, life: .48, width: 4, color: "#d9ffb8" });
+          addEffect({ kind: "impact", classId, x: target.x, y: target.y, color: "#a9ef84", radius: 48 }, .5);
+        }
+        for (let index = 0; index < salvoCount; index++) {
+          const orbitAngle = index / salvoCount * Math.PI * 2;
+          const origin = { x: actor.x + Math.cos(orbitAngle) * 118, y: actor.y + Math.sin(orbitAngle) * 118 };
           const target = targets[index % Math.max(1, targets.length)];
           const shotAngle = target ? Math.atan2(target.y - origin.y, target.x - origin.x) : orbitAngle;
-          shots.push({ x: origin.x, y: origin.y, vx: Math.cos(shotAngle) * 780, vy: Math.sin(shotAngle) * 780, r: 5, damage: combatStats.damage * 2.15 * combatStats.dronePower * power, life: 2.65, owner, classId: "engineer", chain: true, pierce: 1 });
+          shots.push({
+            x: origin.x,
+            y: origin.y,
+            vx: Math.cos(shotAngle) * 720,
+            vy: Math.sin(shotAngle) * 720,
+            r: 15,
+            damage: combatStats.damage * 2.35 * combatStats.dronePower * power,
+            life: 2.9,
+            owner,
+            classId: "engineer",
+            chain: true,
+            pierce: 2,
+            splash: 82,
+            ultimate: true,
+          });
         }
-        addEffect({ kind: "ultimate", classId, x: actor.x, y: actor.y, color, radius: 120 }, 2);
+        addEffect({ kind: "ultimate", classId, count: salvoCount, x: actor.x, y: actor.y, color, radius: 260 }, 2.4);
       }
       if (classId === "phantom") {
         const marked = prioritizeUltimateTargets(enemies, actor, combatStats.ultimateTargets);
@@ -3989,7 +4014,7 @@ export default function Home() {
                     : enemy.kind === "mortarwasp" ? 235
                       : enemy.kind === "leech" ? 250
                         : 280;
-            const lateRangedDamage = 1 + Math.min(.55, elapsed / 900);
+            const lateRangedDamage = 1 + Math.min(.3, elapsed / 1200);
             const damageScale = enemy.kind === "assassin" ? .58 : enemy.kind === "leech" ? .68 : enemy.kind === "mortarwasp" ? .82 : 1;
             shots.push({
               x: enemy.x + Math.cos(angle) * (enemy.r + 8),
@@ -4449,14 +4474,24 @@ export default function Home() {
             for(let index=0;index<6;index++){const angle=index/6*Math.PI*2;ctx.save();ctx.rotate(angle);ctx.strokeRect(radius*.56,-28,radius*.34,56);ctx.restore();}
           }else if(effect.classId==="engineer"){
             ctx.translate(effect.x,effect.y);
-            for(let index=0;index<10;index++){
-              const angle=index/10*Math.PI*2+progress*5;
-              const orbit=radius*(.48+.08*(index%2));
-              const x=Math.cos(angle)*orbit,y=Math.sin(angle)*orbit;
-              ctx.save();ctx.translate(x,y);ctx.rotate(angle+Math.PI/2);ctx.fillStyle=index%2?"#d9ffb8":"#92ff78";ctx.fillRect(-8,-5,16,10);ctx.fillRect(-14,-2,28,4);ctx.restore();
-              ctx.globalAlpha=alpha*.42;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(x,y);ctx.stroke();ctx.globalAlpha=alpha;
+            ctx.fillStyle="rgba(169,239,132,.13)";ctx.lineWidth=5;
+            for(let ring=1;ring<=3;ring++){
+              const ringRadius=radius*(.16+ring*.15);
+              ctx.save();ctx.rotate((ring%2?1:-1)*progress*(2.2+ring*.5));
+              ctx.beginPath();
+              for(let side=0;side<6;side++){const angle=side/6*Math.PI*2;const x=Math.cos(angle)*ringRadius,y=Math.sin(angle)*ringRadius;if(side)ctx.lineTo(x,y);else ctx.moveTo(x,y);}
+              ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
             }
-            ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,radius*.62,0,Math.PI*2);ctx.stroke();
+            for(let index=0;index<12;index++){
+              const angle=index/12*Math.PI*2+progress*6;
+              const orbit=radius*(.48+.1*(index%2));
+              const x=Math.cos(angle)*orbit,y=Math.sin(angle)*orbit;
+              ctx.save();ctx.translate(x,y);ctx.rotate(angle+Math.PI/2);ctx.fillStyle=index%2?"#d9ffb8":"#92ff78";
+              ctx.beginPath();ctx.moveTo(0,-11);ctx.lineTo(16,7);ctx.lineTo(0,3);ctx.lineTo(-16,7);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore();
+              ctx.globalAlpha=alpha*.5;ctx.setLineDash([7,6]);ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(x,y);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=alpha;
+            }
+            ctx.fillStyle="#f4ffe9";ctx.shadowBlur=28;ctx.beginPath();ctx.arc(0,0,14+10*Math.sin(progress*Math.PI),0,Math.PI*2);ctx.fill();
+            ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,radius*.68,0,Math.PI*2);ctx.stroke();
           }else if(effect.classId==="phantom"){
             const endX=effect.x2??effect.x,endY=effect.y2??effect.y;
             ctx.lineWidth=7;ctx.setLineDash([24,14]);ctx.beginPath();ctx.moveTo(effect.x,effect.y);ctx.lineTo(endX,endY);ctx.stroke();ctx.setLineDash([]);
@@ -4746,9 +4781,16 @@ export default function Home() {
         const projectileColumns=packedSupportSheet?3:2;
         const cellW=projectileImage.naturalWidth/projectileColumns,cellH=classInfo.sheet==="core"||packedSupportSheet?projectileImage.naturalHeight/2:projectileImage.naturalHeight;
         const [baseDrawW,baseDrawH]=projectileDimensions[s.classId];
-        const drawW=baseDrawW*(s.skill2?1.38:1),drawH=baseDrawH*(s.skill2?1.38:1);
+        const projectileScale=s.ultimate?2.2:s.skill2?1.38:1;
+        const drawW=baseDrawW*projectileScale,drawH=baseDrawH*projectileScale;
         ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));
-        ctx.shadowColor=classInfo.color;ctx.shadowBlur=reducedEffects?0:s.skill2?20:8;
+        ctx.shadowColor=classInfo.color;ctx.shadowBlur=reducedEffects?0:s.ultimate?30:s.skill2?20:8;
+        if(s.ultimate){
+          ctx.fillStyle="rgba(217,255,184,.2)";ctx.strokeStyle="#d9ffb8";ctx.lineWidth=3;
+          ctx.beginPath();ctx.moveTo(drawW*.62,0);ctx.lineTo(drawW*.08,-drawH*.78);ctx.lineTo(-drawW*.55,-drawH*.46);ctx.lineTo(-drawW*.72,0);ctx.lineTo(-drawW*.55,drawH*.46);ctx.lineTo(drawW*.08,drawH*.78);ctx.closePath();ctx.fill();ctx.stroke();
+          ctx.fillStyle="#efffe1";
+          for(const side of [-1,1]){ctx.beginPath();ctx.moveTo(-drawW*.42,side*drawH*.22);ctx.lineTo(-drawW*.82,side*drawH*.42);ctx.lineTo(-drawW*.68,side*drawH*.08);ctx.closePath();ctx.fill();}
+        }
         if(s.skill2){
           ctx.strokeStyle=classInfo.color;ctx.fillStyle="rgba(255,255,255,.16)";ctx.lineWidth=2.5;
           ctx.beginPath();ctx.moveTo(drawW*.55,0);ctx.lineTo(0,-drawH*.82);ctx.lineTo(-drawW*.55,0);ctx.lineTo(0,drawH*.82);ctx.closePath();ctx.fill();ctx.stroke();
@@ -5083,7 +5125,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.17.0 · 战区路线与职业套装</div>
+        <div className="status"><i /> 版本 0.17.1 · 强化卡效果提升</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
