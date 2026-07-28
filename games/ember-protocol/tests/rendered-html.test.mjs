@@ -13,7 +13,6 @@ import {
   primaryThreatScore,
   prioritizeUltimateTargets,
   skillCooldownFor,
-  supplyRewardFor,
 } from "../combat-balance.mjs";
 
 async function render() {
@@ -44,7 +43,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.17\.1 · 强化卡效果提升/);
+  assert.match(html, /版本 0\.17\.2 · 生存强化与战术档案/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -144,7 +143,10 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /猎杀标记/);
   assert.match(page, /熔火地雷/);
   assert.match(page, /if \(e\.key\.toLowerCase\(\) === "e"\)/);
-  assert.match(page, /className="skillDock secondarySkillDock"/);
+  assert.match(page, /className="combatSkillRack"/);
+  assert.match(page, /const tacticalArchive = <section className="tacticalArchive"/);
+  assert.match(page, /className="relicPickupReport"/);
+  assert.match(page, /createRelicPickupReport/);
   assert.match(page, /variant\?: "secondary"/);
   assert.match(page, /skill2\?: boolean/);
   assert.match(page, /ultimate\?: boolean/);
@@ -158,7 +160,9 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /const UPGRADE_RARITY_GROWTH_CAP_WAVE = 12/);
   assert.match(page, /const RARITY_LATE_WAVE_BONUS/);
   assert.match(page, /const BASIC_ATTACK_WEIGHT_MULTIPLIER = 1\.5/);
+  assert.match(page, /const MAX_HP_WEIGHT_MULTIPLIER = 1\.55/);
   assert.match(page, /const BASIC_ATTACK_UPGRADE_IDS = new Set/);
+  assert.match(page, /const MAX_HP_UPGRADE_IDS = new Set/);
   assert.match(page, /"rapid", "damage", "multi", "critical", "velocity"/);
   assert.match(page, /"assault-warhead", "guardian-rail", "phantom-needle", "laser-prism"/);
   assert.match(page, /"frost-shatter", "blade-edge", "blade-tempo", "gravity-lens"/);
@@ -169,7 +173,10 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /RARITY_LATE_WAVE_BONUS\[rarity\] \* progress/);
   assert.match(page, /const weightedUpgradePick/);
   assert.match(page, /BASIC_ATTACK_UPGRADE_IDS\.has\(upgrade\.id\) \? BASIC_ATTACK_WEIGHT_MULTIPLIER : 1/);
-  assert.match(page, /upgradeRarityWeight\(rarity, wave\) \* attackWeight/);
+  assert.match(page, /MAX_HP_UPGRADE_IDS\.has\(upgrade\.id\) \? MAX_HP_WEIGHT_MULTIPLIER : 1/);
+  assert.match(page, /upgradeRarityWeight\(rarity, wave\) \* attackWeight \* maxHpWeight/);
+  assert.match(page, /id: "bulkhead"/);
+  assert.match(page, /id: "living-alloy"/);
   assert.match(page, /weightedUpgradePick\(fullPool, excluded, wave\)/);
   assert.match(page, /rollUpgradeChoices\(build\.classId, build, currentWave\)/);
   assert.match(page, /while \(choices\.length < 5\)/);
@@ -177,10 +184,11 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /const availableSecondary = SECONDARY_UPGRADES\[classId\]\.filter\(\(upgrade\) => secondaryUpgradeAvailable\(upgrade, currentBuild\)\)/);
   assert.doesNotMatch(page, /const signature = weightedUpgradePick\(CLASS_UPGRADES\[classId\], excluded\)/);
   assert.doesNotMatch(page, /每次至少包含一项本职业强化/);
-  assert.match(page, /不提供固定保底/);
+  assert.match(page, /新增三种通用生命上限强化，生命上限类强化获得 1\.55 倍抽取权重/);
+  assert.match(page, /技能说明仅在整备与暂停页面显示，不占用战斗视野/);
   assert.match(page, /副技能 · \$\{RARITY_LABELS/);
   assert.match(page, /本职业 · \$\{RARITY_LABELS/);
-  assert.match(page, /基础伤害、射速、多重弹、暴击、弹速与本职业主武器强化获得 1\.5 倍抽取权重/);
+  assert.match(page, /基础伤害、射速、多重弹、暴击、弹速与本职业主武器强化获得 1\.5 倍权重/);
   assert.match(page, /const ultimateUpgradeAvailable/);
   assert.match(page, /const secondaryUpgradeAvailable/);
   assert.match(page, /secondaryPower: 1/);
@@ -206,7 +214,14 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /assault-double-storm/);
   assert.match(page, /const SHOP_ITEMS/);
   assert.match(page, /const SHOP_EVERY_WAVES = 2/);
-  assert.match(page, /supplyRewardFor\(waveKills, currentWave\)/);
+  assert.doesNotMatch(page, /supplyRewardFor\(/);
+  assert.doesNotMatch(page, /waveKills/);
+  assert.match(page, /const coinDropChanceFor/);
+  assert.match(page, /Math\.random\(\) < coinDropChanceFor/);
+  assert.match(page, /coins: coinDropAmountFor/);
+  assert.match(page, /hostCoins \+= pickedCoins/);
+  assert.match(page, /if \(coOpActive\) guestCoins \+= pickedCoins/);
+  assert.match(page, /reward: 0/);
   assert.match(page, /const shouldOpenSupply = \(currentWave - 1\) % SHOP_EVERY_WAVES === 0/);
   assert.match(page, /const GUARDIAN_SHIELD_MAX = 5/);
   assert.match(page, /const MIN_GUARDIAN_COOLDOWN = 7/);
@@ -220,8 +235,8 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /const MAX_SHOP_REROLLS = 3/);
   assert.match(page, /type ShopCategory = "补给" \| "武装" \| "防御" \| "核心"/);
   assert.match(page, /const shopRerollPrice = \(wave: number, used: number, wallet: number\)/);
-  assert.match(page, /Math\.pow\(lateWave, 1\.58\) \* 2\.5/);
-  assert.match(page, /wallet \* \(\.04 \+ used \* \.032\)/);
+  assert.match(page, /Math\.pow\(lateWave, 1\.45\) \* 1\.25/);
+  assert.match(page, /wallet \* \(\.025 \+ used \* \.02\)/);
   assert.match(page, /const SHOP_CATEGORIES/);
   assert.match(page, /const SHOP_RARITY_WEIGHTS/);
   assert.match(page, /common: 62, rare: 26, epic: 9, legendary: 3/);
@@ -260,9 +275,9 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /const bossResilience = enemy\.kind !== "boss"/);
   assert.match(page, /const upgradeRerollPrice/);
   assert.match(page, /4 \+ Math\.floor\(Math\.max\(0, wave - 1\) \/ 4\) \+ used \* 3/);
-  assert.match(page, /第 12 波达到概率上限/);
-  assert.match(page, /前三次补给享受逐步递减的价格优惠/);
-  assert.match(page, /首次补给保证至少一件永久成长配件买得起/);
+  assert.match(page, /第 12 波达到上限/);
+  assert.match(page, /前三次补给仍享受逐步递减的价格优惠/);
+  assert.match(page, /尽量保证至少一件成长配件买得起/);
   assert.match(page, /刷新次数已用尽/);
   assert.match(page, /const spawnBoss/);
   assert.match(page, /let bossBag: BossVariant\[\] = \[\]/);
@@ -325,7 +340,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /ULTIMATE_NAMES/);
   assert.match(page, /ultimate: "天穹火雨：/);
   assert.match(page, /ultimate: "赤曜审判：以机体为中心向四面八方发射贯穿激光"/);
-  assert.match(page, /selectedClassSpec\.ultimate\.split/);
+  assert.doesNotMatch(page, /selectedClassSpec\.ultimate\.split/);
   assert.match(page, /localPaused = false;\s+elapsed = 0/);
   assert.match(page, /pausedRef\.current = false/);
   assert.match(page, /keys\.clear\(\)/);
@@ -363,12 +378,12 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /currentWave - 1\) \* \.04/);
   assert.match(page, /const earnedXp = gem\.value \* xpGainScale\(\) \* earlyWaveXpMultiplier\(currentWave\)/);
   assert.match(page, /const W = 1600, H = 900/);
-  assert.match(page, /type Gem = \{ x: number; y: number; value: number; life: number; relic\?: BossRelicId; relicPieces\?: number; heal\?: number \}/);
+  assert.match(page, /type Gem = \{ x: number; y: number; value: number; life: number; relic\?: BossRelicId; relicPieces\?: number; heal\?: number; coins\?: number \}/);
   assert.match(page, /const HEALTH_PACK_ENEMY_KINDS/);
   assert.match(page, /life: bossRelic \? 35 : 18/);
   assert.match(page, /gems\.push\(\{ x: enemy\.x \+ 18, y: enemy\.y - 12, value: 0, life: 14, heal \}\)/);
   assert.match(page, /gem\.life -= dt/);
-  assert.match(page, /gem\.life > 0 && \(gem\.value > 0 \|\| Boolean\(gem\.heal\)\)/);
+  assert.match(page, /gem\.life > 0 && \(gem\.value > 0 \|\| Boolean\(gem\.heal \|\| gem\.coins\)\)/);
   assert.match(page, /维修包 \$\{Math\.ceil\(g\.life\)\}s/);
   assert.match(page, /entry\.actor\.hp < entry\.actor\.maxHp/);
   assert.match(page, /战地维修包/);
@@ -524,11 +539,6 @@ test("prioritizes bosses for every offensive ultimate and boosts only early-wave
   assert.equal(earlyShopDiscountFor(5), .88);
   assert.equal(earlyShopDiscountFor(7), .96);
   assert.equal(earlyShopDiscountFor(9), 1);
-  assert.equal(supplyRewardFor(0, 3), 50, "first shop always starts with useful spending money");
-  assert.equal(supplyRewardFor(50, 3), 72);
-  assert.equal(supplyRewardFor(50, 5), 63);
-  assert.equal(supplyRewardFor(50, 7), 54);
-  assert.equal(supplyRewardFor(50, 9), 45, "launch stipend fully expires by the mid game");
 });
 
 test("applies every cooldown reduction to both tactical skill slots", () => {

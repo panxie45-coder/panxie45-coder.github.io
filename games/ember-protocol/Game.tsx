@@ -11,7 +11,6 @@ import {
   FIRST_SHOP_WAVE,
   prioritizeUltimateTargets,
   skillCooldownFor,
-  supplyRewardFor,
 } from "./combat-balance.mjs";
 import { reconcilePausedPeerHp, teamRunDefeated } from "./team-state.mjs";
 
@@ -54,6 +53,16 @@ type SignatureSet = {
   name: string;
   icon: string;
   tiers: [string, string, string];
+};
+type RelicPickupReport = {
+  relicTitle: string;
+  relicRarity: UpgradeRarity;
+  relicEffect: string;
+  setName: string;
+  setIcon: string;
+  pieces: number;
+  activated: string[];
+  next: string;
 };
 type CombatStats = {
   speed: number;
@@ -194,7 +203,7 @@ type CombatEffect = {
   color: string;
   radius: number;
 };
-type Gem = { x: number; y: number; value: number; life: number; relic?: BossRelicId; relicPieces?: number; heal?: number };
+type Gem = { x: number; y: number; value: number; life: number; relic?: BossRelicId; relicPieces?: number; heal?: number; coins?: number };
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
   elapsed: number;
@@ -312,7 +321,9 @@ const UPGRADES: Upgrade[] = [
   { id: "damage", title: "淬火弹头", desc: "自身伤害 +22%", icon: "◆" },
   { id: "multi", title: "双生火舌", desc: "额外弹丸 +1，射速略降", icon: "⌁" },
   { id: "speed", title: "轻盈步伐", desc: "移动速度 +12%", icon: "➜" },
-  { id: "vitality", title: "钛金骨架", desc: "自身生命 +20，并回复 30", icon: "♥" },
+  { id: "vitality", title: "钛金骨架", desc: "生命上限 +26，并立即回复 32", icon: "♥" },
+  { id: "bulkhead", title: "扩容隔舱", desc: "生命上限 +18，并修复新增的生命", icon: "▣" },
+  { id: "living-alloy", title: "活性合金骨架", desc: "生命上限 +24，并回复 12% 最大生命", icon: "✚", rarity: "rare" },
   { id: "magnet", title: "拾荒直觉", desc: "拾取范围 +35%", icon: "◎" },
   { id: "armor", title: "偏转装甲", desc: "受到伤害 -8%", icon: "⬢" },
   { id: "critical", title: "弱点演算", desc: "暴击率 +8%", icon: "◈" },
@@ -529,21 +540,21 @@ const SHOP_ITEMS: ShopItem[] = [
   { id: "combat-cocktail", title: "应急战斗剂", desc: "回复 18 点生命并补充 12% 终极能量", icon: "⌁", cost: 62, category: "补给", rarity: "rare", unlockWave: 4 },
   { id: "full-service", title: "方舟整备舱", desc: "立即修复 32% 最大生命值", icon: "⬡", cost: 92, category: "补给", rarity: "epic", unlockWave: 6, priceRate: .055 },
 
-  { id: "ammo", title: "高能弹药", desc: "本局伤害永久 +8%", icon: "◆", cost: 54, category: "武装", rarity: "common" },
+  { id: "ammo", title: "高能弹药", desc: "本局伤害永久 +8%，生命上限 +6", icon: "◆", cost: 54, category: "武装", rarity: "common" },
   { id: "coolant", title: "相变冷却液", desc: "射击间隔永久 -6%", icon: "❉", cost: 58, category: "武装", rarity: "common" },
   { id: "crit-optic", title: "量子瞄准镜", desc: "暴击率 +6%，弹丸速度 +8%", icon: "⌖", cost: 68, category: "武装", rarity: "rare", unlockWave: 2 },
-  { id: "projectile-core", title: "磁轨膛芯", desc: "伤害 +5%，弹速 +14%，弹体略微增大", icon: "➤", cost: 76, category: "武装", rarity: "rare", unlockWave: 3 },
+  { id: "projectile-core", title: "磁轨膛芯", desc: "伤害 +5%，弹速 +14%，弹体略微增大，生命上限 +8", icon: "➤", cost: 76, category: "武装", rarity: "rare", unlockWave: 3 },
   { id: "multi-loader", title: "复联装填器", desc: "额外弹丸 +1，但射击间隔增加 7%", icon: "⌬", cost: 104, category: "武装", rarity: "epic", unlockWave: 5, priceRate: .085 },
 
   { id: "overhaul", title: "装甲大修", desc: "生命上限 +12，并修复新增部分", icon: "▣", cost: 64, category: "防御", rarity: "common" },
   { id: "servo", title: "矢量伺服器", desc: "移动速度永久 +7%", icon: "➜", cost: 52, category: "防御", rarity: "common" },
-  { id: "armor-plate", title: "偏转复合甲", desc: "受到的伤害永久 -4%", icon: "⬢", cost: 74, category: "防御", rarity: "rare", unlockWave: 2 },
+  { id: "armor-plate", title: "偏转复合甲", desc: "受到的伤害永久 -4%，生命上限 +10", icon: "⬢", cost: 74, category: "防御", rarity: "rare", unlockWave: 2 },
   { id: "adaptive-hull", title: "自适应机壳", desc: "生命上限 +8、减伤 +2%，并修复 16 点", icon: "◇", cost: 88, category: "防御", rarity: "rare", unlockWave: 4, priceRate: .075 },
-  { id: "evasion-drive", title: "闪避推进器", desc: "移动速度 +5%，减伤 +2%，主/副技能冷却 -3%", icon: "〽", cost: 96, category: "防御", rarity: "epic", unlockWave: 6, priceRate: .08 },
+  { id: "evasion-drive", title: "闪避推进器", desc: "移动速度 +5%，减伤 +2%，主/副技能冷却 -3%，生命上限 +6", icon: "〽", cost: 96, category: "防御", rarity: "epic", unlockWave: 6, priceRate: .08 },
 
   { id: "collector", title: "磁力扩展器", desc: "拾取范围永久 +14%", icon: "◉", cost: 44, category: "核心", rarity: "common" },
   { id: "drone-kit", title: "无人机组装包", desc: "增加 1 架本职业无人机", icon: "✣", cost: 108, category: "核心", rarity: "epic", unlockWave: 2, priceRate: .095 },
-  { id: "reactor-cell", title: "反应堆电池", desc: "主技能与副技能冷却永久 -7%", icon: "◌", cost: 82, category: "核心", rarity: "rare", unlockWave: 3 },
+  { id: "reactor-cell", title: "反应堆电池", desc: "主技能与副技能冷却永久 -7%，生命上限 +8", icon: "◌", cost: 82, category: "核心", rarity: "rare", unlockWave: 3 },
   { id: "drone-overclock", title: "蜂群超频芯片", desc: "无人机伤害永久 +20%", icon: "✥", cost: 90, category: "核心", rarity: "rare", unlockWave: 4 },
   { id: "signature-module", title: "职业校准模组", desc: "强化当前机甲的独特主动或被动机制", icon: "◎", cost: 102, category: "核心", rarity: "epic", unlockWave: 5, priceRate: .09 },
   { id: "ultimate-amplifier", title: "终极增幅核心", desc: "终极大招伤害永久 +12%", icon: "✹", cost: 122, category: "核心", rarity: "legendary", unlockWave: 7, priceRate: .105 },
@@ -740,6 +751,7 @@ const UPGRADE_RARITY_GROWTH_CAP_WAVE = 12;
 const RARITY_WEIGHTS: Record<UpgradeRarity, number> = { common: 52, rare: 32, epic: 16, legendary: 7 };
 const RARITY_LATE_WAVE_BONUS: Record<UpgradeRarity, number> = { common: -8, rare: 10, epic: 14, legendary: 11 };
 const BASIC_ATTACK_WEIGHT_MULTIPLIER = 1.5;
+const MAX_HP_WEIGHT_MULTIPLIER = 1.55;
 const BASIC_ATTACK_UPGRADE_IDS = new Set([
   "rapid", "damage", "multi", "critical", "velocity",
   "assault-warhead", "guardian-rail", "phantom-needle", "laser-prism",
@@ -747,7 +759,36 @@ const BASIC_ATTACK_UPGRADE_IDS = new Set([
   "thunder-cycle", "sky-focus", "sky-penetrator", "cinder-nozzle",
   "aegis-lance", "venom-fangs", "chrono-echo",
 ]);
+const MAX_HP_UPGRADE_IDS = new Set([
+  "vitality", "bulkhead", "living-alloy",
+  "guardian-plating", "frost-armor", "blade-vamp", "gravity-anchor",
+  "cinder-plating", "aegis-plating", "chrono-anchor",
+]);
 const RARITY_LABELS: Record<UpgradeRarity, string> = { common: "普通", rare: "稀有", epic: "史诗", legendary: "传说" };
+const createRelicPickupReport = (
+  relic: BossRelic,
+  classId: ClassId,
+  previousPieces: number,
+  currentPieces: number,
+): RelicPickupReport => {
+  const set = SIGNATURE_SETS[classId];
+  const activated = set.tiers.slice(
+    clamp(previousPieces, 0, 3),
+    clamp(currentPieces, 0, 3),
+  );
+  return {
+    relicTitle: relic.title,
+    relicRarity: relic.rarity,
+    relicEffect: relic.desc,
+    setName: set.name,
+    setIcon: set.icon,
+    pieces: currentPieces,
+    activated,
+    next: currentPieces >= 3
+      ? "三件套已经全部激活"
+      : `下一件将解锁：${set.tiers[currentPieces]}`,
+  };
+};
 const upgradeRarity = (upgrade: Upgrade): UpgradeRarity => upgrade.rarity || UPGRADE_RARITY[upgrade.id] || "common";
 const upgradeRarityWeight = (rarity: UpgradeRarity, wave: number) => {
   const progress = Math.min(1, Math.max(0, (Math.max(1, wave) - 1) / (UPGRADE_RARITY_GROWTH_CAP_WAVE - 1)));
@@ -779,8 +820,8 @@ const MAX_SHOP_REROLLS = 3;
 const roundShopPrice = (value: number) => Math.max(5, Math.ceil(value / 5) * 5);
 const shopRerollPrice = (wave: number, used: number, wallet: number) => {
   const lateWave = Math.max(0, wave - 1);
-  const wavePrice = (14 + wave * 4 + Math.pow(lateWave, 1.58) * 2.5) * (1 + used * .42);
-  const economyFloor = wallet * (.04 + used * .032);
+  const wavePrice = (8 + wave * 2.4 + Math.pow(lateWave, 1.45) * 1.25) * (1 + used * .3);
+  const economyFloor = wallet * (.025 + used * .02);
   return roundShopPrice(Math.max(wavePrice, economyFloor));
 };
 const upgradeRerollPrice = (wave: number, used: number) => 4 + Math.floor(Math.max(0, wave - 1) / 4) + used * 3;
@@ -835,7 +876,8 @@ const weightedUpgradePick = (items: Upgrade[], excludedIds: Set<string>, wave: n
   const weighted = available.map((upgrade) => {
     const rarity = upgradeRarity(upgrade);
     const attackWeight = BASIC_ATTACK_UPGRADE_IDS.has(upgrade.id) ? BASIC_ATTACK_WEIGHT_MULTIPLIER : 1;
-    return { upgrade, rarity, weight: upgradeRarityWeight(rarity, wave) * attackWeight };
+    const maxHpWeight = MAX_HP_UPGRADE_IDS.has(upgrade.id) ? MAX_HP_WEIGHT_MULTIPLIER : 1;
+    return { upgrade, rarity, weight: upgradeRarityWeight(rarity, wave) * attackWeight * maxHpWeight };
   });
   const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
   let roll = Math.random() * totalWeight;
@@ -927,6 +969,18 @@ const rollShopItems = (wave: number, wallet: number, recentIds: string[] = []) =
 
 const WAVE_INTERVAL_SECONDS = 45;
 const SHOP_EVERY_WAVES = 2;
+const coinDropChanceFor = (wave: number, elapsedSeconds: number, enemy: Pick<Enemy, "kind" | "elite">) => {
+  const waveDecay = 1 / (1 + Math.max(0, wave - 1) * .12);
+  const crowdDecay = 1 / (1 + Math.max(0, elapsedSeconds - 60) / 1100);
+  const threatMultiplier = enemy.kind === "boss" ? 3.2 : enemy.elite ? 1.65 : 1;
+  return clamp(.17 * waveDecay * crowdDecay * threatMultiplier, .025, .28);
+};
+const coinDropAmountFor = (enemy: Pick<Enemy, "kind" | "elite">) => {
+  if (enemy.kind === "boss") return 5;
+  if (enemy.kind === "commander" || enemy.kind === "rammer") return 3;
+  if (enemy.elite || enemy.kind === "brute") return 2;
+  return 1;
+};
 const PERFORMANCE_LIMITS = {
   soloShots: 760,
   coopShots: 940,
@@ -1351,11 +1405,11 @@ export default function Home() {
   const [ultimateEnergy, setUltimateEnergy] = useState(0);
   const [choices, setChoices] = useState<Upgrade[] | null>(null);
   const [shopItems, setShopItems] = useState<ShopItem[] | null>(null);
-  const [supplyReward, setSupplyReward] = useState(0);
   const [waitingSupply, setWaitingSupply] = useState(false);
   const [upgradeRerolls, setUpgradeRerolls] = useState(0);
   const [shopRerolls, setShopRerolls] = useState(0);
   const [bossLootNotice, setBossLootNotice] = useState("");
+  const [relicPickupReport, setRelicPickupReport] = useState<RelicPickupReport | null>(null);
   const [routeChoices, setRouteChoices] = useState<WarzoneRoute[] | null>(null);
   const [waitingRoute, setWaitingRoute] = useState(false);
   const [warzoneState, setWarzoneState] = useState<ActiveWarzone | null>(null);
@@ -1425,8 +1479,8 @@ export default function Home() {
     wakeAudio("start");
     pausedRef.current = false;
     setLevel(1); setXp(0); setHp(ownBuildRef.current.maxHp); setMaxHp(ownBuildRef.current.maxHp); setTeammateHp(null); setRescueProgress(0); setKills(0); setSeconds(0); setSkillCooldown(0); setSecondarySkillCooldown(0);
-    setWave(1); setCoins(0); setUltimateEnergy(0); setShopItems(null); setSupplyReward(0); setWaitingSupply(false);
-    setUpgradeRerolls(0); setShopRerolls(0); setBossLootNotice(""); setRouteChoices(null); setWaitingRoute(false); setWarzoneState(null); setSignaturePieces(0);
+    setWave(1); setCoins(0); setUltimateEnergy(0); setShopItems(null); setWaitingSupply(false);
+    setUpgradeRerolls(0); setShopRerolls(0); setBossLootNotice(""); setRelicPickupReport(null); setRouteChoices(null); setWaitingRoute(false); setWarzoneState(null); setSignaturePieces(0);
     setChoices(null); setPaused(false); setView("game");
     setTimeout(() => resetRef.current(), 0);
   }, [wakeAudio]);
@@ -1493,6 +1547,7 @@ export default function Home() {
     setWaitingRoute(false);
     setWarzoneState(null);
     setSignaturePieces(0);
+    setRelicPickupReport(null);
   }, [clearConnectionTimers]);
 
   const connectToRoom = useCallback(async (rawCode: string, role: "host" | "join") => {
@@ -1634,7 +1689,7 @@ export default function Home() {
     let coOpRunEstablished = Boolean(network?.role === "host" && network.connected());
     let hostCoins = 0, guestCoins = 0, hostUltimate = 0, guestUltimate = 0;
     let hostBladeCombo = 0, guestBladeCombo = 0;
-    let currentWave = 1, waveKills = 0, nextWaveAt = WAVE_INTERVAL_SECONDS, lastBossWave = 0;
+    let currentWave = 1, nextWaveAt = WAVE_INTERVAL_SECONDS, lastBossWave = 0;
     let currentWarzone: ActiveWarzone | null = null;
     let pendingRouteChoice = false;
     let bossBag: BossVariant[] = [];
@@ -1845,7 +1900,6 @@ export default function Home() {
         setShopRerolls(0);
         setCoins(guestCoins);
         setWave(currentWave);
-        setSupplyReward(data.reward);
         setWaitingSupply(false);
         shopStock = rollShopItems(currentWave, guestCoins, recentShopIds);
         recentShopIds = shopStock.map((item) => item.id);
@@ -1874,6 +1928,7 @@ export default function Home() {
       if (data.t === "boss-loot" && !isAuthority) {
         const relic = BOSS_RELICS.find((entry) => entry.id === data.relic);
         const previousMaxHp = build.maxHp;
+        const previousSignaturePieces = clamp(Math.round(build.signaturePieces || 0), 0, 3);
         build = applyBossRelicToBuild(build, data.relic);
         build = applySignatureRelicPieces(build, data.pieces);
         stats = { ...build };
@@ -1883,8 +1938,15 @@ export default function Home() {
         setMaxHp(player.maxHp);
         setHp(Math.ceil(player.hp));
         setSignaturePieces(build.signaturePieces);
-        const signatureSet = SIGNATURE_SETS[build.classId];
-        setBossLootNotice(relic ? `${relic.icon} ${RARITY_LABELS[relic.rarity]}遗物 · ${relic.title}；${signatureSet.icon} ${signatureSet.name} ${build.signaturePieces}/3` : "获得 Boss 核心");
+        if (relic) {
+          setBossLootNotice("");
+          setRelicPickupReport(createRelicPickupReport(
+            relic,
+            build.classId,
+            previousSignaturePieces,
+            build.signaturePieces,
+          ));
+        }
       }
       if (data.t === "route-open" && !isAuthority) {
         localPaused = true;
@@ -1934,7 +1996,7 @@ export default function Home() {
       hostReviveProgress = 0; guestReviveProgress = 0;
       hostCoins = 0; guestCoins = 0; hostUltimate = 0; guestUltimate = 0;
       hostBladeCombo = 0; guestBladeCombo = 0;
-      currentWave = 1; waveKills = 0; nextWaveAt = WAVE_INTERVAL_SECONDS; lastBossWave = 0;
+      currentWave = 1; nextWaveAt = WAVE_INTERVAL_SECONDS; lastBossWave = 0;
       currentWarzone = null; pendingRouteChoice = false;
       bossBag = [];
       previousBossVariant = null;
@@ -1972,11 +2034,11 @@ export default function Home() {
       setCoins(0);
       setUltimateEnergy(0);
       setShopItems(null);
-      setSupplyReward(0);
       setWaitingSupply(false);
       setUpgradeRerolls(0);
       setShopRerolls(0);
       setBossLootNotice("");
+      setRelicPickupReport(null);
       setRouteChoices(null);
       setWaitingRoute(false);
       setWarzoneState(null);
@@ -1996,8 +2058,16 @@ export default function Home() {
       if (id === "drone") stats.drones += 1;
       if (id === "repair" && player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 35);
       if (id === "vitality") {
-        player.maxHp += 20;
-        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 30);
+        player.maxHp += 26;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 32);
+      }
+      if (id === "bulkhead") {
+        player.maxHp += 18;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 18);
+      }
+      if (id === "living-alloy") {
+        player.maxHp += 24;
+        if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + player.maxHp * .12);
       }
       if (id === "assault-double-storm") stats.missileWaves += 1;
       if (id === "assault-saturation") stats.missileCount += 6;
@@ -2163,6 +2233,10 @@ export default function Home() {
       else hostUltimate = next;
       setUltimateEnergy(next);
     };
+    const addShopMaxHp = (amount: number) => {
+      player.maxHp += amount;
+      if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + amount);
+    };
     buyShopItemRef.current = (id) => {
       const item = shopStock.find((entry) => entry.id === id);
       if (!item || localWallet() < item.cost) return;
@@ -2181,7 +2255,7 @@ export default function Home() {
         player.maxHp += 12;
         player.hp = Math.min(player.maxHp, player.hp + 12);
       }
-      if (id === "ammo") stats.damage *= 1.08;
+      if (id === "ammo") { stats.damage *= 1.08; addShopMaxHp(6); }
       if (id === "coolant") stats.interval *= .94;
       if (id === "crit-optic") {
         stats.critChance = Math.min(.72, stats.critChance + .06);
@@ -2191,6 +2265,7 @@ export default function Home() {
         stats.damage *= 1.05;
         stats.projectileSpeed *= 1.14;
         stats.projectileSize += .8;
+        addShopMaxHp(8);
       }
       if (id === "multi-loader") {
         stats.multi += 1;
@@ -2198,9 +2273,15 @@ export default function Home() {
       }
       if (id === "collector") stats.magnet *= 1.14;
       if (id === "drone-kit") stats.drones += 1;
-      if (id === "reactor-cell") stats.skillHaste = Math.max(.5, stats.skillHaste * .93);
+      if (id === "reactor-cell") {
+        stats.skillHaste = Math.max(.5, stats.skillHaste * .93);
+        addShopMaxHp(8);
+      }
       if (id === "servo") stats.speed *= 1.07;
-      if (id === "armor-plate") stats.damageReduction = Math.min(.62, stats.damageReduction + .04);
+      if (id === "armor-plate") {
+        stats.damageReduction = Math.min(.62, stats.damageReduction + .04);
+        addShopMaxHp(10);
+      }
       if (id === "adaptive-hull") {
         player.maxHp += 8;
         if (player.hp > 0) player.hp = Math.min(player.maxHp, player.hp + 24);
@@ -2210,6 +2291,7 @@ export default function Home() {
         stats.speed *= 1.05;
         stats.damageReduction = Math.min(.62, stats.damageReduction + .02);
         stats.skillHaste = Math.max(.5, stats.skillHaste * .97);
+        addShopMaxHp(6);
       }
       if (id === "drone-overclock") stats.dronePower *= 1.2;
       if (id === "signature-module") {
@@ -3647,10 +3729,6 @@ export default function Home() {
         }
         const shouldOpenSupply = (currentWave - 1) % SHOP_EVERY_WAVES === 0;
         if (!shouldOpenSupply) return;
-        const reward = supplyRewardFor(waveKills, currentWave);
-        hostCoins += reward;
-        if (coOpActive) guestCoins += reward;
-        waveKills = 0;
         localShopDone = false;
         remoteShopDone = false;
         localShopStartedAlive = player.hp > 0;
@@ -3659,12 +3737,11 @@ export default function Home() {
         setShopRerolls(0);
         localPaused = true;
         setCoins(hostCoins);
-        setSupplyReward(reward);
         setWaitingSupply(false);
         shopStock = rollShopItems(currentWave, hostCoins, recentShopIds);
         recentShopIds = shopStock.map((item) => item.id);
         setShopItems(shopStock);
-        if (network?.connected()) void network.send({ t: "shop-open", wave: currentWave, reward, coins: guestCoins });
+        if (network?.connected()) void network.send({ t: "shop-open", wave: currentWave, reward: 0, coins: guestCoins });
         return;
       }
       if (currentWave % 3 === 0 && lastBossWave !== currentWave) spawnBoss();
@@ -4231,6 +4308,15 @@ export default function Home() {
             relic: bossRelic?.id,
             relicPieces: bossRelic ? (currentWarzone?.id === "archive" ? 2 : 1) : undefined,
           });
+          if (Math.random() < coinDropChanceFor(currentWave, elapsed, enemy)) {
+            gems.push({
+              x: enemy.x - 14,
+              y: enemy.y + 12,
+              value: 0,
+              life: 12,
+              coins: coinDropAmountFor(enemy),
+            });
+          }
           if (enemy.elite || HEALTH_PACK_ENEMY_KINDS.includes(enemy.kind)) {
             const heal = enemy.kind === "boss"
               ? .28
@@ -4246,7 +4332,6 @@ export default function Home() {
           impactEffect(enemy.x, enemy.y, enemy.kind === "boss" ? "#ff5b7d" : enemy.elite ? "#f4c95d" : enemy.color, enemy.kind === "boss" ? 180 : enemy.elite ? 72 : 42);
           if (bossRelic) setBossLootNotice(`Boss 已击破 · ${RARITY_LABELS[bossRelic.rarity]}遗物 ${bossRelic.icon} ${bossRelic.title}等待拾取`);
           currentKills++;
-          waveKills++;
           const killer = enemy.lastHitBy || "host";
           const baseEnergyGain = enemy.kind === "boss" ? 30 : enemy.kind === "commander" ? 16 : enemy.elite ? 10 : 6;
           const chargingClass = killer === "guest"
@@ -4284,6 +4369,18 @@ export default function Home() {
           .filter((entry) => entry.distance < entry.actor.r + 8)
           .sort((a, b) => a.distance - b.distance)[0];
         if (collector) {
+          if (gem.coins) {
+            const pickedCoins = gem.coins;
+            hostCoins += pickedCoins;
+            if (coOpActive) guestCoins += pickedCoins;
+            setCoins(hostCoins);
+            addEffect({ kind: "impact", x: gem.x, y: gem.y, color: "#f4c95d", radius: 44 }, .36);
+            burst(gem.x, gem.y, "#f4c95d", 8);
+            gem.coins = undefined;
+            gem.value = 0;
+            audio?.play("pickup");
+            continue;
+          }
           if (gem.heal) {
             const before = collector.actor.hp;
             collector.actor.hp = Math.min(
@@ -4306,6 +4403,7 @@ export default function Home() {
             const relic = BOSS_RELICS.find((entry) => entry.id === gem.relic);
             const signaturePieceCount = gem.relicPieces || 1;
             const previousMaxHp = build.maxHp;
+            const previousSignaturePieces = clamp(Math.round(build.signaturePieces || 0), 0, 3);
             build = applyBossRelicToBuild({ ...build, ...stats, maxHp: player.maxHp }, gem.relic);
             build = applySignatureRelicPieces(build, signaturePieceCount);
             stats = { ...build };
@@ -4326,9 +4424,15 @@ export default function Home() {
             setMaxHp(player.maxHp);
             setHp(Math.ceil(player.hp));
             setSignaturePieces(build.signaturePieces);
-            const signatureSet = SIGNATURE_SETS[build.classId];
-            const tierText = signatureSet.tiers[Math.max(0, build.signaturePieces - 1)];
-            setBossLootNotice(relic ? `${relic.icon} ${relic.title}；${signatureSet.icon} ${signatureSet.name} ${build.signaturePieces}/3 · ${tierText}` : "获得 Boss 核心");
+            if (relic) {
+              setBossLootNotice("");
+              setRelicPickupReport(createRelicPickupReport(
+                relic,
+                build.classId,
+                previousSignaturePieces,
+                build.signaturePieces,
+              ));
+            }
             if (network?.connected()) void network.send({ t: "boss-loot", relic: gem.relic, pieces: signaturePieceCount });
             pendingRouteChoice = true;
             audio?.play("ultimate");
@@ -4345,10 +4449,10 @@ export default function Home() {
           }
         }
       }
-      gems = gems.filter((gem) => gem.life > 0 && (gem.value > 0 || Boolean(gem.heal)));
+      gems = gems.filter((gem) => gem.life > 0 && (gem.value > 0 || Boolean(gem.heal || gem.coins)));
       if (gems.length > PERFORMANCE_LIMITS.gems) {
-        const protectedDrops = gems.filter((gem) => Boolean(gem.heal || gem.relic));
-        const xpDrops = gems.filter((gem) => !gem.heal && !gem.relic && gem.value > 0);
+        const protectedDrops = gems.filter((gem) => Boolean(gem.heal || gem.relic || gem.coins));
+        const xpDrops = gems.filter((gem) => !gem.heal && !gem.relic && !gem.coins && gem.value > 0);
         const xpSlots = Math.max(1, PERFORMANCE_LIMITS.gems - protectedDrops.length);
         const keptXp = xpDrops.slice(-xpSlots);
         const mergedXp = xpDrops.slice(0, Math.max(0, xpDrops.length - xpSlots)).reduce((sum, gem) => sum + gem.value, 0);
@@ -4402,6 +4506,15 @@ export default function Home() {
       for(let i=0;i<24;i++){ const x=(i*193)%W,y=(i*317)%H;ctx.beginPath();ctx.arc(x,y,18+(i%4)*9,0,Math.PI*2);ctx.fill();}
       for(const g of gems){
         const dropAlpha=g.life<3?.38+Math.abs(Math.sin(performance.now()/120))*.62:1;
+        if(g.coins){
+          const pulse=1+Math.sin(renderNow/140)*.07;
+          ctx.save();ctx.globalAlpha=dropAlpha;ctx.translate(g.x,g.y);ctx.scale(pulse,pulse);
+          ctx.fillStyle="#f4c95d";ctx.strokeStyle="#fff0a6";ctx.lineWidth=2;ctx.shadowColor="#f4c95d";ctx.shadowBlur=reducedEffects?0:14;
+          ctx.beginPath();ctx.arc(0,0,10+Math.min(4,g.coins),0,Math.PI*2);ctx.fill();ctx.stroke();
+          ctx.fillStyle="#4c3a12";ctx.font="900 12px monospace";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("◈",0,1);ctx.restore();
+          ctx.save();ctx.globalAlpha=dropAlpha;ctx.fillStyle="#ffe58b";ctx.font="900 9px monospace";ctx.textAlign="center";ctx.fillText(`金币 +${g.coins}`,g.x,g.y-18);ctx.restore();
+          continue;
+        }
         if(g.heal){
           const pulse=1+Math.sin(performance.now()/170)*.08;
           ctx.save();ctx.globalAlpha=dropAlpha;ctx.translate(g.x,g.y);ctx.scale(pulse,pulse);
@@ -5108,6 +5221,24 @@ export default function Home() {
   const activeWarzoneInfo = warzoneState ? WARZONE_BY_ID[warzoneState.id] : null;
   const currentUpgradeRerollCost = upgradeRerollPrice(wave, upgradeRerolls);
   const currentShopRerollCost = shopRerollPrice(wave, shopRerolls, coins);
+  const tacticalArchive = <section className="tacticalArchive" aria-label={`${selectedClassSpec.name}战术资料`}>
+    <div className="tacticalArchiveHeading">
+      <span><small>FRAME MANUAL · 机甲战术资料</small><b>{selectedClassSpec.name} · {selectedClassSpec.role}</b></span>
+      <em>技能说明仅在整备与暂停页面显示，不占用战斗视野。</em>
+    </div>
+    <div className="tacticalSkillGrid">
+      {[
+        { key: "Q", label: "主技能", detail: selectedClassSpec.active },
+        { key: "E", label: "副技能", detail: selectedClassSpec.secondary },
+        { key: "P", label: "被动", detail: selectedClassSpec.passive },
+        { key: "R", label: "终极大招", detail: selectedClassSpec.ultimate },
+      ].map((skill)=><div key={skill.key}><i>{skill.key}</i><span><small>{skill.label}</small><b>{skill.detail}</b></span></div>)}
+    </div>
+    <div className="signatureArchive">
+      <div><i>{selectedSignatureSet.icon}</i><span><small>职业遗物套装</small><b>{selectedSignatureSet.name} · {signaturePieces}/3</b></span></div>
+      <ol>{selectedSignatureSet.tiers.map((tier,index)=><li key={tier} className={signaturePieces>index?"active":""}><em>{index+1} 件</em><span>{tier}</span><b>{signaturePieces>index?"已激活":"未激活"}</b></li>)}</ol>
+    </div>
+  </section>;
   const classSelector = <div className="classGrid">
     {CLASSES.map((item) => <button key={item.id} className={selectedClass===item.id?"selected":""} onClick={()=>selectClass(item.id)}>
       <ResilientMechPreview classInfo={item}/>
@@ -5125,7 +5256,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.17.1 · 强化卡效果提升</div>
+        <div className="status"><i /> 版本 0.17.2 · 生存强化与战术档案</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -5164,6 +5295,7 @@ export default function Home() {
         <h2>选择你的作战职业</h2>
         <p>每种机体至少拥有两项独立小技能和一项被动特性，进入远征后仍可通过遗物继续塑造个人流派。</p>
         {classSelector}
+        {tacticalArchive}
         <button className="primary compact launchClass" onClick={startSelectedSolo}><span>驾驶 {selectedClassSpec.name} 出发</span></button>
       </section>}
 
@@ -5203,6 +5335,7 @@ export default function Home() {
                 <span>双方可选择不同机体；进入战斗后经验与关卡共享，升级强化各自生效。</span>
               </div>
               {classSelector}
+              {tacticalArchive}
             </div>}
             {connectionStatus==="connected" && signalMode==="host" && <button className="primary compact startTogether" onClick={()=>void startCoopGame()}><span>两人一起出发</span></button>}
             {connectionStatus==="error" && <button className="connect" onClick={()=>void connectToRoom(roomCode, signalMode)}>重新连接</button>}
@@ -5223,6 +5356,14 @@ export default function Home() {
           <canvas ref={canvasRef} aria-label="余烬协议游戏画面"/>
           {signalMode && <div className="syncBadge"><i /> 共享战场 · {signalMode==="host"?"队长同步":"伙伴同步"}</div>}
           {bossLootNotice && <div key={bossLootNotice} className="bossNotice">{bossLootNotice}</div>}
+          {relicPickupReport && <div key={`${relicPickupReport.relicTitle}-${relicPickupReport.pieces}`} className="relicPickupReport">
+            <small>遗物拾取确认 · {RARITY_LABELS[relicPickupReport.relicRarity]}</small>
+            <b>{relicPickupReport.relicTitle}</b>
+            <span><em>核心效果</em>{relicPickupReport.relicEffect}</span>
+            <span><em>套装进度</em>{relicPickupReport.setIcon} {relicPickupReport.setName} · {relicPickupReport.pieces}/3</span>
+            {relicPickupReport.activated.map((effect,index)=><span key={effect} className="relicActivated"><em>本次激活 {index+1}</em>{effect}</span>)}
+            <strong>{relicPickupReport.next}</strong>
+          </div>}
           <div className="runModules">
             {activeWarzoneInfo && <div className="warzoneBadge" style={{"--zone-color":activeWarzoneInfo.color} as CSSProperties}>
               <i>{activeWarzoneInfo.icon}</i><span><small>当前战区 · 至第 {warzoneState?.expiresAtWave} 波</small><b>{activeWarzoneInfo.title}</b></span>
@@ -5235,31 +5376,27 @@ export default function Home() {
             <span><b>队友机体</b><small>{teammateHp<=0?"已倒地":`${teammateHp}/${teammateMaxHp}`}</small></span>
             <i><em style={{width:`${clamp(teammateHp/Math.max(1,teammateMaxHp)*100,0,100)}%`}}/></i>
           </div>}
-          <div className="skillDock">
-            <ResilientMechPreview key={selectedClassSpec.id} classInfo={selectedClassSpec}/>
-            <div><small>{selectedClassSpec.role}</small><b>{selectedClassSpec.active}</b></div>
-            <button
+          <div className="combatSkillRack" aria-label="战斗技能快捷键">
+            <button className="combatSkill primaryCombatSkill"
               onClick={()=>activeSkillRef.current()}
               disabled={hp<=0||(selectedClass==="phantom"?skillCharges<=0:skillCooldown>0)}
             >
-              {hp<=0
+              <small>Q · 主技能</small><b>{hp<=0
                 ?"倒地"
                 :selectedClass==="phantom"
                   ?skillCharges>0
-                    ?`Q · ${skillCharges}/${skillChargeCap}`
+                    ?`${skillCharges}/${skillChargeCap} 可用`
                     :`${skillCooldown}s · 0/${skillChargeCap}`
                   :skillCooldown>0
                     ?`${skillCooldown}s`
-                    :"Q · 释放"}
+                    :"就绪"}</b>
+            </button>
+            <button className="combatSkill secondaryCombatSkill" onClick={()=>secondarySkillRef.current()} disabled={secondarySkillCooldown>0||hp<=0}>
+              <small>E · 副技能</small><b>{hp<=0?"倒地":secondarySkillCooldown>0?`${secondarySkillCooldown}s`:"就绪"}</b>
             </button>
           </div>
-          <div className="skillDock secondarySkillDock">
-            <span className="secondarySkillIcon" aria-hidden="true">Ⅱ</span>
-            <div><small>第二战术技能</small><b>{selectedClassSpec.secondary}</b></div>
-            <button onClick={()=>secondarySkillRef.current()} disabled={secondarySkillCooldown>0||hp<=0}>{hp<=0?"倒地":secondarySkillCooldown>0?`${secondarySkillCooldown}s`:"E · 释放"}</button>
-          </div>
           <div className={`ultimateDock ${ultimateEnergy>=100?"ready":""}`}>
-            <span className="ultimateCopy"><small>终极大招</small><b>{ULTIMATE_NAMES[selectedClass]}</b><em>{selectedClassSpec.ultimate.split("：")[1]}</em></span>
+            <span className="ultimateCopy"><small>R · 终极能量</small><b>{ULTIMATE_NAMES[selectedClass]}</b></span>
             <i><em style={{width:`${clamp(ultimateEnergy,0,100)}%`}}/></i>
             <button onClick={()=>activeUltimateRef.current()} disabled={ultimateEnergy<100||hp<=0}>{ultimateEnergy>=100?"R · 释放":`${Math.floor(ultimateEnergy)}%`}</button>
           </div>
@@ -5270,7 +5407,7 @@ export default function Home() {
         </div>
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
-          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>基础伤害、射速、多重弹、暴击、弹速与本职业主武器强化获得 1.5 倍抽取权重；其他强化仍参与动态稀有度抽取，仍不提供固定保底。稀有、史诗与传说强化会随波数提高概率，并在第 12 波达到概率上限。达到机制上限的强化会移出奖池。装配完成后恢复 18% 最大生命值。</p>
+          <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>新增三种通用生命上限强化，生命上限类强化获得 1.55 倍抽取权重；基础伤害、射速、多重弹、暴击、弹速与本职业主武器强化获得 1.5 倍权重。稀有、史诗与传说强化会随波数提高概率，并在第 12 波达到上限。达到机制上限的强化会移出奖池，装配完成后恢复 18% 最大生命值。</p>
             <div className="shopWallet upgradeWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="upgradeGrid">{choices.map((u)=><button key={u.id} className={`${u.ultimate?"ultimateUpgrade ":u.secondary?"secondaryUpgrade ":""}rarity-${u.rarity||"common"}`} onClick={()=>chooseUpgrade(u)}><small>{u.ultimate?`终极 · ${RARITY_LABELS[u.rarity||"common"]}`:u.secondary?`副技能 · ${RARITY_LABELS[u.rarity||"common"]}`:u.classId?`本职业 · ${RARITY_LABELS[u.rarity||"common"]}`:RARITY_LABELS[u.rarity||"common"]}</small><i>{u.icon}</i><b>{u.title}</b><span>{u.desc}</span></button>)}</div>
@@ -5296,7 +5433,7 @@ export default function Home() {
           <div className="shopPanel">
             <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波后补给</div>
             <h2>战场补给站</h2>
-            <p>本次补给周期共享结算 <b>◈ {supplyReward}</b>。前期额外发放远征启动资金，前三次补给享受逐步递减的价格优惠；首次补给保证至少一件永久成长配件买得起。</p>
+            <p>补给站不再一次性结算金币；金币由击杀敌人后小概率掉落并由全队共享，波数越高掉率越低。前三次补给仍享受逐步递减的价格优惠，并尽量保证至少一件成长配件买得起。</p>
             <div className="shopWallet"><span>当前个人金币</span><b>◈ {coins}</b></div>
             <div className="panelVitals"><span>当前机体完整度 <b>{hp}/{maxHp}</b></span><i><em style={{width:`${clamp(hp/Math.max(1,maxHp)*100,0,100)}%`}}/></i></div>
             <div className="shopGrid">{shopItems.map((item)=><button key={item.id} className={`shop-rarity-${item.rarity}`} onClick={()=>buyShopItemRef.current(item.id)} disabled={coins<item.cost}>
@@ -5319,7 +5456,8 @@ export default function Home() {
         {waitingRoute && !routeChoices && <div className="overlay">
           <div className="pausePanel waitingUpgrade"><div className="eyebrow">战区路线同步</div><h2>队长正在规划路线</h2><p>路线的风险与收益会同步作用于全队；你的遗物套装仍按自己驾驶的机甲独立成长。</p><i className="waitingPulse"/></div>
         </div>}
-        {paused && !choices && !shopItems && !waitingSupply && !routeChoices && !waitingRoute && <div className="overlay"><div className="pausePanel"><div className="eyebrow">{hp<=0?"远征终止":"火焰暂歇"}</div><h2>{hp<=0?"火种熄灭了":"游戏已暂停"}</h2><p>{hp<=0?`队伍坚持了 ${formatTime(seconds)}，共同净化了 ${kills} 只荒兽。`:signalMode==="join"?"等待队长继续远征。":"休息一下，荒原会等你。"}</p>
+        {paused && !choices && !shopItems && !waitingSupply && !routeChoices && !waitingRoute && <div className="overlay"><div className={`pausePanel ${hp>0?"tacticalPause":""}`}><div className="eyebrow">{hp<=0?"远征终止":"火焰暂歇"}</div><h2>{hp<=0?"火种熄灭了":"游戏已暂停"}</h2><p>{hp<=0?`队伍坚持了 ${formatTime(seconds)}，共同净化了 ${kills} 只荒兽。`:signalMode==="join"?"等待队长继续远征。":"休息一下，荒原会等你。"}</p>
+          {hp>0&&tacticalArchive}
           {hp>0&&signalMode!=="join"&&<button className="primary compact" onClick={resumeRun}><span>全队继续</span></button>}
           {hp<=0&&signalMode!=="join"&&<button className="primary compact" onClick={restartRun}><span>全队再次点火</span></button>}
           <button className="textBtn" onClick={()=>void returnToMenu()}>返回主菜单</button></div></div>}
