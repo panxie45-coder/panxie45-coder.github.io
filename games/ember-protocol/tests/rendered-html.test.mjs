@@ -43,7 +43,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.18\.0 · 星门武器进化与动态战区/);
+  assert.match(html, /版本 0\.18\.1 · 统一机甲美术与战斗视野整理/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -143,9 +143,12 @@ test("ships sixteen independent classes, evolutions, missions, bosses, and gener
   assert.match(page, /猎杀标记/);
   assert.match(page, /熔火地雷/);
   assert.match(page, /if \(e\.key\.toLowerCase\(\) === "e"\)/);
-  assert.match(page, /className="combatSkillRack"/);
+  assert.match(page, /className="battleLoadoutPanel"/);
+  assert.doesNotMatch(page, /className="combatSkillRack"/);
   assert.match(page, /const tacticalArchive = <section className="tacticalArchive"/);
-  assert.match(page, /className="relicPickupReport"/);
+  assert.match(page, /className="relicPickupReport externalRelicReport"/);
+  assert.match(page, /selectedClassSpec\.ultimate/);
+  assert.match(page, /selectedSignatureSet\.tiers\[signaturePieces\]/);
   assert.match(page, /createRelicPickupReport/);
   assert.match(page, /variant\?: "secondary"/);
   assert.match(page, /skill2\?: boolean/);

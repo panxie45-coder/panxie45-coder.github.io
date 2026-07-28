@@ -5640,8 +5640,8 @@ export default function Home() {
         const cellW = quantumSheet ? mechImage.naturalWidth / 2 : independentSprite ? mechImage.naturalWidth : mechImage.naturalWidth / 2;
         const cellH = quantumSheet ? mechImage.naturalHeight / 3 : independentSprite ? mechImage.naturalHeight : mechImage.naturalHeight / 2;
         const size = classInfo.renderSize;
-        const mechDrawW = quantumSheet ? size * 1.45 : size;
-        const mechDrawH = quantumSheet ? size * .96 : size;
+        const mechDrawW = size;
+        const mechDrawH = size;
         ctx.save();
         if(actor.hp<=0){ctx.globalAlpha=.34;ctx.filter="grayscale(1) brightness(.72)";}
         ctx.shadowColor=ally?"#78a99d":actor.color;
@@ -5693,7 +5693,7 @@ export default function Home() {
           const target=enemies.length?enemies.reduce((nearest,enemy)=>dist(position,enemy)<dist(position,nearest)?enemy:nearest):null;
           const angle=target?Math.atan2(target.y-position.y,target.x-position.x):position.angle+Math.PI/2;
           const size=classInfo.id==="cinder"||classInfo.id==="aegis"?42:classInfo.id==="frost"||classInfo.id==="gravity"||classInfo.id==="chrono"?38:classInfo.id==="blade"||classInfo.id==="thunder"||classInfo.id==="sky"||classInfo.id==="venom"?36:32;
-          const droneDrawW=quantumSheet?size*1.45:size,droneDrawH=quantumSheet?size*.96:size;
+          const droneDrawW=size,droneDrawH=size;
           ctx.save();ctx.translate(position.x,position.y);ctx.rotate(angle);ctx.shadowColor=classInfo.color;ctx.shadowBlur=10;
           ctx.drawImage(droneImage,(sprite%droneColumns)*cellW,quantumSheet?cellH:classInfo.sheet==="core"?Math.floor(sprite/2)*cellH:0,cellW,cellH,-droneDrawW/2,-droneDrawH/2,droneDrawW,droneDrawH);
           ctx.restore();
@@ -5874,7 +5874,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.18.0 · 星门武器进化与动态战区</div>
+        <div className="status"><i /> 版本 0.18.1 · 统一机甲美术与战斗视野整理</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -5975,14 +5975,6 @@ export default function Home() {
           <canvas ref={canvasRef} aria-label="余烬协议游戏画面"/>
           {signalMode && <div className="syncBadge"><i /> 共享战场 · {signalMode==="host"?"队长同步":"伙伴同步"}</div>}
           {bossLootNotice && <div key={bossLootNotice} className="bossNotice">{bossLootNotice}</div>}
-          {relicPickupReport && <div key={`${relicPickupReport.relicTitle}-${relicPickupReport.pieces}`} className="relicPickupReport">
-            <small>遗物拾取确认 · {RARITY_LABELS[relicPickupReport.relicRarity]}</small>
-            <b>{relicPickupReport.relicTitle}</b>
-            <span><em>核心效果</em>{relicPickupReport.relicEffect}</span>
-            <span><em>套装进度</em>{relicPickupReport.setIcon} {relicPickupReport.setName} · {relicPickupReport.pieces}/3</span>
-            {relicPickupReport.activated.map((effect,index)=><span key={effect} className="relicActivated"><em>本次激活 {index+1}</em>{effect}</span>)}
-            <strong>{relicPickupReport.next}</strong>
-          </div>}
           <div className="runModules">
             {battleMission && <div className="missionBadge">
               <i>{battleMission.id==="hold"?"◆":battleMission.id==="elite"?"⌖":"✦"}</i>
@@ -5991,20 +5983,24 @@ export default function Home() {
             {activeWarzoneInfo && <div className="warzoneBadge" style={{"--zone-color":activeWarzoneInfo.color} as CSSProperties}>
               <i>{activeWarzoneInfo.icon}</i><span><small>当前战区 · 至第 {warzoneState?.expiresAtWave} 波</small><b>{activeWarzoneInfo.title}</b></span>
             </div>}
-            <div className={`signatureBadge pieces-${signaturePieces}`}>
-              <i>{selectedSignatureSet.icon}</i><span><small>职业遗物套装</small><b>{selectedSignatureSet.name} · {signaturePieces}/3</b></span>
-            </div>
           </div>
           {signalMode && teammateHp!==null && <div className={`teammateHealth ${teammateHp<=0?"down":""}`}>
             <span><b>队友机体</b><small>{teammateHp<=0?"已倒地":`${teammateHp}/${teammateMaxHp}`}</small></span>
             <i><em style={{width:`${clamp(teammateHp/Math.max(1,teammateMaxHp)*100,0,100)}%`}}/></i>
           </div>}
-          <div className="combatSkillRack" aria-label="战斗技能快捷键">
+          {hp<=0&&!paused&&<div className="downedSpectator"><b>机体倒地 · 正在观战</b><span>{rescueProgress>0?`累计施救进度 ${Math.round(rescueProgress*100)}%`:"队友靠近累计施救 2 秒即可复活你"}</span></div>}
+          <div className="health"><span>{selectedClassSpec.name} · 机体完整度</span><div><i style={{width:`${clamp(hp / Math.max(1, maxHp) * 100, 0, 100)}%`}}/></div><b>{hp}/{maxHp}</b></div>
+          <div className="xp"><i style={{width:`${xp}%`}}/></div>
+          <div className="mobileHint">按住并拖动来移动</div>
+        </div>
+        <section className="battleLoadoutPanel" aria-label="战斗画面外机体档案">
+          <div className="battleSkillActions">
             <button className="combatSkill primaryCombatSkill"
               onClick={()=>activeSkillRef.current()}
               disabled={hp<=0||(selectedClass==="phantom"?skillCharges<=0:skillCooldown>0)}
             >
-              <small>Q · 主技能</small><b>{hp<=0
+              <small>Q · 主技能</small>
+              <b>{hp<=0
                 ?"倒地"
                 :selectedClass==="phantom"
                   ?skillCharges>0
@@ -6013,21 +6009,31 @@ export default function Home() {
                   :skillCooldown>0
                     ?`${skillCooldown}s`
                     :"就绪"}</b>
+              <span>{selectedClassSpec.active}</span>
             </button>
             <button className="combatSkill secondaryCombatSkill" onClick={()=>secondarySkillRef.current()} disabled={secondarySkillCooldown>0||hp<=0}>
               <small>E · 副技能</small><b>{hp<=0?"倒地":secondarySkillCooldown>0?`${secondarySkillCooldown}s`:"就绪"}</b>
+              <span>{selectedClassSpec.secondary}</span>
             </button>
           </div>
-          <div className={`ultimateDock ${ultimateEnergy>=100?"ready":""}`}>
-            <span className="ultimateCopy"><small>R · 终极能量</small><b>{ULTIMATE_NAMES[selectedClass]}</b></span>
+          <div className={`battleUltimateArchive ${ultimateEnergy>=100?"ready":""}`}>
+            <span className="ultimateCopy"><small>R · 终极能量</small><b>{ULTIMATE_NAMES[selectedClass]}</b><em>{selectedClassSpec.ultimate}</em></span>
             <i><em style={{width:`${clamp(ultimateEnergy,0,100)}%`}}/></i>
             <button onClick={()=>activeUltimateRef.current()} disabled={ultimateEnergy<100||hp<=0}>{ultimateEnergy>=100?"R · 释放":`${Math.floor(ultimateEnergy)}%`}</button>
           </div>
-          {hp<=0&&!paused&&<div className="downedSpectator"><b>机体倒地 · 正在观战</b><span>{rescueProgress>0?`累计施救进度 ${Math.round(rescueProgress*100)}%`:"队友靠近累计施救 2 秒即可复活你"}</span></div>}
-          <div className="health"><span>{selectedClassSpec.name} · 机体完整度</span><div><i style={{width:`${clamp(hp / Math.max(1, maxHp) * 100, 0, 100)}%`}}/></div><b>{hp}/{maxHp}</b></div>
-          <div className="xp"><i style={{width:`${xp}%`}}/></div>
-          <div className="mobileHint">按住并拖动来移动</div>
-        </div>
+          <div className={`battleSetArchive pieces-${signaturePieces}`}>
+            <i>{selectedSignatureSet.icon}</i>
+            <span><small>职业遗物套装 · {signaturePieces}/3</small><b>{selectedSignatureSet.name}</b><em>{signaturePieces>=3?"完整套装机制已激活":`下一件：${selectedSignatureSet.tiers[signaturePieces]}`}</em></span>
+          </div>
+        </section>
+        {relicPickupReport && <div key={`${relicPickupReport.relicTitle}-${relicPickupReport.pieces}`} className="relicPickupReport externalRelicReport">
+          <small>遗物拾取确认 · {RARITY_LABELS[relicPickupReport.relicRarity]}</small>
+          <b>{relicPickupReport.relicTitle}</b>
+          <span><em>核心效果</em>{relicPickupReport.relicEffect}</span>
+          <span><em>套装进度</em>{relicPickupReport.setIcon} {relicPickupReport.setName} · {relicPickupReport.pieces}/3</span>
+          {relicPickupReport.activated.map((effect,index)=><span key={effect} className="relicActivated"><em>本次激活 {index+1}</em>{effect}</span>)}
+          <strong>{relicPickupReport.next}</strong>
+        </div>}
         <button className="quit" onClick={()=>void returnToMenu()}>结束远征</button>
         {choices && <div className="overlay">
           <div className="upgradePanel"><div className="eyebrow">个人机体强化 · 独立选择</div><h2>选择你的专属遗物</h2><p>完成 3 次基础武器强化后会解锁一次二选一武器进化，可选择高速弹幕或重型爆破路线。生命上限类强化获得 1.55 倍抽取权重；基础伤害、射速、多重弹、暴击、弹速与本职业主武器强化获得 1.5 倍权重。稀有、史诗与传说强化会随波数提高概率，并在第 12 波达到上限。达到机制上限的强化会移出奖池，装配完成后恢复 18% 最大生命值。</p>
