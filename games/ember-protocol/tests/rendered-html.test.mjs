@@ -44,7 +44,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.16\.0 · 全机甲平衡重构/);
+  assert.match(html, /版本 0\.17\.0 · 战区路线与职业套装/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -248,7 +248,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /Math\.pow\(elapsed \/ 540, 1\.7\)/);
   assert.match(page, /addEvolvedEnemy\("artillery", 55/);
   assert.match(page, /addEvolvedEnemy\("commander", 285/);
-  assert.match(page, /const coOpScale = remote \? 1\.5 : 1;\s+const lateBossWave/);
+  assert.match(page, /const coOpScale = remote \? 1\.5 : 1;[\s\S]{0,700}const lateBossWave/);
   assert.match(page, /Math\.pow\(lateBossWave \/ 6, 1\.45\) \* \.5/);
   assert.match(page, /boss: \{ hp: 3400/);
   assert.match(page, /const bossResilience = enemy\.kind !== "boss"/);
@@ -278,6 +278,25 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /rollBossRelic\(currentWave\)/);
   assert.doesNotMatch(page, /shuffled\(BOSS_RELICS\)\[0\]/);
   assert.match(page, /RARITY_LABELS\[bossRelic\.rarity\]/);
+  assert.match(page, /const WARZONE_ROUTES: WarzoneRoute\[\]/);
+  assert.match(page, /id: "forge"/);
+  assert.match(page, /id: "archive"/);
+  assert.match(page, /t: "route-open"; wave: number/);
+  assert.match(page, /t: "route-selected"; route: ActiveWarzone/);
+  assert.match(page, /pendingRouteChoice = true/);
+  assert.match(page, /openWarzoneSelection\(\)/);
+  assert.match(page, /applyWarzoneBoonToBuild/);
+  assert.match(page, /warzoneProjectileScale/);
+  assert.match(page, /const SIGNATURE_SETS: Record<ClassId, SignatureSet>/);
+  assert.match(page, /const applySignatureRelicPieces/);
+  assert.match(page, /signaturePieces: 0/);
+  assert.match(page, /relicPieces: bossRelic \? \(currentWarzone\?\.id === "archive" \? 2 : 1\) : undefined/);
+  assert.match(page, /const signaturePieceCount = gem\.relicPieces \|\| 1/);
+  assert.match(page, /万华镜阵列/);
+  assert.match(page, /无间剑式/);
+  assert.match(page, /自律工厂/);
+  assert.match(css, /\.routeGrid/);
+  assert.match(css, /\.signatureBadge/);
   assert.match(page, /t: "shop-open"/);
   assert.match(page, /wallet: \{ host: number; guest: number \}/);
   assert.match(page, /ultimate: \{ host: number; guest: number \}/);
@@ -338,7 +357,7 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /currentWave - 1\) \* \.04/);
   assert.match(page, /const earnedXp = gem\.value \* xpGainScale\(\) \* earlyWaveXpMultiplier\(currentWave\)/);
   assert.match(page, /const W = 1600, H = 900/);
-  assert.match(page, /type Gem = \{ x: number; y: number; value: number; life: number; relic\?: BossRelicId; heal\?: number \}/);
+  assert.match(page, /type Gem = \{ x: number; y: number; value: number; life: number; relic\?: BossRelicId; relicPieces\?: number; heal\?: number \}/);
   assert.match(page, /const HEALTH_PACK_ENEMY_KINDS/);
   assert.match(page, /life: bossRelic \? 35 : 18/);
   assert.match(page, /gems\.push\(\{ x: enemy\.x \+ 18, y: enemy\.y - 12, value: 0, life: 14, heal \}\)/);
@@ -378,9 +397,9 @@ test("ships fourteen independent classes, drones, effects, bosses, and generated
   assert.match(page, /const guardianBulwark/);
   assert.match(page, /const engineerRepairPulse/);
   assert.match(page, /const phaseAfterimage/);
-  assert.match(page, /const beamAngles = combatStats\.laserRefraction > 0/);
+  assert.match(page, /const beamAngles = combatStats\.laserRefraction > 1/);
   assert.match(page, /resolvedDamage \*= 1 \+ \(frostStats\?\.frostShatter \|\| 0\)/);
-  assert.match(page, /comboMultiplier = 1\.85/);
+  assert.match(page, /comboMultiplier = combatStats\.bladeCombo > 1 \? 2\.1 : 1\.85/);
   assert.match(page, /spreadTargets = enemies/);
   assert.match(page, /droneDamageScaleFor\(build\.classId\)/);
   assert.match(page, /drones: 1,/);

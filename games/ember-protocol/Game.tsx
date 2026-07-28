@@ -34,11 +34,27 @@ type EnemyKind =
 type BossVariant = "rift" | "storm" | "weaver" | "forge" | "leviathan" | "mirror" | "warden";
 type PlayerSide = "host" | "guest";
 type BossRelicId = "titan-core" | "overdrive-core" | "chrono-core";
+type WarzoneId = "forge" | "bastion" | "storm" | "scrapyard" | "void" | "archive";
 type UpgradeRarity = "common" | "rare" | "epic" | "legendary";
 type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId; secondary?: boolean; ultimate?: boolean; rarity?: UpgradeRarity };
 type ShopCategory = "补给" | "武装" | "防御" | "核心";
 type ShopItem = { id: string; title: string; desc: string; icon: string; cost: number; category: ShopCategory; rarity: UpgradeRarity; unlockWave?: number; priceRate?: number };
 type BossRelic = { id: BossRelicId; title: string; desc: string; icon: string; rarity: UpgradeRarity };
+type WarzoneRoute = {
+  id: WarzoneId;
+  title: string;
+  subtitle: string;
+  icon: string;
+  color: string;
+  risk: string;
+  reward: string;
+};
+type ActiveWarzone = { id: WarzoneId; expiresAtWave: number };
+type SignatureSet = {
+  name: string;
+  icon: string;
+  tiers: [string, string, string];
+};
 type CombatStats = {
   speed: number;
   damage: number;
@@ -87,6 +103,7 @@ type CombatStats = {
   laserRefraction: number;
   frostShatter: number;
   bladeCombo: number;
+  signaturePieces: number;
 };
 type BuildFrame = CombatStats & { classId: ClassId; maxHp: number };
 type ClassSpec = {
@@ -176,7 +193,7 @@ type CombatEffect = {
   color: string;
   radius: number;
 };
-type Gem = { x: number; y: number; value: number; life: number; relic?: BossRelicId; heal?: number };
+type Gem = { x: number; y: number; value: number; life: number; relic?: BossRelicId; relicPieces?: number; heal?: number };
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
   elapsed: number;
@@ -195,6 +212,7 @@ type WorldFrame = {
   wallet: { host: number; guest: number };
   ultimate: { host: number; guest: number };
   wave: number;
+  warzone?: ActiveWarzone;
 };
 type NetPayload =
   | { t: "hello" }
@@ -211,7 +229,9 @@ type NetPayload =
   | { t: "shop-open"; wave: number; reward: number; coins: number }
   | { t: "shop-done"; build: BuildFrame; hp: number; coins: number; ultimate: number }
   | { t: "shop-resume" }
-  | { t: "boss-loot"; relic: BossRelicId }
+  | { t: "boss-loot"; relic: BossRelicId; pieces: number }
+  | { t: "route-open"; wave: number }
+  | { t: "route-selected"; route: ActiveWarzone; build: BuildFrame; hp: number; ultimate: number }
   | { t: "pause"; paused: boolean }
   | { t: "gameover"; hostHp: number; guestHp: number | null };
 type NetBridge = {
@@ -533,6 +553,82 @@ const BOSS_RELICS: BossRelic[] = [
   { id: "overdrive-core", title: "过载燃芯", desc: "全队伤害 +14%、射击间隔 -6%", icon: "✹", rarity: "legendary" },
   { id: "chrono-core", title: "时序结晶", desc: "全队主/副技能冷却 -10%、移动速度 +6%", icon: "◌", rarity: "epic" },
 ];
+
+const WARZONE_ROUTES: WarzoneRoute[] = [
+  {
+    id: "forge",
+    title: "熔核断层",
+    subtitle: "高温军械试炼",
+    icon: "◆",
+    color: "#ff8a32",
+    risk: "未来 3 波敌人生命 +15%",
+    reward: "全队永久伤害 +8%，弹体尺寸略微增大",
+  },
+  {
+    id: "bastion",
+    title: "泰坦堡垒",
+    subtitle: "精英重甲防线",
+    icon: "⬢",
+    color: "#75e6da",
+    risk: "敌人生命 +25%，精英出现率提高",
+    reward: "全队永久生命上限 +14、减伤 +2%",
+  },
+  {
+    id: "storm",
+    title: "雷暴高地",
+    subtitle: "高速弹幕空域",
+    icon: "ϟ",
+    color: "#48dfff",
+    risk: "敌人弹幕速度 +22%，敌人移动略微加快",
+    reward: "全队永久暴击 +5%、弹速 +8%",
+  },
+  {
+    id: "scrapyard",
+    title: "无人机墓场",
+    subtitle: "失控蜂群回收区",
+    icon: "✣",
+    color: "#a9ef84",
+    risk: "敌人移动 +12%，精英出现率提高",
+    reward: "每台机甲永久增加 1 架无人机，无人机伤害 +8%",
+  },
+  {
+    id: "void",
+    title: "零界裂隙",
+    subtitle: "高压终极反应区",
+    icon: "◉",
+    color: "#c8a8ff",
+    risk: "未来 3 波敌人伤害 +16%",
+    reward: "全队永久终极伤害 +12%、技能冷却 -4%，立即充能 20%",
+  },
+  {
+    id: "archive",
+    title: "遗物回廊",
+    subtitle: "失落协议数据库",
+    icon: "◇",
+    color: "#f4c95d",
+    risk: "敌人生命 +22%、伤害 +8%",
+    reward: "下一个 Boss 额外掉落 1 件本职业套装部件",
+  },
+];
+
+const WARZONE_BY_ID = Object.fromEntries(WARZONE_ROUTES.map((route) => [route.id, route])) as Record<WarzoneId, WarzoneRoute>;
+
+const SIGNATURE_SETS: Record<ClassId, SignatureSet> = {
+  assault: { name: "烈阳军械", icon: "✦", tiers: ["弹头校准：伤害 +6%", "饱和挂架：导弹风暴额外发射 3 枚", "天穹协议：导弹自动制导并追加一整轮轰炸"] },
+  guardian: { name: "不坠壁垒", icon: "⬢", tiers: ["泰坦骨架：生命上限 +12", "回响装甲：屏障时间延长并解锁八向反击", "移动堡垒：减伤 +3%，屏障反击升级为双环炮火"] },
+  engineer: { name: "蜂群母巢", icon: "✣", tiers: ["协同芯片：无人机伤害 +12%", "医疗链路：修复脉冲强化并让蜂群同步齐射", "自律工厂：永久增加 1 架无人机"] },
+  phantom: { name: "虚空行者", icon: "◇", tiers: ["弱点演算：暴击 +5%", "相位残像：突进终点爆炸，位移距离增加", "折跃容器：相位突进储存次数 +1"] },
+  laser: { name: "赤曜棱镜", icon: "▰", tiers: ["热光增幅：激光伤害 +12%", "三相折射：聚焦光束分裂为三束", "万华镜阵列：聚焦光束升级为五束，终极射线 +2"] },
+  frost: { name: "永冻王座", icon: "❄", tiers: ["零度增压：冰冻伤害 +12%", "脆冰效应：对冻结目标额外增伤 30%", "绝对零点：冻结后增伤提升至 55%，控制时长提高"] },
+  blade: { name: "红莲剑心", icon: "╱", tiers: ["熔刃锻造：近战伤害 +12%", "三连剑式：每第 3 刀触发强化斩", "无间剑式：改为每第 2 刀触发更强斩击，攻击范围扩大"] },
+  gravity: { name: "事件奇点", icon: "◎", tiers: ["坍缩增幅：重力技能强度 +12%", "斥力透镜：副技能范围 +15%", "视界核心：终极范围 +90，主炮额外贯穿 1 个目标"] },
+  thunder: { name: "天罚回路", icon: "ϟ", tiers: ["高压电容：雷电伤害 +12%", "多极节点：副技能额外生成 1 个电弧节点", "风暴主脑：终极锁定 +3，暴击 +4%"] },
+  sky: { name: "神矛星图", icon: "⌖", tiers: ["轨道测距：狙击伤害 +12%", "穿星弹道：额外贯穿 2 个目标", "猎神坐标：终极锁定 +2，暴击 +5%"] },
+  cinder: { name: "炼狱炉心", icon: "▲", tiers: ["燃烧增压：持续燃烧伤害 +12%", "熔火扩散：地雷与燃烧区域 +15%", "焚世推进：终极火墙 +1，燃烧伤害再次 +12%"] },
+  aegis: { name: "天穹圣契", icon: "✧", tiers: ["圣辉共振：圣铠技能强度 +12%", "双生裁决：副技能额外发射 1 支圣矛", "永续圣域：终极持续时间 +0.7 秒，减伤 +2.5%"] },
+  venom: { name: "灾厄虫巢", icon: "✤", tiers: ["强酸腺体：腐蚀伤害 +12%", "分裂毒刺：副技能额外分裂 1 枚毒刺", "疫灾扩散：终极锁定 +3，腐蚀强度再次 +12%"] },
+  chrono: { name: "零时悖论", icon: "◷", tiers: ["时序放大：时间技能强度 +12%", "回溯双轮：时间控制效果 +15%", "绝对停摆：终极范围 +100、持续时间 +0.5 秒"] },
+};
 
 const ULTIMATE_NAMES: Record<ClassId, string> = {
   assault: "天穹火雨",
@@ -964,6 +1060,7 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     laserRefraction: 0,
     frostShatter: 0,
     bladeCombo: 0,
+    signaturePieces: 0,
   };
   if (classId === "assault") return { ...base, maxHp: 120, damage: 50, interval: .58, projectileSpeed: 550, projectileSize: 7.5 };
   if (classId === "guardian") return { ...base, maxHp: 160, speed: 226, damage: 84, interval: .98, projectileSpeed: 470, projectileSize: 10, damageReduction: .25 };
@@ -1087,6 +1184,101 @@ const applyBossRelicToBuild = (source: BuildFrame, relic: BossRelicId): BuildFra
   };
 };
 
+const applyWarzoneBoonToBuild = (source: BuildFrame, routeId: WarzoneId): BuildFrame => {
+  if (routeId === "forge") return { ...source, damage: source.damage * 1.08, projectileSize: source.projectileSize + .4 };
+  if (routeId === "bastion") {
+    return { ...source, maxHp: source.maxHp + 14, damageReduction: Math.min(.62, source.damageReduction + .02) };
+  }
+  if (routeId === "storm") {
+    return { ...source, critChance: Math.min(.72, source.critChance + .05), projectileSpeed: source.projectileSpeed * 1.08 };
+  }
+  if (routeId === "scrapyard") return { ...source, drones: source.drones + 1, dronePower: source.dronePower * 1.08 };
+  if (routeId === "void") {
+    return { ...source, ultimatePower: source.ultimatePower * 1.12, skillHaste: Math.max(.5, source.skillHaste * .96) };
+  }
+  return { ...source, magnet: source.magnet * 1.12, damage: source.damage * 1.04 };
+};
+
+const applySignatureRelicPieces = (source: BuildFrame, amount = 1): BuildFrame => {
+  const next = { ...source };
+  const currentPieces = clamp(Math.round(source.signaturePieces || 0), 0, 3);
+  const targetPieces = clamp(currentPieces + amount, 0, 3);
+  for (let tier = currentPieces + 1; tier <= targetPieces; tier++) {
+    if (source.classId === "assault") {
+      if (tier === 1) next.damage *= 1.06;
+      if (tier === 2) next.missileCount += 3;
+      if (tier === 3) { next.assaultGuidance = 1; next.missileWaves += 1; }
+    }
+    if (source.classId === "guardian") {
+      if (tier === 1) next.maxHp += 12;
+      if (tier === 2) { next.shieldDuration = Math.min(GUARDIAN_SHIELD_MAX, next.shieldDuration + .5); next.guardianRetaliation = Math.max(1, next.guardianRetaliation); }
+      if (tier === 3) { next.damageReduction = Math.min(.62, next.damageReduction + .03); next.guardianRetaliation = 2; }
+    }
+    if (source.classId === "engineer") {
+      if (tier === 1) next.dronePower *= 1.12;
+      if (tier === 2) { next.repairPower *= 1.15; next.engineerTriage = 1; }
+      if (tier === 3) next.drones += 1;
+    }
+    if (source.classId === "phantom") {
+      if (tier === 1) next.critChance = Math.min(.72, next.critChance + .05);
+      if (tier === 2) { next.phantomAfterimage = 1; next.dashDistance += 35; }
+      if (tier === 3) next.dashCharges = Math.min(3, next.dashCharges + 1);
+    }
+    if (source.classId === "laser") {
+      if (tier === 1) next.laserPower *= 1.12;
+      if (tier === 2) next.laserRefraction = Math.max(1, next.laserRefraction);
+      if (tier === 3) { next.laserRefraction = 2; next.ultimateLanes = Math.min(16, next.ultimateLanes + 2); }
+    }
+    if (source.classId === "frost") {
+      if (tier === 1) next.frostPower *= 1.12;
+      if (tier === 2) next.frostShatter = Math.max(.3, next.frostShatter);
+      if (tier === 3) { next.frostShatter = Math.max(.55, next.frostShatter); next.secondaryControl *= 1.15; }
+    }
+    if (source.classId === "blade") {
+      if (tier === 1) next.meleePower *= 1.12;
+      if (tier === 2) next.bladeCombo = Math.max(1, next.bladeCombo);
+      if (tier === 3) { next.bladeCombo = 2; next.meleeRange *= 1.1; }
+    }
+    if (source.classId === "gravity") {
+      if (tier === 1) next.gravityPower *= 1.12;
+      if (tier === 2) next.secondaryArea *= 1.15;
+      if (tier === 3) { next.ultimateRange = Math.min(670, next.ultimateRange + 90); next.bonusPierce += 1; }
+    }
+    if (source.classId === "thunder") {
+      if (tier === 1) next.lightningPower *= 1.12;
+      if (tier === 2) next.secondaryProjectiles += 1;
+      if (tier === 3) { next.ultimateTargets = Math.min(16, next.ultimateTargets + 3); next.critChance = Math.min(.72, next.critChance + .04); }
+    }
+    if (source.classId === "sky") {
+      if (tier === 1) next.sniperPower *= 1.12;
+      if (tier === 2) next.bonusPierce += 2;
+      if (tier === 3) { next.ultimateTargets = Math.min(9, next.ultimateTargets + 2); next.critChance = Math.min(.72, next.critChance + .05); }
+    }
+    if (source.classId === "cinder") {
+      if (tier === 1) next.burnPower *= 1.12;
+      if (tier === 2) next.secondaryArea *= 1.15;
+      if (tier === 3) { next.ultimateLanes = Math.min(5, next.ultimateLanes + 1); next.burnPower *= 1.12; }
+    }
+    if (source.classId === "aegis") {
+      if (tier === 1) next.aegisPower *= 1.12;
+      if (tier === 2) next.secondaryProjectiles += 1;
+      if (tier === 3) { next.ultimateDuration = Math.min(5.4, next.ultimateDuration + .7); next.damageReduction = Math.min(.62, next.damageReduction + .025); }
+    }
+    if (source.classId === "venom") {
+      if (tier === 1) next.venomPower *= 1.12;
+      if (tier === 2) next.secondaryProjectiles += 1;
+      if (tier === 3) { next.ultimateTargets = Math.min(16, next.ultimateTargets + 3); next.venomPower *= 1.12; }
+    }
+    if (source.classId === "chrono") {
+      if (tier === 1) next.chronoPower *= 1.12;
+      if (tier === 2) next.secondaryControl *= 1.15;
+      if (tier === 3) { next.ultimateRange = Math.min(650, next.ultimateRange + 100); next.ultimateDuration += .5; }
+    }
+  }
+  next.signaturePieces = targetPieces;
+  return next;
+};
+
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
 const normalizeRoomCode = (value: string) => value.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 24);
@@ -1163,6 +1355,10 @@ export default function Home() {
   const [upgradeRerolls, setUpgradeRerolls] = useState(0);
   const [shopRerolls, setShopRerolls] = useState(0);
   const [bossLootNotice, setBossLootNotice] = useState("");
+  const [routeChoices, setRouteChoices] = useState<WarzoneRoute[] | null>(null);
+  const [waitingRoute, setWaitingRoute] = useState(false);
+  const [warzoneState, setWarzoneState] = useState<ActiveWarzone | null>(null);
+  const [signaturePieces, setSignaturePieces] = useState(0);
   const [selectedClass, setSelectedClass] = useState<ClassId>("assault");
   const [skillCooldown, setSkillCooldown] = useState(0);
   const [skillCharges, setSkillCharges] = useState(1);
@@ -1193,6 +1389,7 @@ export default function Home() {
   const finishShopRef = useRef<() => void>(() => {});
   const rerollShopRef = useRef<() => void>(() => {});
   const rerollUpgradeRef = useRef<() => void>(() => {});
+  const chooseWarzoneRef = useRef<(id: WarzoneId) => void>(() => {});
   const selectedClassRef = useRef<ClassId>("assault");
   const ownBuildRef = useRef<BuildFrame>(makeBuild("assault"));
   const remoteBuildRef = useRef<BuildFrame | null>(null);
@@ -1228,7 +1425,7 @@ export default function Home() {
     pausedRef.current = false;
     setLevel(1); setXp(0); setHp(ownBuildRef.current.maxHp); setMaxHp(ownBuildRef.current.maxHp); setTeammateHp(null); setRescueProgress(0); setKills(0); setSeconds(0); setSkillCooldown(0); setSecondarySkillCooldown(0);
     setWave(1); setCoins(0); setUltimateEnergy(0); setShopItems(null); setSupplyReward(0); setWaitingSupply(false);
-    setUpgradeRerolls(0); setShopRerolls(0); setBossLootNotice("");
+    setUpgradeRerolls(0); setShopRerolls(0); setBossLootNotice(""); setRouteChoices(null); setWaitingRoute(false); setWarzoneState(null); setSignaturePieces(0);
     setChoices(null); setPaused(false); setView("game");
     setTimeout(() => resetRef.current(), 0);
   }, [wakeAudio]);
@@ -1270,8 +1467,8 @@ export default function Home() {
   }, [musicVolume, sfxVolume, sound]);
 
   useEffect(() => {
-    audioRef.current?.setScene(view === "game" ? (paused || choices || shopItems || waitingSupply ? "pause" : "game") : "menu");
-  }, [choices, paused, shopItems, view, waitingSupply]);
+    audioRef.current?.setScene(view === "game" ? (paused || choices || shopItems || waitingSupply || routeChoices || waitingRoute ? "pause" : "game") : "menu");
+  }, [choices, paused, routeChoices, shopItems, view, waitingRoute, waitingSupply]);
 
   useEffect(() => () => audioRef.current?.destroy(), []);
 
@@ -1291,6 +1488,10 @@ export default function Home() {
     setRescueProgress(0);
     setShopItems(null);
     setWaitingSupply(false);
+    setRouteChoices(null);
+    setWaitingRoute(false);
+    setWarzoneState(null);
+    setSignaturePieces(0);
   }, [clearConnectionTimers]);
 
   const connectToRoom = useCallback(async (rawCode: string, role: "host" | "join") => {
@@ -1433,6 +1634,8 @@ export default function Home() {
     let hostCoins = 0, guestCoins = 0, hostUltimate = 0, guestUltimate = 0;
     let hostBladeCombo = 0, guestBladeCombo = 0;
     let currentWave = 1, waveKills = 0, nextWaveAt = WAVE_INTERVAL_SECONDS, lastBossWave = 0;
+    let currentWarzone: ActiveWarzone | null = null;
+    let pendingRouteChoice = false;
     let bossBag: BossVariant[] = [];
     let previousBossVariant: BossVariant | null = null;
     let localUpgradeRerolls = 0, localShopRerolls = 0;
@@ -1610,6 +1813,10 @@ export default function Home() {
         setCoins(frame.wallet.guest);
         setUltimateEnergy(frame.ultimate.guest);
         setWave(frame.wave);
+        if (frame.warzone?.id !== currentWarzone?.id || frame.warzone?.expiresAtWave !== currentWarzone?.expiresAtWave) {
+          currentWarzone = frame.warzone || null;
+          setWarzoneState(currentWarzone);
+        }
       }
       if (data.t === "levelup" && !isAuthority) {
         currentLevel = data.level;
@@ -1667,13 +1874,39 @@ export default function Home() {
         const relic = BOSS_RELICS.find((entry) => entry.id === data.relic);
         const previousMaxHp = build.maxHp;
         build = applyBossRelicToBuild(build, data.relic);
+        build = applySignatureRelicPieces(build, data.pieces);
         stats = { ...build };
         ownBuildRef.current = { ...build };
         player.maxHp = build.maxHp;
         if (build.maxHp > previousMaxHp && player.hp > 0) player.hp += build.maxHp - previousMaxHp;
         setMaxHp(player.maxHp);
         setHp(Math.ceil(player.hp));
-        setBossLootNotice(relic ? `${relic.icon} ${RARITY_LABELS[relic.rarity]}遗物 · ${relic.title} · ${relic.desc}` : "获得 Boss 核心");
+        setSignaturePieces(build.signaturePieces);
+        const signatureSet = SIGNATURE_SETS[build.classId];
+        setBossLootNotice(relic ? `${relic.icon} ${RARITY_LABELS[relic.rarity]}遗物 · ${relic.title}；${signatureSet.icon} ${signatureSet.name} ${build.signaturePieces}/3` : "获得 Boss 核心");
+      }
+      if (data.t === "route-open" && !isAuthority) {
+        localPaused = true;
+        setRouteChoices(null);
+        setWaitingRoute(true);
+        setBossLootNotice(`战区分岔已开启 · 等待队长选择通往第 ${Math.ceil((data.wave + 1) / 3) * 3} 波 Boss 的路线`);
+      }
+      if (data.t === "route-selected" && !isAuthority) {
+        build = { ...data.build };
+        stats = { ...build };
+        ownBuildRef.current = { ...build };
+        player.maxHp = build.maxHp;
+        player.hp = reconcilePausedPeerHp(player.hp > 0, data.hp, build.maxHp);
+        guestUltimate = data.ultimate;
+        currentWarzone = data.route;
+        localPaused = false;
+        setMaxHp(player.maxHp);
+        setHp(Math.ceil(player.hp));
+        setUltimateEnergy(guestUltimate);
+        setWarzoneState(data.route);
+        setRouteChoices(null);
+        setWaitingRoute(false);
+        setBossLootNotice(`${WARZONE_BY_ID[data.route.id].icon} 已进入 ${WARZONE_BY_ID[data.route.id].title} · 持续至第 ${data.route.expiresAtWave} 波`);
       }
       if (data.t === "pause" && !isAuthority) {
         setPaused(data.paused);
@@ -1701,6 +1934,7 @@ export default function Home() {
       hostCoins = 0; guestCoins = 0; hostUltimate = 0; guestUltimate = 0;
       hostBladeCombo = 0; guestBladeCombo = 0;
       currentWave = 1; waveKills = 0; nextWaveAt = WAVE_INTERVAL_SECONDS; lastBossWave = 0;
+      currentWarzone = null; pendingRouteChoice = false;
       bossBag = [];
       previousBossVariant = null;
       localUpgradeRerolls = 0; localShopRerolls = 0; shopStock = []; recentShopIds = [];
@@ -1742,6 +1976,10 @@ export default function Home() {
       setUpgradeRerolls(0);
       setShopRerolls(0);
       setBossLootNotice("");
+      setRouteChoices(null);
+      setWaitingRoute(false);
+      setWarzoneState(null);
+      setSignaturePieces(build.signaturePieces);
     };
     resetRef.current = reset;
     applyUpgradeRef.current = (id) => {
@@ -2052,6 +2290,61 @@ export default function Home() {
       if (network?.connected()) void network.send({ t: "shop-resume" });
     };
 
+    const openWarzoneSelection = () => {
+      if (!isAuthority || localPaused || pausedRef.current) return;
+      localPaused = true;
+      setWaitingRoute(false);
+      setRouteChoices(shuffled(WARZONE_ROUTES).slice(0, 3));
+      setBossLootNotice("战区分岔已开启 · 风险与收益会持续影响接下来的 3 波");
+      if (network?.connected()) void network.send({ t: "route-open", wave: currentWave });
+      audio?.play("level");
+    };
+
+    chooseWarzoneRef.current = (routeId) => {
+      if (!isAuthority) return;
+      const route = WARZONE_BY_ID[routeId];
+      if (!route) return;
+      const activeRoute: ActiveWarzone = { id: routeId, expiresAtWave: Math.ceil((currentWave + 1) / 3) * 3 };
+      const previousMaxHp = build.maxHp;
+      build = applyWarzoneBoonToBuild({ ...build, ...stats, maxHp: player.maxHp }, routeId);
+      stats = { ...build };
+      ownBuildRef.current = { ...build };
+      player.maxHp = build.maxHp;
+      if (build.maxHp > previousMaxHp && player.hp > 0) player.hp += build.maxHp - previousMaxHp;
+      if (routeId === "void") hostUltimate = clamp(hostUltimate + 20, 0, ULTIMATE_MAX);
+
+      let guestRouteBuild: BuildFrame | null = null;
+      if (remote) {
+        const remoteBuild = remoteBuildRef.current || makeBuild(remote.classId || "assault");
+        const previousRemoteMaxHp = remoteBuild.maxHp;
+        guestRouteBuild = applyWarzoneBoonToBuild(remoteBuild, routeId);
+        remoteBuildRef.current = guestRouteBuild;
+        remote.maxHp = guestRouteBuild.maxHp;
+        if (guestRouteBuild.maxHp > previousRemoteMaxHp && remote.hp > 0) remote.hp += guestRouteBuild.maxHp - previousRemoteMaxHp;
+        if (routeId === "void") guestUltimate = clamp(guestUltimate + 20, 0, ULTIMATE_MAX);
+      }
+
+      currentWarzone = activeRoute;
+      localPaused = false;
+      setHp(Math.ceil(player.hp));
+      setMaxHp(player.maxHp);
+      setUltimateEnergy(hostUltimate);
+      setRouteChoices(null);
+      setWaitingRoute(false);
+      setWarzoneState(activeRoute);
+      setBossLootNotice(`${route.icon} 已进入 ${route.title} · ${route.reward}`);
+      if (network?.connected() && guestRouteBuild && remote) {
+        void network.send({
+          t: "route-selected",
+          route: activeRoute,
+          build: guestRouteBuild,
+          hp: remote.hp,
+          ultimate: guestUltimate,
+        });
+      }
+      audio?.play("upgrade");
+    };
+
     activeSkillRef.current = () => {
       const now = performance.now();
       const usesDashCharges = build.classId === "phantom";
@@ -2208,10 +2501,15 @@ export default function Home() {
       }
       const config = ENEMY_DATA[kind];
       const coOpScale = remote ? 1.2 : 1;
-      const eliteChance = clamp((elapsed - 48) / 620, 0, .16);
+      const routeId = currentWarzone?.id;
+      const routeEliteBonus = routeId === "bastion" ? .05 : routeId === "scrapyard" ? .035 : 0;
+      const routeHpScale = routeId === "forge" ? 1.15 : routeId === "bastion" ? 1.25 : routeId === "archive" ? 1.22 : 1;
+      const routeSpeedScale = routeId === "storm" ? 1.05 : routeId === "scrapyard" ? 1.12 : 1;
+      const routeHitScale = routeId === "void" ? 1.16 : routeId === "archive" ? 1.08 : 1;
+      const eliteChance = clamp((elapsed - 48) / 620, 0, .16) + routeEliteBonus;
       const elite = kind === "commander" || Math.random() < eliteChance;
       const lateScale = 1 + elapsed / 185 + Math.pow(elapsed / 540, 1.7);
-      const maxHp = config.hp * lateScale * coOpScale * (elite ? 1.75 : 1);
+      const maxHp = config.hp * lateScale * coOpScale * (elite ? 1.75 : 1) * routeHpScale;
       enemies.push({
         id: nextEnemyId++,
         x,
@@ -2219,8 +2517,8 @@ export default function Home() {
         r: config.radius * (elite ? 1.16 : 1),
         hp: maxHp,
         maxHp,
-        speed: config.speed + Math.min(16, elapsed * .035),
-        hit: config.hit * (elite ? 1.28 : 1),
+        speed: (config.speed + Math.min(16, elapsed * .035)) * routeSpeedScale,
+        hit: config.hit * (elite ? 1.28 : 1) * routeHitScale,
         color: config.color,
         kind,
         elite,
@@ -2243,9 +2541,13 @@ export default function Home() {
       previousBossVariant = bossVariant;
       const variant = BOSS_VARIANTS[bossVariant];
       const coOpScale = remote ? 1.5 : 1;
+      const routeId = currentWarzone?.id;
+      const routeHpScale = routeId === "forge" ? 1.15 : routeId === "bastion" ? 1.25 : routeId === "archive" ? 1.22 : 1;
+      const routeSpeedScale = routeId === "storm" ? 1.05 : routeId === "scrapyard" ? 1.12 : 1;
+      const routeHitScale = routeId === "void" ? 1.16 : routeId === "archive" ? 1.08 : 1;
       const lateBossWave = Math.max(0, currentWave - 3);
       const waveScale = 1 + lateBossWave * .38 + Math.pow(lateBossWave / 6, 1.45) * .5;
-      const maxHp = config.hp * variant.hp * waveScale * coOpScale;
+      const maxHp = config.hp * variant.hp * waveScale * coOpScale * routeHpScale;
       enemies.push({
         id: nextEnemyId++,
         x: W / 2,
@@ -2253,8 +2555,8 @@ export default function Home() {
         r: bossVariant === "leviathan" ? 60 : bossVariant === "warden" ? 54 : bossVariant === "mirror" ? 47 : config.radius,
         hp: maxHp,
         maxHp,
-        speed: (config.speed + Math.min(12, currentWave * 1.2)) * variant.speed,
-        hit: config.hit * variant.hit * (1 + Math.min(.32, currentWave * .025)),
+        speed: (config.speed + Math.min(12, currentWave * 1.2)) * variant.speed * routeSpeedScale,
+        hit: config.hit * variant.hit * (1 + Math.min(.32, currentWave * .025)) * routeHitScale,
         color: variant.color,
         kind: "boss",
         elite: true,
@@ -2380,14 +2682,17 @@ export default function Home() {
       if (actor === player) selfShieldUntil = Math.max(selfShieldUntil, shieldUntil);
       else remoteShieldUntil = Math.max(remoteShieldUntil, shieldUntil);
       if (combatStats.guardianRetaliation <= 0) return;
-      for (let index = 0; index < 8; index++) {
-        const angle = index / 8 * Math.PI * 2;
-        shots.push({
-          x: actor.x, y: actor.y,
-          vx: Math.cos(angle) * 610, vy: Math.sin(angle) * 610,
-          r: 9, damage: combatStats.damage * 1.45, life: 1.9,
-          owner, classId: "guardian", pierce: 3, skill2: true,
-        });
+      const retaliationRings = combatStats.guardianRetaliation > 1 ? 2 : 1;
+      for (let ring = 0; ring < retaliationRings; ring++) {
+        for (let index = 0; index < 8; index++) {
+          const angle = index / 8 * Math.PI * 2 + ring * Math.PI / 8;
+          shots.push({
+            x: actor.x, y: actor.y,
+            vx: Math.cos(angle) * (610 + ring * 90), vy: Math.sin(angle) * (610 + ring * 90),
+            r: 9, damage: combatStats.damage * (ring ? 1.05 : 1.45), life: 1.9,
+            owner, classId: "guardian", pierce: 3, skill2: true,
+          });
+        }
       }
       addEffect({ kind: "skill", classId: "guardian", x: actor.x, y: actor.y, color: "#75e6da", radius: 175 }, .72);
     };
@@ -2432,7 +2737,11 @@ export default function Home() {
         : null;
       const angle = target ? Math.atan2(target.y - actor.y, target.x - actor.x) : 0;
       const length = 1550;
-      const beamAngles = combatStats.laserRefraction > 0 ? [angle, angle - .3, angle + .3] : [angle];
+      const beamAngles = combatStats.laserRefraction > 1
+        ? [angle, angle - .25, angle + .25, angle - .5, angle + .5]
+        : combatStats.laserRefraction > 0
+          ? [angle, angle - .3, angle + .3]
+          : [angle];
       for (const [beamIndex, beamAngle] of beamAngles.entries()) {
         const damageScale = beamIndex === 0 ? 1 : .56;
         const beamWidth = (beamIndex === 0 ? 16 : 10) * combatStats.laserPower;
@@ -2483,12 +2792,13 @@ export default function Home() {
       const angle = Math.atan2(target.y - actor.y, target.x - actor.x);
       let comboMultiplier = 1;
       if (combatStats.bladeCombo > 0 && multiplier === 1) {
+        const comboThreshold = combatStats.bladeCombo > 1 ? 2 : 3;
         if (owner === "guest") {
-          guestBladeCombo = guestBladeCombo % 3 + 1;
-          if (guestBladeCombo === 3) comboMultiplier = 1.85;
+          guestBladeCombo = guestBladeCombo % comboThreshold + 1;
+          if (guestBladeCombo === comboThreshold) comboMultiplier = combatStats.bladeCombo > 1 ? 2.1 : 1.85;
         } else {
-          hostBladeCombo = hostBladeCombo % 3 + 1;
-          if (hostBladeCombo === 3) comboMultiplier = 1.85;
+          hostBladeCombo = hostBladeCombo % comboThreshold + 1;
+          if (hostBladeCombo === comboThreshold) comboMultiplier = combatStats.bladeCombo > 1 ? 2.1 : 1.85;
         }
       }
       const damage = combatStats.damage * combatStats.meleePower * multiplier * comboMultiplier;
@@ -3201,6 +3511,7 @@ export default function Home() {
           wallet: { host: hostCoins, guest: guestCoins },
           ultimate: { host: hostUltimate, guest: guestUltimate },
           wave: currentWave,
+          warzone: currentWarzone || undefined,
         },
       });
     };
@@ -3305,6 +3616,10 @@ export default function Home() {
         currentWave += 1;
         nextWaveAt += WAVE_INTERVAL_SECONDS;
         setWave(currentWave);
+        if (currentWarzone && currentWave > currentWarzone.expiresAtWave) {
+          currentWarzone = null;
+          setWarzoneState(null);
+        }
         const shouldOpenSupply = (currentWave - 1) % SHOP_EVERY_WAVES === 0;
         if (!shouldOpenSupply) return;
         const reward = supplyRewardFor(waveKills, currentWave);
@@ -3447,7 +3762,10 @@ export default function Home() {
           }
           shot.homing = Math.max(0, (shot.homing || 0) - dt);
         }
-        shot.x += shot.vx * dt; shot.y += shot.vy * dt; shot.life -= dt;
+        const warzoneProjectileScale = shot.hostile && currentWarzone?.id === "storm" ? 1.22 : 1;
+        shot.x += shot.vx * dt * warzoneProjectileScale;
+        shot.y += shot.vy * dt * warzoneProjectileScale;
+        shot.life -= dt;
       }
       shots = shots.filter((shot) => shot.life > 0);
       const activeShotLimit = coOpActive ? PERFORMANCE_LIMITS.coopShots : PERFORMANCE_LIMITS.soloShots;
@@ -3880,7 +4198,14 @@ export default function Home() {
           const value = enemy.kind === "boss"
             ? ENEMY_XP.boss + currentWave * 6
             : Math.round(ENEMY_XP[enemy.kind] * (enemy.elite ? 1.75 : 1));
-          gems.push({ x: enemy.x, y: enemy.y, value, life: bossRelic ? 35 : 18, relic: bossRelic?.id });
+          gems.push({
+            x: enemy.x,
+            y: enemy.y,
+            value,
+            life: bossRelic ? 35 : 18,
+            relic: bossRelic?.id,
+            relicPieces: bossRelic ? (currentWarzone?.id === "archive" ? 2 : 1) : undefined,
+          });
           if (enemy.elite || HEALTH_PACK_ENEMY_KINDS.includes(enemy.kind)) {
             const heal = enemy.kind === "boss"
               ? .28
@@ -3954,8 +4279,10 @@ export default function Home() {
           const earnedXp = gem.value * xpGainScale() * earlyWaveXpMultiplier(currentWave);
           if (gem.relic) {
             const relic = BOSS_RELICS.find((entry) => entry.id === gem.relic);
+            const signaturePieceCount = gem.relicPieces || 1;
             const previousMaxHp = build.maxHp;
             build = applyBossRelicToBuild({ ...build, ...stats, maxHp: player.maxHp }, gem.relic);
+            build = applySignatureRelicPieces(build, signaturePieceCount);
             stats = { ...build };
             ownBuildRef.current = { ...build };
             player.maxHp = build.maxHp;
@@ -3963,15 +4290,22 @@ export default function Home() {
             if (remote) {
               const remoteBuild = remoteBuildRef.current || makeBuild(remote.classId || "assault");
               const remotePreviousMax = remoteBuild.maxHp;
-              const nextRemoteBuild = applyBossRelicToBuild(remoteBuild, gem.relic);
+              const nextRemoteBuild = applySignatureRelicPieces(
+                applyBossRelicToBuild(remoteBuild, gem.relic),
+                signaturePieceCount,
+              );
               remoteBuildRef.current = nextRemoteBuild;
               remote.maxHp = nextRemoteBuild.maxHp;
               if (nextRemoteBuild.maxHp > remotePreviousMax && remote.hp > 0) remote.hp += nextRemoteBuild.maxHp - remotePreviousMax;
             }
             setMaxHp(player.maxHp);
             setHp(Math.ceil(player.hp));
-            setBossLootNotice(relic ? `${relic.icon} ${RARITY_LABELS[relic.rarity]}遗物 · ${relic.title} · ${relic.desc}` : "获得 Boss 核心");
-            if (network?.connected()) void network.send({ t: "boss-loot", relic: gem.relic });
+            setSignaturePieces(build.signaturePieces);
+            const signatureSet = SIGNATURE_SETS[build.classId];
+            const tierText = signatureSet.tiers[Math.max(0, build.signaturePieces - 1)];
+            setBossLootNotice(relic ? `${relic.icon} ${relic.title}；${signatureSet.icon} ${signatureSet.name} ${build.signaturePieces}/3 · ${tierText}` : "获得 Boss 核心");
+            if (network?.connected()) void network.send({ t: "boss-loot", relic: gem.relic, pieces: signaturePieceCount });
+            pendingRouteChoice = true;
             audio?.play("ultimate");
           }
           gem.value = 0;
@@ -3995,6 +4329,13 @@ export default function Home() {
         const mergedXp = xpDrops.slice(0, Math.max(0, xpDrops.length - xpSlots)).reduce((sum, gem) => sum + gem.value, 0);
         if (keptXp.length && mergedXp > 0) keptXp[0].value += mergedXp;
         gems = [...protectedDrops.slice(-PERFORMANCE_LIMITS.gems), ...keptXp].slice(-PERFORMANCE_LIMITS.gems);
+      }
+
+      if (pendingRouteChoice && isAuthority && !localPaused && !pausedRef.current) {
+        pendingRouteChoice = false;
+        openWarzoneSelection();
+        sendWorld();
+        return;
       }
 
       worldClock -= dt;
@@ -4721,6 +5062,8 @@ export default function Home() {
     if (next) wakeAudio("ui");
   };
   const selectedClassSpec = CLASSES.find((item) => item.id === selectedClass) || CLASSES[0];
+  const selectedSignatureSet = SIGNATURE_SETS[selectedClass];
+  const activeWarzoneInfo = warzoneState ? WARZONE_BY_ID[warzoneState.id] : null;
   const currentUpgradeRerollCost = upgradeRerollPrice(wave, upgradeRerolls);
   const currentShopRerollCost = shopRerollPrice(wave, shopRerolls, coins);
   const classSelector = <div className="classGrid">
@@ -4732,6 +5075,7 @@ export default function Home() {
       <span><em>副技 E</em>{item.secondary}</span>
       <span><em>被动</em>{item.passive}</span>
       <span><em>终极</em>{item.ultimate}</span>
+      <span className="signaturePreview"><em>套装</em>{SIGNATURE_SETS[item.id].name} · 集齐 3 件解锁专属机制</span>
     </button>)}
   </div>;
 
@@ -4739,7 +5083,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.16.0 · 全机甲平衡重构</div>
+        <div className="status"><i /> 版本 0.17.0 · 战区路线与职业套装</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -4837,6 +5181,14 @@ export default function Home() {
           <canvas ref={canvasRef} aria-label="余烬协议游戏画面"/>
           {signalMode && <div className="syncBadge"><i /> 共享战场 · {signalMode==="host"?"队长同步":"伙伴同步"}</div>}
           {bossLootNotice && <div key={bossLootNotice} className="bossNotice">{bossLootNotice}</div>}
+          <div className="runModules">
+            {activeWarzoneInfo && <div className="warzoneBadge" style={{"--zone-color":activeWarzoneInfo.color} as CSSProperties}>
+              <i>{activeWarzoneInfo.icon}</i><span><small>当前战区 · 至第 {warzoneState?.expiresAtWave} 波</small><b>{activeWarzoneInfo.title}</b></span>
+            </div>}
+            <div className={`signatureBadge pieces-${signaturePieces}`}>
+              <i>{selectedSignatureSet.icon}</i><span><small>职业遗物套装</small><b>{selectedSignatureSet.name} · {signaturePieces}/3</b></span>
+            </div>
+          </div>
           {signalMode && teammateHp!==null && <div className={`teammateHealth ${teammateHp<=0?"down":""}`}>
             <span><b>队友机体</b><small>{teammateHp<=0?"已倒地":`${teammateHp}/${teammateMaxHp}`}</small></span>
             <i><em style={{width:`${clamp(teammateHp/Math.max(1,teammateMaxHp)*100,0,100)}%`}}/></i>
@@ -4885,7 +5237,20 @@ export default function Home() {
             </button>
           </div>
         </div>}
-        {shopItems && !choices && <div className="overlay">
+        {routeChoices && !choices && !shopItems && <div className="overlay">
+          <div className="routePanel">
+            <div className="eyebrow">WARZONE VECTOR · 三波战区决策</div>
+            <h2>选择下一条远征路线</h2>
+            <p>每条路线都带来持续三波的战场风险，并立即赋予全队永久收益。遗物回廊会让下一个 Boss 额外掉落一件各自职业的套装部件。</p>
+            <div className="routeGrid">{routeChoices.map((route)=><button key={route.id} style={{"--zone-color":route.color} as CSSProperties} onClick={()=>chooseWarzoneRef.current(route.id)}>
+              <small>{route.subtitle}</small><i>{route.icon}</i><b>{route.title}</b>
+              <span className="routeRisk"><em>风险</em>{route.risk}</span>
+              <span className="routeReward"><em>收益</em>{route.reward}</span>
+            </button>)}</div>
+            <div className="routeSetPreview"><b>{selectedSignatureSet.icon} {selectedSignatureSet.name} · 当前 {signaturePieces}/3</b><span>{signaturePieces>=3?"三件套已完整激活":`下一件：${selectedSignatureSet.tiers[signaturePieces]}`}</span></div>
+          </div>
+        </div>}
+        {shopItems && !choices && !routeChoices && <div className="overlay">
           <div className="shopPanel">
             <div className="eyebrow">SUPPLY DROP · 第 {wave-1} 波后补给</div>
             <h2>战场补给站</h2>
@@ -4909,7 +5274,10 @@ export default function Home() {
         {waitingPeerUpgrade && !choices && <div className="overlay">
           <div className="pausePanel waitingUpgrade"><div className="eyebrow">同步升级阶段</div><h2>等待伙伴完成选择</h2><p>你的遗物已经装配完成。伙伴选好自己的强化后，共享战场会自动继续。</p><i className="waitingPulse"/></div>
         </div>}
-        {paused && !choices && !shopItems && !waitingSupply && <div className="overlay"><div className="pausePanel"><div className="eyebrow">{hp<=0?"远征终止":"火焰暂歇"}</div><h2>{hp<=0?"火种熄灭了":"游戏已暂停"}</h2><p>{hp<=0?`队伍坚持了 ${formatTime(seconds)}，共同净化了 ${kills} 只荒兽。`:signalMode==="join"?"等待队长继续远征。":"休息一下，荒原会等你。"}</p>
+        {waitingRoute && !routeChoices && <div className="overlay">
+          <div className="pausePanel waitingUpgrade"><div className="eyebrow">战区路线同步</div><h2>队长正在规划路线</h2><p>路线的风险与收益会同步作用于全队；你的遗物套装仍按自己驾驶的机甲独立成长。</p><i className="waitingPulse"/></div>
+        </div>}
+        {paused && !choices && !shopItems && !waitingSupply && !routeChoices && !waitingRoute && <div className="overlay"><div className="pausePanel"><div className="eyebrow">{hp<=0?"远征终止":"火焰暂歇"}</div><h2>{hp<=0?"火种熄灭了":"游戏已暂停"}</h2><p>{hp<=0?`队伍坚持了 ${formatTime(seconds)}，共同净化了 ${kills} 只荒兽。`:signalMode==="join"?"等待队长继续远征。":"休息一下，荒原会等你。"}</p>
           {hp>0&&signalMode!=="join"&&<button className="primary compact" onClick={resumeRun}><span>全队继续</span></button>}
           {hp<=0&&signalMode!=="join"&&<button className="primary compact" onClick={restartRun}><span>全队再次点火</span></button>}
           <button className="textBtn" onClick={()=>void returnToMenu()}>返回主菜单</button></div></div>}
