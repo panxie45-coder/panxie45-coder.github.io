@@ -24,3 +24,21 @@ export const reconcilePausedPeerHp = (authorityWasAlive, reportedHp, maxHp) =>
   authorityWasAlive
     ? Math.min(maxHp, Math.max(1, reportedHp))
     : 0;
+
+/**
+ * Movement and teleport packets share one monotonically increasing sequence.
+ * A late pre-teleport movement packet must never overwrite the newer landing
+ * position. Missing sequences remain compatible with an older cached client.
+ *
+ * @param {number} lastSequence
+ * @param {number | undefined} incomingSequence
+ */
+export const reconcileMovementSequence = (lastSequence, incomingSequence) => {
+  const sequence = Number.isFinite(incomingSequence)
+    ? Math.max(0, Math.floor(incomingSequence))
+    : lastSequence + 1;
+  return {
+    accepted: sequence >= lastSequence,
+    sequence: sequence >= lastSequence ? sequence : lastSequence,
+  };
+};

@@ -13,7 +13,7 @@ import {
   selectCombatTarget,
   skillCooldownFor,
 } from "./combat-balance.mjs";
-import { reconcilePausedPeerHp, teamRunDefeated } from "./team-state.mjs";
+import { reconcileMovementSequence, reconcilePausedPeerHp, teamRunDefeated } from "./team-state.mjs";
 
 type View = "menu" | "loadout" | "game" | "coop";
 type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity" | "thunder" | "sky" | "cinder" | "aegis" | "venom" | "chrono" | "magnet" | "portal";
@@ -248,10 +248,10 @@ type WorldFrame = {
 type NetPayload =
   | { t: "hello" }
   | { t: "start" }
-  | { t: "player"; x: number; y: number }
+  | { t: "player"; x: number; y: number; seq?: number }
   | { t: "build"; build: BuildFrame }
   | { t: "upgrade-done"; build: BuildFrame; hp: number }
-  | { t: "skill"; classId: ClassId; x: number; y: number }
+  | { t: "skill"; classId: ClassId; x: number; y: number; fromX?: number; fromY?: number; seq?: number }
   | { t: "skill2"; classId: ClassId; x: number; y: number }
   | { t: "ultimate"; classId: ClassId; x: number; y: number }
   | { t: "world"; frame: WorldFrame }
@@ -1831,6 +1831,7 @@ export default function Home() {
     let nextSurgeAt = 22, surgeRemaining = 0, surgeSpawnClock = 0;
     let active = true, localPaused = false, currentXp = 0, currentLevel = 1, currentKills = 0;
     let netClock = 0, worldClock = 0, remoteFireClock = 0, gameOverSent = false, nextEnemyId = 1, simulationFrame = 0;
+    let outgoingMoveSeq = 0, remoteMoveSeq = 0;
     let selfShieldUntil = 0, remoteShieldUntil = 0, skillReadyAt = 0, secondarySkillReadyAt = 0, shownCooldown = -1, shownSecondaryCooldown = -1, shownSecond = -1;
     let hostReviveProgress = 0, guestReviveProgress = 0;
     let localUpgradeDone = false, waitingForRemoteUpgrade = false;
@@ -1906,6 +1907,9 @@ export default function Home() {
     const frontierSupportAssets = getGameImage(GAME_ASSETS.frontierSupportAssets);
     const unsubscribeNetwork = network?.subscribe((data) => {
       if (data.t === "player" && isAuthority) {
+        const movement = reconcileMovementSequence(remoteMoveSeq, data.seq);
+        if (!movement.accepted) return;
+        remoteMoveSeq = movement.sequence;
         coOpRunEstablished = true;
         const remoteBuild = remoteBuildRef.current || makeBuild("assault");
         const remoteSpec = CLASSES.find((item) => item.id === remoteBuild.classId) || CLASSES[0];
@@ -1946,7 +1950,14 @@ export default function Home() {
       }
       if (data.t === "skill" && isAuthority && remote) {
         const remoteBuild = remoteBuildRef.current || makeBuild(data.classId);
-        const skillStart = { x: remote.x, y: remote.y };
+        const skillStart = {
+          x: typeof data.fromX === "number" ? data.fromX : remote.x,
+          y: typeof data.fromY === "number" ? data.fromY : remote.y,
+        };
+        const movement = reconcileMovementSequence(remoteMoveSeq, data.seq);
+        const syncedX = movement.accepted ? data.x : remote.x;
+        const syncedY = movement.accepted ? data.y : remote.y;
+        remoteMoveSeq = movement.sequence;
         if (data.classId === "assault") queueMissileStorm(remote, remoteBuild, "guest");
         if (data.classId === "guardian") guardianBulwark(
           remote,
@@ -1956,14 +1967,14 @@ export default function Home() {
         );
         if (data.classId === "engineer") engineerRepairPulse(remote, remoteBuild, "guest");
         if (data.classId === "phantom") {
-          remote.x = clamp(data.x, 30, W - 30);
-          remote.y = clamp(data.y, 30, H - 30);
+          remote.x = clamp(syncedX, 30, W - 30);
+          remote.y = clamp(syncedY, 30, H - 30);
           remoteShieldUntil = performance.now() + 1200;
           phaseAfterimage(remote, remoteBuild, "guest");
         }
         if (data.classId === "laser") fireLaser(remote, remoteBuild, "guest");
         if (data.classId === "frost") freezeArea(remote, remoteBuild, "guest");
-        if (data.classId === "blade") bladeRush(remote, remoteBuild, "guest", data.x, data.y);
+        if (data.classId === "blade") bladeRush(remote, remoteBuild, "guest", syncedX, syncedY, skillStart.x, skillStart.y);
         if (data.classId === "gravity") gravityWell(remote, remoteBuild, "guest");
         if (data.classId === "thunder") thunderChain(remote, remoteBuild, "guest");
         if (data.classId === "sky") railSnipe(remote, remoteBuild, "guest");
@@ -1972,7 +1983,7 @@ export default function Home() {
         if (data.classId === "venom") venomCloud(remote, remoteBuild, "guest");
         if (data.classId === "chrono") chronoField(remote, remoteBuild, "guest");
         if (data.classId === "magnet") magnetHarvest(remote, remoteBuild, "guest");
-        if (data.classId === "portal") portalShift(remote, remoteBuild, "guest", data.x, data.y);
+        if (data.classId === "portal") portalShift(remote, remoteBuild, "guest", syncedX, syncedY, skillStart.x, skillStart.y);
         tryCoopCombo(remote, data.classId, "guest");
         triggerSkillEffect(remote, data.classId, skillStart);
         audio?.play("skill");
@@ -2152,6 +2163,7 @@ export default function Home() {
       localPaused = false;
       elapsed = 0; spawnClock = 0; fireClock = 0; nextSurgeAt = 22; surgeRemaining = 0; surgeSpawnClock = 0; currentXp = 0; currentLevel = 1; currentKills = 0;
       netClock = 0; worldClock = 0; remoteFireClock = 0; gameOverSent = false; simulationFrame = 0;
+      outgoingMoveSeq = 0; remoteMoveSeq = 0;
       nextEnemyId = 1;
       selfShieldUntil = 0; remoteShieldUntil = 0; skillReadyAt = 0; secondarySkillReadyAt = 0; shownCooldown = -1; shownSecondaryCooldown = -1; shownSecond = -1;
       hostReviveProgress = 0; guestReviveProgress = 0;
@@ -2660,8 +2672,18 @@ export default function Home() {
           selfShieldUntil = now + 1200;
         }
         if (build.classId === "blade") bladeRush(player, stats, "guest");
+        if (build.classId === "portal") portalShift(player, stats, "guest");
         triggerSkillEffect(player, build.classId, skillStart);
-        if (network.connected()) void network.send({ t: "skill", classId: build.classId, x: player.x, y: player.y });
+        const skillSequence = ++outgoingMoveSeq;
+        if (network.connected()) void network.send({
+          t: "skill",
+          classId: build.classId,
+          x: player.x,
+          y: player.y,
+          fromX: skillStart.x,
+          fromY: skillStart.y,
+          seq: skillSequence,
+        });
         audio?.play("skill");
         return;
       }
@@ -3193,8 +3215,13 @@ export default function Home() {
       owner: PlayerSide,
       syncedX?: number,
       syncedY?: number,
+      syncedStartX?: number,
+      syncedStartY?: number,
     ) => {
-      const start = { x: actor.x, y: actor.y };
+      const start = {
+        x: typeof syncedStartX === "number" ? syncedStartX : actor.x,
+        y: typeof syncedStartY === "number" ? syncedStartY : actor.y,
+      };
       const target = selectCombatTarget(enemies, actor);
       if (typeof syncedX === "number" && typeof syncedY === "number") {
         actor.x = clamp(syncedX, 30, W - 30);
@@ -3368,16 +3395,21 @@ export default function Home() {
       owner: PlayerSide,
       syncedX?: number,
       syncedY?: number,
+      syncedStartX?: number,
+      syncedStartY?: number,
     ) => {
-      const start = { x: actor.x, y: actor.y };
+      const start = {
+        x: typeof syncedStartX === "number" ? syncedStartX : actor.x,
+        y: typeof syncedStartY === "number" ? syncedStartY : actor.y,
+      };
       const target = prioritizeUltimateTargets(enemies, actor, 1)[0];
-      if (target) {
+      if (typeof syncedX === "number" && typeof syncedY === "number") {
+        actor.x = clamp(syncedX, 34, W - 34);
+        actor.y = clamp(syncedY, 34, H - 34);
+      } else if (target) {
         const side = target.x > W / 2 ? -1 : 1;
         actor.x = clamp(target.x + side * Math.min(180, 110 * combatStats.portalPower), 34, W - 34);
         actor.y = clamp(target.y + Math.sin(elapsed) * 70, 34, H - 34);
-      } else if (typeof syncedX === "number" && typeof syncedY === "number") {
-        actor.x = clamp(syncedX, 34, W - 34);
-        actor.y = clamp(syncedY, 34, H - 34);
       }
       if (actor === player) selfShieldUntil = Math.max(selfShieldUntil, performance.now() + 760);
       else remoteShieldUntil = Math.max(remoteShieldUntil, performance.now() + 760);
@@ -4097,7 +4129,7 @@ export default function Home() {
       netClock -= dt;
       if (network?.connected() && network.role === "join" && netClock <= 0) {
         netClock = .033;
-        void network.send({ t: "player", x: player.x, y: player.y });
+        void network.send({ t: "player", x: player.x, y: player.y, seq: ++outgoingMoveSeq });
       }
 
       for (const p of particles) {
@@ -5872,7 +5904,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.18.2 · BOSS近距锁定平衡</div>
+        <div className="status"><i /> 版本 0.18.3 · 多人瞬移同步修复</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>

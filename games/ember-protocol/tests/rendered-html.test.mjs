@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  reconcileMovementSequence,
   reconcilePausedPeerHp,
   teamRunDefeated,
 } from "../team-state.mjs";
@@ -44,7 +45,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.18\.2 · BOSS近距锁定平衡/);
+  assert.match(html, /版本 0\.18\.3 · 多人瞬移同步修复/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -65,6 +66,11 @@ test("ships sixteen independent classes, evolutions, missions, bosses, and gener
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
   assert.match(page, /t: "upgrade-resume"/);
   assert.match(page, /t: "skill2"; classId: ClassId/);
+  assert.match(page, /let outgoingMoveSeq = 0, remoteMoveSeq = 0/);
+  assert.match(page, /reconcileMovementSequence\(remoteMoveSeq, data\.seq\)/);
+  assert.match(page, /if \(build\.classId === "portal"\) portalShift\(player, stats, "guest"\)/);
+  assert.match(page, /fromX: skillStart\.x/);
+  assert.match(page, /if \(typeof syncedX === "number" && typeof syncedY === "number"\) \{\s+actor\.x = clamp\(syncedX, 34, W - 34\);\s+actor\.y = clamp\(syncedY, 34, H - 34\);\s+\} else if \(target\)/);
   assert.match(page, /t: "gameover"; hostHp: number; guestHp: number \| null/);
   assert.match(page, /const remoteWasAlive = remote\.hp > 0/);
   assert.match(page, /reconcilePausedPeerHp\(remoteWasAlive, data\.hp, data\.build\.maxHp\)/);
@@ -534,6 +540,23 @@ test("keeps a co-op run alive across upgrade/shop pauses until both players are 
   assert.equal(reconcilePausedPeerHp(true, 0, 120), 1, "stale zero report cannot kill a living peer");
   assert.equal(reconcilePausedPeerHp(true, 75, 120), 75);
   assert.equal(reconcilePausedPeerHp(false, 75, 120), 0, "a downed peer cannot revive through a menu");
+});
+
+test("keeps newer teleport landings ahead of stale movement packets", () => {
+  assert.deepEqual(
+    reconcileMovementSequence(9, 10),
+    { accepted: true, sequence: 10 },
+  );
+  assert.deepEqual(
+    reconcileMovementSequence(10, 9),
+    { accepted: false, sequence: 10 },
+    "a late pre-teleport position cannot overwrite the landing point",
+  );
+  assert.deepEqual(
+    reconcileMovementSequence(10, undefined),
+    { accepted: true, sequence: 11 },
+    "cached clients without a sequence remain compatible",
+  );
 });
 
 test("prioritizes bosses for every offensive ultimate and boosts only early-wave XP", () => {
