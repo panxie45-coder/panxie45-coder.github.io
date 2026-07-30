@@ -45,7 +45,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.18\.3 · 多人瞬移同步修复/);
+  assert.match(html, /版本 0\.19\.0 · 核心分流与模块化 BOSS/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -383,7 +383,33 @@ test("ships sixteen independent classes, evolutions, missions, bosses, and gener
   assert.match(page, /const canAct = !timeStoppedNow && !frozenNow && !stunnedNow/);
   assert.match(page, /else if \(canAct && ranged && enemy\.cooldown <= 0\)/);
   assert.match(page, /const iceRadius=e\.r\+10/);
-  assert.match(page, /type BossVariant = "rift" \| "storm" \| "weaver" \| "forge" \| "leviathan" \| "mirror" \| "warden"/);
+  assert.match(page, /type BossVariant =[\s\S]*\| "rift"[\s\S]*\| "eclipse"[\s\S]*\| "hydra"[\s\S]*\| "carrier"/);
+  assert.match(page, /const CORE_UNLOCK_LEVEL = 5/);
+  assert.match(page, /const CORE_PATHS: Record<ClassId, \[Upgrade, Upgrade\]>/);
+  assert.match(page, /const coreChoicesFor = \(classId: ClassId\)/);
+  assert.match(page, /corePath: number/);
+  assert.match(page, /build\.corePath <= 0 && currentLevel >= CORE_UNLOCK_LEVEL/);
+  assert.match(page, /const spawnFormation = \(\) =>/);
+  assert.match(page, /formationRole\?: "vanguard" \| "flank" \| "artillery"/);
+  assert.match(page, /commandBroken\?: boolean/);
+  assert.match(page, /const controlledByPartner/);
+  assert.match(page, /const teamGuardReduction/);
+  assert.match(page, /const BOSS_PART_LAYOUTS/);
+  assert.match(page, /const damageBossPart =/);
+  assert.match(page, /bossParts\?: BossPart\[\]/);
+  assert.match(page, /eclipse: \{ name:/);
+  assert.match(page, /hydra: \{ name:/);
+  assert.match(page, /carrier: \{ name:/);
+  assert.match(page, /boss-modular-v3\.webp/);
+  assert.match(page, /boss-modular-projectiles-v3\.webp/);
+  assert.match(page, /battlefield-atlas-v2\.webp/);
+  assert.match(page, /battlefield-atlas-v3\.webp/);
+  assert.match(page, /const drawArenaCell=/);
+  assert.match(page, /const paintedMap=/);
+  assert.match(page, /const horizon=ctx\.createLinearGradient/);
+  assert.match(page, /for\(let trench=0;trench<3;trench\+\+\)/);
+  assert.match(page, /const blackHole=ctx\.createRadialGradient/);
+  assert.match(page, /const lava=ctx\.createLinearGradient/);
   assert.match(page, /shieldmite: "melee"/);
   assert.match(page, /splitter: "melee"/);
   assert.match(page, /rammer: "melee"/);
@@ -524,6 +550,12 @@ test("ships sixteen independent classes, evolutions, missions, bosses, and gener
     access(new URL("../public/game/quantum-support.webp", import.meta.url)),
     access(new URL("../public/game/map-enemies.webp", import.meta.url)),
     access(new URL("../public/game/boss-expansion.webp", import.meta.url)),
+    access(new URL("../public/game/boss-modular-v3.png", import.meta.url)),
+    access(new URL("../public/game/boss-modular-projectiles-v3.png", import.meta.url)),
+    access(new URL("../public/game/boss-modular-v3.webp", import.meta.url)),
+    access(new URL("../public/game/boss-modular-projectiles-v3.webp", import.meta.url)),
+    access(new URL("../public/game/battlefield-atlas-v2.webp", import.meta.url)),
+    access(new URL("../public/game/battlefield-atlas-v3.webp", import.meta.url)),
     access(new URL("../public/game/player-mechs.png", import.meta.url)),
     access(new URL("../public/game/boss-variants.png", import.meta.url)),
     access(new URL("../public/favicon.svg", import.meta.url)),
