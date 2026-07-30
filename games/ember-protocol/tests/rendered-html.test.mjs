@@ -407,7 +407,7 @@ test("ships sixteen independent classes, evolutions, missions, bosses, and gener
   assert.match(page, /const drawArenaCell=/);
   assert.match(page, /const paintedMap=/);
   assert.match(page, /const horizon=ctx\.createLinearGradient/);
-  assert.match(page, /for\(let trench=0;trench<3;trench\+\+\)/);
+  assert.match(page, /for\(let trench=0;trench<\(paintedMap\?0:3\);trench\+\+\)/);
   assert.match(page, /const blackHole=ctx\.createRadialGradient/);
   assert.match(page, /const lava=ctx\.createLinearGradient/);
   assert.match(page, /shieldmite: "melee"/);

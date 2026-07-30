@@ -5825,13 +5825,13 @@ export default function Home() {
         horizon.addColorStop(0,"rgba(17,47,42,.38)");horizon.addColorStop(.46,"rgba(20,33,28,.08)");horizon.addColorStop(1,"rgba(4,9,8,.56)");
         ctx.fillStyle=horizon;ctx.fillRect(0,0,W,H);
         ctx.fillStyle=paintedMap?"rgba(35,55,44,.07)":"rgba(35,55,44,.32)";ctx.strokeStyle="rgba(151,183,145,.1)";ctx.lineWidth=2;
-        for(let i=0;i<18;i++){
+        for(let i=0;i<(paintedMap?0:18);i++){
           const x=(i*263+47)%W,y=(i*173+31)%H,w=132+(i%4)*34,h=82+(i%3)*24;
           ctx.save();ctx.translate(x,y);ctx.rotate((i%7-3)*.045);ctx.beginPath();
           ctx.moveTo(-w*.48,-h*.31);ctx.lineTo(-w*.13,-h*.52);ctx.lineTo(w*.43,-h*.32);ctx.lineTo(w*.51,h*.19);ctx.lineTo(w*.16,h*.48);ctx.lineTo(-w*.45,h*.34);ctx.closePath();
           ctx.fill();ctx.stroke();ctx.strokeStyle="rgba(5,14,11,.48)";ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(-w*.2,-h*.35);ctx.lineTo(w*.02,-h*.02);ctx.lineTo(-w*.08,h*.32);ctx.stroke();ctx.restore();
         }
-        for(let trench=0;trench<3;trench++){
+        for(let trench=0;trench<(paintedMap?0:3);trench++){
           const baseY=170+trench*285;
           const ember=ctx.createLinearGradient(0,baseY-32,0,baseY+32);
           ember.addColorStop(0,"rgba(41,22,11,0)");ember.addColorStop(.38,"rgba(255,93,31,.16)");ember.addColorStop(.5,"rgba(255,210,91,.62)");ember.addColorStop(.62,"rgba(255,79,22,.2)");ember.addColorStop(1,"rgba(22,15,9,0)");
@@ -5840,7 +5840,7 @@ export default function Home() {
           ctx.stroke();ctx.strokeStyle=ember;ctx.lineWidth=8;ctx.shadowColor="#ff7138";ctx.shadowBlur=reducedEffects?0:12;ctx.stroke();ctx.shadowBlur=0;
         }
         ctx.fillStyle="rgba(4,11,9,.76)";ctx.strokeStyle="rgba(132,178,151,.16)";ctx.lineWidth=3;
-        for(let ruin=0;ruin<7;ruin++){
+        for(let ruin=0;ruin<(paintedMap?0:7);ruin++){
           const x=105+ruin*245,y=110+(ruin%2)*610,h=72+(ruin%3)*24;
           ctx.beginPath();ctx.moveTo(x-52,y+h*.52);ctx.lineTo(x-43,y-h*.28);ctx.lineTo(x-18,y-h*.58);ctx.lineTo(x-8,y-h*.95);ctx.lineTo(x+8,y-h*.95);ctx.lineTo(x+18,y-h*.58);ctx.lineTo(x+43,y-h*.28);ctx.lineTo(x+52,y+h*.52);ctx.closePath();ctx.fill();ctx.stroke();
           ctx.strokeStyle="rgba(244,201,93,.28)";ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(x-23,y-h*.18);ctx.lineTo(x+23,y-h*.18);ctx.stroke();
