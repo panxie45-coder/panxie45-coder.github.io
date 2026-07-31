@@ -45,12 +45,13 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.19\.0 · 核心分流与模块化 BOSS/);
+  assert.match(html, /版本 0\.20\.0 · 战场导演与双人战术/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
   assert.match(html, /<kbd>E<\/kbd> 副技能/);
   assert.match(html, /终极大招/);
+  assert.match(html, /<kbd>F<\/kbd> 双人战术/);
 });
 
 test("ships sixteen independent classes, evolutions, missions, bosses, and generated sprites", async () => {
@@ -66,6 +67,17 @@ test("ships sixteen independent classes, evolutions, missions, bosses, and gener
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
   assert.match(page, /t: "upgrade-resume"/);
   assert.match(page, /t: "skill2"; classId: ClassId/);
+  assert.match(page, /t: "tactical-command"; command: TacticalCommandId/);
+  assert.match(page, /type DirectorOrderId = "encircle" \| "intercept" \| "siege" \| "relief"/);
+  assert.match(page, /const updateBattlefieldDirector/);
+  assert.match(page, /const activateTacticalCommand/);
+  assert.match(page, /activeTacticalCommand === "focus"/);
+  assert.match(page, /activeTacticalCommand === "crossfire"/);
+  assert.match(page, /activeTacticalCommand === "guard"/);
+  assert.match(page, /director: directorFrame \|\| undefined/);
+  assert.match(page, /tactical: tacticalSnapshot\(\)/);
+  assert.match(page, /className=\{`directorBadge/);
+  assert.match(page, /className=\{`battleTacticalPanel/);
   assert.match(page, /let outgoingMoveSeq = 0, remoteMoveSeq = 0/);
   assert.match(page, /reconcileMovementSequence\(remoteMoveSeq, data\.seq\)/);
   assert.match(page, /if \(build\.classId === "portal"\) portalShift\(player, stats, "guest"\)/);

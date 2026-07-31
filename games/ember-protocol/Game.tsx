@@ -197,6 +197,10 @@ type Enemy = Actor & {
   formationOffsetX?: number;
   formationOffsetY?: number;
   commandBroken?: boolean;
+  directorTarget?: PlayerSide;
+  lastHostHitAt?: number;
+  lastGuestHitAt?: number;
+  crossfireReadyAt?: number;
 };
 type Shot = {
   x: number;
@@ -258,6 +262,23 @@ type BattleMissionFrame = {
   zoneX?: number;
   zoneY?: number;
 };
+type DirectorOrderId = "encircle" | "intercept" | "siege" | "relief";
+type DirectorFrame = {
+  id: DirectorOrderId;
+  title: string;
+  detail: string;
+  icon: string;
+  phase: "warning" | "active";
+  remaining: number;
+  threat: number;
+};
+type TacticalCommandId = "focus" | "guard" | "crossfire";
+type TacticalFrame = {
+  charge: number;
+  active?: TacticalCommandId;
+  remaining: number;
+  targetId?: number;
+};
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
   elapsed: number;
@@ -278,6 +299,8 @@ type WorldFrame = {
   wave: number;
   warzone?: ActiveWarzone;
   mission?: BattleMissionFrame;
+  director?: DirectorFrame;
+  tactical: TacticalFrame;
 };
 type NetPayload =
   | { t: "hello" }
@@ -288,6 +311,7 @@ type NetPayload =
   | { t: "skill"; classId: ClassId; x: number; y: number; fromX?: number; fromY?: number; seq?: number }
   | { t: "skill2"; classId: ClassId; x: number; y: number }
   | { t: "ultimate"; classId: ClassId; x: number; y: number }
+  | { t: "tactical-command"; command: TacticalCommandId }
   | { t: "world"; frame: WorldFrame }
   | { t: "levelup"; level: number }
   | { t: "upgrade-resume" }
@@ -306,6 +330,19 @@ type NetBridge = {
   send: (data: NetPayload) => Promise<void>;
   subscribe: (handler: (data: NetPayload) => void) => () => void;
   connected: () => boolean;
+};
+
+const DIRECTOR_ORDERS: Record<DirectorOrderId, { title: string; warning: string; active: string; icon: string; duration: number }> = {
+  encircle: { title: "环形收束", warning: "侦测到高火力输出，敌群正从四侧重组包围圈", active: "四侧增援与指挥阵型正在压缩活动空间", icon: "◇", duration: 11 },
+  intercept: { title: "猎杀截击", warning: "队伍距离过远，快速单位正在分别锁定两台机甲", active: "截击单位会优先追猎各自标记的目标", icon: "⌖", duration: 9 },
+  siege: { title: "远程封锁", warning: "阵地停留时间过长，炮击与狙击阵列正在校准", active: "远程火力持续进场，弹幕推进速度暂时提升", icon: "▰", duration: 10 },
+  relief: { title: "压力回落", warning: "队伍完整度过低，导演将降低压力并投放应急维修", active: "敌群生成放缓，战场已投放应急维修包", icon: "✚", duration: 8 },
+};
+
+const TACTICAL_COMMANDS: Record<TacticalCommandId, { title: string; detail: string; icon: string; duration: number }> = {
+  focus: { title: "集火标记", detail: "共同锁定最高威胁目标，双方对其造成 35% 额外伤害。", icon: "⌖", duration: 7 },
+  guard: { title: "协同掩护", detail: "立即修复 10% 生命，6 秒内双方获得 28% 额外减伤。", icon: "⬢", duration: 6 },
+  crossfire: { title: "交叉火网", detail: "双方在 1.2 秒内命中同一目标时引爆协同伤害。", icon: "✣", duration: 8 },
 };
 
 const GAME_ASSETS = {
@@ -1713,6 +1750,9 @@ export default function Home() {
   const [waitingRoute, setWaitingRoute] = useState(false);
   const [warzoneState, setWarzoneState] = useState<ActiveWarzone | null>(null);
   const [battleMission, setBattleMission] = useState<BattleMissionFrame | null>(null);
+  const [directorState, setDirectorState] = useState<DirectorFrame | null>(null);
+  const [tacticalState, setTacticalState] = useState<TacticalFrame>({ charge: 0, remaining: 0 });
+  const [selectedTacticalCommand, setSelectedTacticalCommand] = useState<TacticalCommandId>("focus");
   const [signaturePieces, setSignaturePieces] = useState(0);
   const [corePath, setCorePath] = useState(0);
   const [selectedClass, setSelectedClass] = useState<ClassId>("assault");
@@ -1741,6 +1781,8 @@ export default function Home() {
   const activeSkillRef = useRef<() => void>(() => {});
   const secondarySkillRef = useRef<() => void>(() => {});
   const activeUltimateRef = useRef<() => void>(() => {});
+  const tacticalCommandRef = useRef<(command: TacticalCommandId) => void>(() => {});
+  const selectedTacticalCommandRef = useRef<TacticalCommandId>("focus");
   const buyShopItemRef = useRef<(id: string) => void>(() => {});
   const finishShopRef = useRef<() => void>(() => {});
   const rerollShopRef = useRef<() => void>(() => {});
@@ -1781,7 +1823,7 @@ export default function Home() {
     pausedRef.current = false;
     setLevel(1); setXp(0); setHp(ownBuildRef.current.maxHp); setMaxHp(ownBuildRef.current.maxHp); setTeammateHp(null); setRescueProgress(0); setKills(0); setSeconds(0); setSkillCooldown(0); setSecondarySkillCooldown(0);
     setWave(1); setCoins(0); setUltimateEnergy(0); setShopItems(null); setWaitingSupply(false);
-    setUpgradeRerolls(0); setShopRerolls(0); setBossLootNotice(""); setRelicPickupReport(null); setRouteChoices(null); setWaitingRoute(false); setWarzoneState(null); setSignaturePieces(0); setCorePath(ownBuildRef.current.corePath || 0);
+    setUpgradeRerolls(0); setShopRerolls(0); setBossLootNotice(""); setRelicPickupReport(null); setRouteChoices(null); setWaitingRoute(false); setWarzoneState(null); setBattleMission(null); setDirectorState(null); setTacticalState({ charge: 0, remaining: 0 }); setSignaturePieces(0); setCorePath(ownBuildRef.current.corePath || 0);
     setChoices(null); setPaused(false); setView("game");
     setTimeout(() => resetRef.current(), 0);
   }, [wakeAudio]);
@@ -1995,6 +2037,12 @@ export default function Home() {
     let currentWarzone: ActiveWarzone | null = null;
     let activeMission: BattleMissionFrame | null = null;
     let missionDeadline = 0, nextMissionWave = 2, missionUiClock = 0;
+    let directorFrame: DirectorFrame | null = null;
+    let pendingDirectorOrder: DirectorOrderId | null = null;
+    let directorWarningUntil = 0, directorActiveUntil = 0, nextDirectorDecisionAt = 24, directorUiClock = 0;
+    let directorKillSample = 0, directorSampleAt = 0;
+    let tacticalCharge = 0, activeTacticalCommand: TacticalCommandId | null = null, tacticalUntil = 0, tacticalTargetId: number | undefined;
+    let tacticalUiClock = 0;
     let lastSkillCast: { owner: PlayerSide; classId: ClassId; at: number } | null = null;
     let pendingRouteChoice = false;
     let bossBag: BossVariant[] = [];
@@ -2154,6 +2202,9 @@ export default function Home() {
         guestUltimate = 0;
         executeUltimate(remote, remoteStats, data.classId, "guest");
       }
+      if (data.t === "tactical-command" && isAuthority) {
+        activateTacticalCommand(data.command);
+      }
       if (data.t === "world" && !isAuthority) {
         const frame = data.frame;
         elapsed = frame.elapsed;
@@ -2201,6 +2252,13 @@ export default function Home() {
         }
         activeMission = frame.mission || null;
         setBattleMission(activeMission);
+        directorFrame = frame.director || null;
+        setDirectorState(directorFrame);
+        tacticalCharge = frame.tactical.charge;
+        activeTacticalCommand = frame.tactical.active || null;
+        tacticalTargetId = frame.tactical.targetId;
+        tacticalUntil = frame.elapsed + frame.tactical.remaining;
+        setTacticalState(frame.tactical);
       }
       if (data.t === "levelup" && !isAuthority) {
         currentLevel = data.level;
@@ -2332,6 +2390,8 @@ export default function Home() {
       currentWave = 1; nextWaveAt = WAVE_INTERVAL_SECONDS; lastBossWave = 0;
       currentWarzone = null; pendingRouteChoice = false;
       activeMission = null; missionDeadline = 0; nextMissionWave = 2; missionUiClock = 0; lastSkillCast = null;
+      directorFrame = null; pendingDirectorOrder = null; directorWarningUntil = 0; directorActiveUntil = 0; nextDirectorDecisionAt = 24; directorUiClock = 0; directorKillSample = 0; directorSampleAt = 0;
+      tacticalCharge = 0; activeTacticalCommand = null; tacticalUntil = 0; tacticalTargetId = undefined; tacticalUiClock = 0;
       bossBag = [];
       previousBossVariant = null;
       localUpgradeRerolls = 0; localShopRerolls = 0; shopStock = []; recentShopIds = [];
@@ -2377,6 +2437,8 @@ export default function Home() {
       setWaitingRoute(false);
       setWarzoneState(null);
       setBattleMission(null);
+      setDirectorState(null);
+      setTacticalState({ charge: 0, remaining: 0 });
       setSignaturePieces(build.signaturePieces);
       setCorePath(build.corePath || 0);
     };
@@ -2977,6 +3039,10 @@ export default function Home() {
         e.preventDefault();
         secondarySkillRef.current();
       }
+      if (e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        tacticalCommandRef.current(selectedTacticalCommandRef.current);
+      }
       if (e.key === "Escape" && network?.role !== "join") {
         setPaused((wasPaused) => {
           const nextPaused = !wasPaused;
@@ -3000,10 +3066,16 @@ export default function Home() {
     window.addEventListener("keydown", down); window.addEventListener("keyup", up);
     canvas.addEventListener("pointermove", movePointer); canvas.addEventListener("pointerdown", movePointer); window.addEventListener("pointerup", pointerUp);
 
-    const spawnEnemy = () => {
+    const spawnEnemy = (forcedKind?: EnemyKind, interceptTarget?: Actor, directorTarget?: PlayerSide) => {
       const side = Math.floor(Math.random() * 4), pad = 35;
       let x = Math.random() * W, y = Math.random() * H;
       if (side === 0) y = -pad; if (side === 1) x = W + pad; if (side === 2) y = H + pad; if (side === 3) x = -pad;
+      if (interceptTarget) {
+        const interceptAngle = Math.random() * Math.PI * 2;
+        const interceptDistance = 330 + Math.random() * 100;
+        x = clamp(interceptTarget.x + Math.cos(interceptAngle) * interceptDistance, -pad, W + pad);
+        y = clamp(interceptTarget.y + Math.sin(interceptAngle) * interceptDistance, -pad, H + pad);
+      }
       const candidates: Array<{ kind: EnemyKind; weight: number }> = [
         { kind: "runner", weight: Math.max(24, 48 - elapsed * .045) },
         { kind: "crawler", weight: Math.max(20, 38 - elapsed * .035) },
@@ -3028,12 +3100,14 @@ export default function Home() {
       if (currentWarzone?.id === "storm") addEvolvedEnemy("stormray", 34, 18, 65);
       const totalWeight = candidates.reduce((sum, entry) => sum + entry.weight, 0);
       let enemyRoll = Math.random() * totalWeight;
-      let kind: EnemyKind = "runner";
-      for (const candidate of candidates) {
-        enemyRoll -= candidate.weight;
-        if (enemyRoll <= 0) {
-          kind = candidate.kind;
-          break;
+      let kind: EnemyKind = forcedKind || "runner";
+      if (!forcedKind) {
+        for (const candidate of candidates) {
+          enemyRoll -= candidate.weight;
+          if (enemyRoll <= 0) {
+            kind = candidate.kind;
+            break;
+          }
         }
       }
       const config = ENEMY_DATA[kind];
@@ -3063,6 +3137,7 @@ export default function Home() {
         cooldown: config.cooldown ? Math.random() * config.cooldown : 0,
         slow: 0,
         barrier: kind === "shieldmite" ? maxHp * .7 : undefined,
+        directorTarget,
       });
     };
     const spawnFormation = () => {
@@ -3290,6 +3365,154 @@ export default function Home() {
     const impactEffect = (x: number, y: number, color: string, radius = 24) => {
       addEffect({ kind: "impact", x, y, color, radius }, .28);
     };
+    const tacticalSnapshot = (): TacticalFrame => ({
+      charge: Math.round(clamp(tacticalCharge, 0, 100) * 10) / 10,
+      active: activeTacticalCommand || undefined,
+      remaining: activeTacticalCommand ? Math.max(0, tacticalUntil - elapsed) : 0,
+      targetId: activeTacticalCommand === "focus" ? tacticalTargetId : undefined,
+    });
+    const syncTacticalUi = () => setTacticalState(tacticalSnapshot());
+    const activateTacticalCommand = (command: TacticalCommandId) => {
+      if (!isAuthority || !remote || !network?.connected() || tacticalCharge < 100 || activeTacticalCommand || localPaused || pausedRef.current) return;
+      const commandInfo = TACTICAL_COMMANDS[command];
+      const focusTarget = command === "focus"
+        ? enemies
+            .filter((enemy) => enemy.hp > 0)
+            .sort((a, b) => {
+              const threatA = (a.kind === "boss" ? 1000000 : a.kind === "commander" ? 100000 : a.elite ? 10000 : 0) + a.maxHp;
+              const threatB = (b.kind === "boss" ? 1000000 : b.kind === "commander" ? 100000 : b.elite ? 10000 : 0) + b.maxHp;
+              return threatB - threatA;
+            })[0]
+        : undefined;
+      if (command === "focus" && !focusTarget) return;
+      tacticalCharge = 0;
+      activeTacticalCommand = command;
+      tacticalUntil = elapsed + commandInfo.duration;
+      tacticalTargetId = undefined;
+      if (command === "focus") {
+        const target = focusTarget;
+        tacticalTargetId = target?.id;
+        if (target) {
+          addEffect({ kind: "impact", x: target.x, y: target.y, color: "#ff6b62", radius: 150 }, .72);
+          beams.push({ x1: player.x, y1: player.y, x2: target.x, y2: target.y, life: .5, width: 4, color: "#ff6b62" });
+          beams.push({ x1: remote.x, y1: remote.y, x2: target.x, y2: target.y, life: .5, width: 4, color: "#ff6b62" });
+        }
+      } else if (command === "guard") {
+        for (const actor of [player, remote]) {
+          if (actor.hp <= 0) continue;
+          actor.hp = Math.min(actor.maxHp, actor.hp + actor.maxHp * .1);
+          addEffect({ kind: "revive", x: actor.x, y: actor.y, color: "#75e6da", radius: 112 }, .72);
+          burst(actor.x, actor.y, "#75e6da", 16);
+        }
+        setHp(Math.ceil(player.hp));
+      } else {
+        beams.push({ x1: player.x, y1: player.y, x2: remote.x, y2: remote.y, life: .7, width: 8, color: "#f4c95d" });
+        burst(player.x, player.y, "#f4c95d", 14);
+        burst(remote.x, remote.y, "#75e6da", 14);
+      }
+      setBossLootNotice(`双人战术指令 · ${commandInfo.title}已启动`);
+      syncTacticalUi();
+      audio?.play("ultimate");
+    };
+    tacticalCommandRef.current = (command) => {
+      if (network?.role === "join") {
+        if (network.connected()) void network.send({ t: "tactical-command", command });
+        return;
+      }
+      activateTacticalCommand(command);
+    };
+    const beginDirectorOrder = (order: DirectorOrderId, threat: number) => {
+      const info = DIRECTOR_ORDERS[order];
+      pendingDirectorOrder = order;
+      directorWarningUntil = elapsed + 3.2;
+      directorFrame = {
+        id: order,
+        title: info.title,
+        detail: info.warning,
+        icon: info.icon,
+        phase: "warning",
+        remaining: 3.2,
+        threat,
+      };
+      setDirectorState({ ...directorFrame });
+      setBossLootNotice(`⚠ 战场导演预警 · ${info.title}`);
+      audio?.play("skill");
+    };
+    const activateDirectorOrder = () => {
+      if (!pendingDirectorOrder) return;
+      const order = pendingDirectorOrder;
+      const info = DIRECTOR_ORDERS[order];
+      pendingDirectorOrder = null;
+      directorActiveUntil = elapsed + info.duration;
+      directorFrame = {
+        id: order,
+        title: info.title,
+        detail: info.active,
+        icon: info.icon,
+        phase: "active",
+        remaining: info.duration,
+        threat: directorFrame?.threat || 0,
+      };
+      if (order === "encircle") {
+        if (currentWave >= 2 && enemies.length < PERFORMANCE_LIMITS.highEnemyCount - 6) spawnFormation();
+        for (let index = 0; index < 6; index++) spawnEnemy(index % 2 ? "runner" : "crawler");
+      } else if (order === "intercept" && remote) {
+        spawnEnemy("assassin", player, "host");
+        spawnEnemy("rammer", player, "host");
+        spawnEnemy("assassin", remote, "guest");
+        spawnEnemy("rammer", remote, "guest");
+      } else if (order === "siege") {
+        for (const kind of ["artillery", "sniper", "artillery", "mortarwasp"] as EnemyKind[]) spawnEnemy(kind);
+      } else if (order === "relief") {
+        const living = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
+        for (const [index, actor] of living.entries()) {
+          gems.push({ x: clamp(actor.x + (index ? -42 : 42), 40, W - 40), y: clamp(actor.y - 34, 40, H - 40), value: 0, life: 12, heal: .14 });
+          addEffect({ kind: "impact", x: actor.x, y: actor.y, color: "#76f0ae", radius: 90 }, .55);
+        }
+      }
+      setDirectorState({ ...directorFrame });
+    };
+    const updateBattlefieldDirector = (dt: number, bossActive: boolean) => {
+      if (directorFrame?.phase === "warning") {
+        directorFrame.remaining = Math.max(0, directorWarningUntil - elapsed);
+        if (elapsed >= directorWarningUntil) activateDirectorOrder();
+      } else if (directorFrame?.phase === "active") {
+        directorFrame.remaining = Math.max(0, directorActiveUntil - elapsed);
+        if (elapsed >= directorActiveUntil) {
+          if (directorFrame.id === "intercept") {
+            for (const enemy of enemies) enemy.directorTarget = undefined;
+          }
+          directorFrame = null;
+          nextDirectorDecisionAt = elapsed + 22 + Math.random() * 10;
+          setDirectorState(null);
+        }
+      } else if (!bossActive && elapsed >= nextDirectorDecisionAt && enemies.length >= 8) {
+        const living = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
+        const hpRatio = living.length
+          ? living.reduce((sum, actor) => sum + actor.hp / Math.max(1, actor.maxHp), 0) / living.length
+          : 0;
+        const teamSpread = remote && player.hp > 0 && remote.hp > 0 ? dist(player, remote) : 0;
+        const hostilePressure = shots.reduce((count, shot) => count + (shot.hostile ? 1 : 0), 0);
+        const sampleSeconds = Math.max(1, elapsed - directorSampleAt);
+        const killVelocity = (currentKills - directorKillSample) / sampleSeconds;
+        const threat = Math.round(clamp(16 + currentWave * 4 + enemies.length * .34 + hostilePressure * .28 + killVelocity * 12, 0, 100));
+        const order: DirectorOrderId = hpRatio < .43
+          ? "relief"
+          : remote && teamSpread > 520
+            ? "intercept"
+            : killVelocity > 1.15 && hostilePressure < 42
+              ? "encircle"
+              : "siege";
+        directorKillSample = currentKills;
+        directorSampleAt = elapsed;
+        beginDirectorOrder(order, threat);
+      }
+      directorUiClock -= dt;
+      if (directorFrame && directorUiClock <= 0) {
+        directorUiClock = .16;
+        setDirectorState({ ...directorFrame });
+      }
+    };
     const triggerSkillEffect = (actor: Actor, classId: ClassId, start: Pick<Actor, "x" | "y"> = actor) => {
       const colors: Record<ClassId, string> = {
         assault: "#f4c95d",
@@ -3460,8 +3683,25 @@ export default function Home() {
           : attackerClass === "blade" && attackerCore === 1
             ? 1.18
             : 1;
-      part.hp -= amount * hunterBonus;
+      const focusBonus = activeTacticalCommand === "focus" && boss.id === tacticalTargetId ? 1.35 : 1;
+      part.hp -= amount * hunterBonus * focusBonus;
       boss.lastHitBy = owner;
+      if (owner === "host") boss.lastHostHitAt = elapsed;
+      else boss.lastGuestHitAt = elapsed;
+      if (
+        activeTacticalCommand === "crossfire"
+        && typeof boss.lastHostHitAt === "number"
+        && typeof boss.lastGuestHitAt === "number"
+        && Math.abs(boss.lastHostHitAt - boss.lastGuestHitAt) <= 1.2
+        && elapsed >= (boss.crossfireReadyAt || 0)
+      ) {
+        const crossfireDamage = Math.min(96, 14 + amount * .36);
+        part.hp -= crossfireDamage;
+        boss.crossfireReadyAt = elapsed + .62;
+        const crossfirePosition = bossPartPosition(boss, part);
+        impactEffect(crossfirePosition.x, crossfirePosition.y, "#f4c95d", 58);
+        burst(crossfirePosition.x, crossfirePosition.y, "#75e6da", 8);
+      }
       if (part.hp > 0) return;
       part.hp = 0;
       part.destroyed = true;
@@ -3504,12 +3744,32 @@ export default function Home() {
       const destroyedParts = parts.filter((part) => part.destroyed || part.hp <= 0).length;
       const coreExposure = parts.length ? .52 + .48 * destroyedParts / parts.length : 1;
       const survivingParts = parts.filter((part) => !part.destroyed && part.hp > 0);
-      if (enemy.kind === "boss" && owner && survivingParts.length && amount >= 24) {
+      const focusBonus = activeTacticalCommand === "focus" && enemy.id === tacticalTargetId ? 1.35 : 1;
+      const resolvedAmount = amount * focusBonus;
+      if (enemy.kind === "boss" && owner && survivingParts.length && resolvedAmount >= 24) {
         const routedPart = survivingParts[Math.floor(enemy.hp + amount) % survivingParts.length];
-        damageBossPart(enemy, routedPart, amount * .22, owner);
+        damageBossPart(enemy, routedPart, resolvedAmount * .22, owner);
       }
-      enemy.hp -= amount * bossResilience * bossHunterBonus * coopControlBonus * coreExposure;
-      if (owner) enemy.lastHitBy = owner;
+      enemy.hp -= resolvedAmount * bossResilience * bossHunterBonus * coopControlBonus * coreExposure;
+      if (owner) {
+        enemy.lastHitBy = owner;
+        if (owner === "host") enemy.lastHostHitAt = elapsed;
+        else enemy.lastGuestHitAt = elapsed;
+      }
+      const crossfireWindowActive = activeTacticalCommand === "crossfire"
+        && owner
+        && typeof enemy.lastHostHitAt === "number"
+        && typeof enemy.lastGuestHitAt === "number"
+        && Math.abs(enemy.lastHostHitAt - enemy.lastGuestHitAt) <= 1.2
+        && elapsed >= (enemy.crossfireReadyAt || 0);
+      if (crossfireWindowActive) {
+        const crossfireDamage = Math.min(120, 18 + resolvedAmount * .42);
+        enemy.hp -= crossfireDamage * bossResilience * coreExposure;
+        enemy.crossfireReadyAt = elapsed + .62;
+        impactEffect(enemy.x, enemy.y, "#f4c95d", 62);
+        burst(enemy.x, enemy.y, "#75e6da", 9);
+        if (remote) beams.push({ x1: player.x, y1: player.y, x2: remote.x, y2: remote.y, life: .16, width: 5, color: "#f4c95d" });
+      }
     };
     const fireLaser = (actor: Actor, combatStats: BuildFrame | CombatStats, owner: PlayerSide) => {
       const target = selectCombatTarget(enemies, actor);
@@ -4600,6 +4860,8 @@ export default function Home() {
           wave: currentWave,
           warzone: currentWarzone || undefined,
           mission: activeMission || undefined,
+          director: directorFrame || undefined,
+          tactical: tacticalSnapshot(),
         },
       });
     };
@@ -4750,13 +5012,32 @@ export default function Home() {
       }
       if (currentWave % 3 === 0 && lastBossWave !== currentWave) spawnBoss();
       const bossActive = enemies.some((enemy) => enemy.kind === "boss" && enemy.hp > 0);
+      if (!coOpActive) {
+        tacticalCharge = 0;
+        activeTacticalCommand = null;
+        tacticalTargetId = undefined;
+      } else if (activeTacticalCommand && elapsed >= tacticalUntil) {
+        activeTacticalCommand = null;
+        tacticalTargetId = undefined;
+        setBossLootNotice("双人战术指令结束 · 重新协同作战可积累充能");
+      }
+      tacticalUiClock -= dt;
+      if (tacticalUiClock <= 0) {
+        tacticalUiClock = .14;
+        syncTacticalUi();
+      }
+      updateBattlefieldDirector(dt, bossActive);
+      const directorCapAdjustment = directorFrame?.phase === "active"
+        ? directorFrame.id === "encircle" ? 18 : directorFrame.id === "intercept" ? 10 : directorFrame.id === "siege" ? 8 : -20
+        : 0;
       const baseEnemyCap = Math.min(coOpActive ? 240 : 200, (coOpActive ? 100 : 82) + Math.floor(elapsed / 35) * 8);
-      const enemyCap = bossActive ? Math.max(34, Math.floor(baseEnemyCap * .58)) : baseEnemyCap;
-      if (!bossActive && elapsed >= nextFormationAt && enemies.length <= enemyCap - 5) {
+      const directedEnemyCap = Math.max(42, baseEnemyCap + directorCapAdjustment);
+      const enemyCap = bossActive ? Math.max(34, Math.floor(directedEnemyCap * .58)) : directedEnemyCap;
+      if (!bossActive && directorFrame?.id !== "relief" && elapsed >= nextFormationAt && enemies.length <= enemyCap - 5) {
         spawnFormation();
         nextFormationAt += Math.max(42, 68 - elapsed * .016);
       }
-      if (!bossActive && elapsed >= nextSurgeAt) {
+      if (!bossActive && directorFrame?.id !== "relief" && elapsed >= nextSurgeAt) {
         surgeRemaining = Math.min(coOpActive ? 48 : 40, 14 + Math.floor(elapsed / 50) * 4 + (coOpActive ? 6 : 0));
         nextSurgeAt += Math.max(36, 56 - elapsed * .018);
         surgeSpawnClock = 0;
@@ -4774,9 +5055,12 @@ export default function Home() {
       }
       spawnClock -= dt;
       if (spawnClock <= 0) {
+        const directorSpawnScale = directorFrame?.phase === "active"
+          ? directorFrame.id === "encircle" ? .76 : directorFrame.id === "intercept" ? .88 : directorFrame.id === "siege" ? 1.05 : 1.7
+          : 1;
         spawnClock = (coOpActive
           ? Math.max(.17, .58 - elapsed * .00145)
-          : Math.max(.2, .7 - elapsed * .00155)) * (bossActive ? 1.65 : 1);
+          : Math.max(.2, .7 - elapsed * .00155)) * (bossActive ? 1.65 : 1) * directorSpawnScale;
         const regularBatch = Math.min(coOpActive ? 4 : 3, 1 + Math.floor(elapsed / 110) + (coOpActive && elapsed > 90 ? 1 : 0));
         for (let index = 0; index < regularBatch && enemies.length < enemyCap; index++) spawnEnemy();
       }
@@ -4871,8 +5155,9 @@ export default function Home() {
           shot.homing = Math.max(0, (shot.homing || 0) - dt);
         }
         const warzoneProjectileScale = shot.hostile && currentWarzone?.id === "storm" ? 1.22 : 1;
-        shot.x += shot.vx * dt * warzoneProjectileScale;
-        shot.y += shot.vy * dt * warzoneProjectileScale;
+        const directorProjectileScale = shot.hostile && directorFrame?.phase === "active" && directorFrame.id === "siege" ? 1.12 : 1;
+        shot.x += shot.vx * dt * warzoneProjectileScale * directorProjectileScale;
+        shot.y += shot.vy * dt * warzoneProjectileScale * directorProjectileScale;
         shot.life -= dt;
       }
       shots = shots.filter((shot) => shot.life > 0);
@@ -4886,14 +5171,15 @@ export default function Home() {
       const now = performance.now();
       const livingActors: Actor[] = [player, ...(remote ? [remote] : [])].filter((actor) => actor.hp > 0);
       const teamGuardReduction = (target: Actor) => {
-        if (!remote || player.hp <= 0 || remote.hp <= 0 || dist(player, remote) > 275) return 0;
+        const tacticalGuard = activeTacticalCommand === "guard" ? .28 : 0;
+        if (!remote || player.hp <= 0 || remote.hp <= 0 || dist(player, remote) > 275) return tacticalGuard;
         const protector = target === player ? remote : player;
         const protectorBuild = protector === player ? stats : remoteBuildRef.current;
-        if (!protectorBuild) return 0;
+        if (!protectorBuild) return tacticalGuard;
         const protectorClass = protector === player ? player.classId : remote.classId;
-        if (protectorClass === "aegis") return protectorBuild.corePath === 1 ? .12 : .055;
-        if (protectorClass === "guardian") return protectorBuild.corePath === 1 ? .1 : .045;
-        return 0;
+        if (protectorClass === "aegis") return tacticalGuard + (protectorBuild.corePath === 1 ? .12 : .055);
+        if (protectorClass === "guardian") return tacticalGuard + (protectorBuild.corePath === 1 ? .1 : .045);
+        return tacticalGuard;
       };
       simulationFrame += 1;
       const enemyAiStride = enemies.length > PERFORMANCE_LIMITS.extremeEnemyCount
@@ -4930,7 +5216,14 @@ export default function Home() {
           || (enemyIndex + simulationFrame) % enemyAiStride === 0;
         if (!shouldRunAi) continue;
         const aiDt = dt * (enemy.kind === "boss" || enemy.elite ? 1 : enemyAiStride);
-        const target = livingActors.reduce((nearest, actor) => dist(enemy, actor) < dist(enemy, nearest) ? actor : nearest);
+        const directedActor = enemy.directorTarget === "host"
+          ? player
+          : enemy.directorTarget === "guest"
+            ? remote
+            : null;
+        const target = directedActor && directedActor.hp > 0
+          ? directedActor
+          : livingActors.reduce((nearest, actor) => dist(enemy, actor) < dist(enemy, nearest) ? actor : nearest);
         const targetDistance = dist(enemy, target);
         const angle = Math.atan2(target.y-enemy.y,target.x-enemy.x);
         const formationCommander = enemy.commanderId
@@ -5597,6 +5890,10 @@ export default function Home() {
           if (activeMission?.id === "hunter") activeMission.progress += 1;
           if (activeMission?.id === "elite" && (enemy.elite || enemy.kind === "boss")) activeMission.progress += 1;
           currentKills++;
+          if (coOpActive && !activeTacticalCommand) {
+            const commandChargeGain = enemy.kind === "boss" ? 32 : enemy.kind === "commander" ? 9 : enemy.elite ? 5 : 1;
+            tacticalCharge = clamp(tacticalCharge + commandChargeGain, 0, 100);
+          }
           const killer = enemy.lastHitBy || "host";
           const baseEnergyGain = enemy.kind === "boss" ? 30 : enemy.kind === "commander" ? 16 : enemy.elite ? 10 : 6;
           const chargingClass = killer === "guest"
@@ -6467,6 +6764,12 @@ export default function Home() {
           ctx.fillStyle="#e4fbff";ctx.font="900 15px monospace";ctx.textAlign="center";ctx.fillText("❄",e.x,e.y-e.r-17);
         }else if((e.timeDilated||0)>0){ctx.fillStyle="#f5c773";ctx.font="900 15px monospace";ctx.textAlign="center";ctx.fillText("◴",e.x,e.y-e.r-12);}
         else if(e.slow>0){ctx.fillStyle="#9eeaff";ctx.font="800 14px monospace";ctx.textAlign="center";ctx.fillText("✦",e.x,e.y-e.r-10);}
+        if(activeTacticalCommand==="focus"&&e.id===tacticalTargetId){
+          const focusRadius=e.r+26+Math.sin(renderNow/120)*5;
+          ctx.save();ctx.translate(e.x,e.y);ctx.rotate(renderNow/900);ctx.strokeStyle="#ff6b62";ctx.shadowColor="#ff6b62";ctx.shadowBlur=reducedEffects?0:18;ctx.lineWidth=3;ctx.setLineDash([14,8]);
+          ctx.beginPath();ctx.arc(0,0,focusRadius,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+          for(let corner=0;corner<4;corner++){ctx.rotate(Math.PI/2);ctx.beginPath();ctx.moveTo(focusRadius+7,-12);ctx.lineTo(focusRadius+7,12);ctx.lineTo(focusRadius-5,12);ctx.stroke();}ctx.restore();
+        }
       }
       const activeBoss = enemies.find((enemy)=>enemy.kind==="boss"&&enemy.hp>0);
       if(activeBoss){
@@ -6609,6 +6912,13 @@ export default function Home() {
           ctx.beginPath();ctx.moveTo(player.x,player.y);ctx.lineTo(remote.x,remote.y);ctx.stroke();ctx.setLineDash([]);ctx.restore();
         }
       }
+      if(remote&&player.hp>0&&remote.hp>0&&activeTacticalCommand){
+        const commandColor=activeTacticalCommand==="guard"?"#75e6da":activeTacticalCommand==="crossfire"?"#f4c95d":"#ff6b62";
+        ctx.save();ctx.strokeStyle=commandColor;ctx.shadowColor=commandColor;ctx.shadowBlur=reducedEffects?0:16;ctx.lineWidth=activeTacticalCommand==="crossfire"?5:3;ctx.setLineDash(activeTacticalCommand==="crossfire"?[18,9]:[8,8]);ctx.lineDashOffset=-renderNow/26;
+        ctx.beginPath();ctx.moveTo(player.x,player.y);ctx.lineTo(remote.x,remote.y);ctx.stroke();ctx.setLineDash([]);
+        if(activeTacticalCommand==="guard")for(const actor of [player,remote]){ctx.fillStyle="rgba(117,230,218,.08)";ctx.beginPath();ctx.arc(actor.x,actor.y,actor.r+24+Math.sin(renderNow/130)*3,0,Math.PI*2);ctx.fill();ctx.stroke();}
+        ctx.restore();
+      }
       if(player.hp>0)drawDrones(player,stats.drones);
       drawMech(player,false);
       if(player.hp<=0)drawDowned(player,network?.role==="join"?guestReviveProgress:hostReviveProgress);
@@ -6727,6 +7037,13 @@ export default function Home() {
   const currentUpgradeRerollCost = upgradeRerollPrice(wave, upgradeRerolls);
   const currentShopRerollCost = shopRerollPrice(wave, shopRerolls, coins);
   const coreSelectionActive = Boolean(choices?.length && choices.every((choice) => choice.core));
+  const tacticalCoopReady = Boolean(signalMode && teammateHp !== null);
+  const chooseTacticalCommand = (command: TacticalCommandId) => {
+    selectedTacticalCommandRef.current = command;
+    setSelectedTacticalCommand(command);
+    wakeAudio("ui");
+  };
+  const issueSelectedTacticalCommand = () => tacticalCommandRef.current(selectedTacticalCommandRef.current);
   const tacticalArchive = <section className="tacticalArchive" aria-label={`${selectedClassSpec.name}战术资料`}>
     <div className="tacticalArchiveHeading">
       <span><small>FRAME MANUAL · 机甲战术资料</small><b>{selectedClassSpec.name} · {selectedClassSpec.role}</b></span>
@@ -6782,7 +7099,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.19.0 · 核心分流与模块化 BOSS</div>
+        <div className="status"><i /> 版本 0.20.0 · 战场导演与双人战术</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -6812,7 +7129,7 @@ export default function Home() {
           <button className="primary" onClick={()=>setView("loadout")}><span>开始远征</span><small>单人 · 选择机体</small></button>
           <button className="secondary" onClick={()=>setView("coop")}><span>双人联机</span><small>房间链接 · 自动中继</small></button>
         </div>
-        <div className="controls"><span><kbd>WASD</kbd> 移动</span><span><kbd>Q / 空格</kbd> 主技能</span><span><kbd>E</kbd> 副技能</span><span><kbd>R</kbd> 终极大招</span><span><kbd>ESC</kbd> 暂停</span></div>
+        <div className="controls"><span><kbd>WASD</kbd> 移动</span><span><kbd>Q / 空格</kbd> 主技能</span><span><kbd>E</kbd> 副技能</span><span><kbd>R</kbd> 终极大招</span><span><kbd>F</kbd> 双人战术</span><span><kbd>ESC</kbd> 暂停</span></div>
         {signatureCompendium}
       </section>}
 
@@ -6884,6 +7201,10 @@ export default function Home() {
           {signalMode && <div className="syncBadge"><i /> 共享战场 · {signalMode==="host"?"队长同步":"伙伴同步"}</div>}
           {bossLootNotice && <div key={bossLootNotice} className="bossNotice">{bossLootNotice}</div>}
           <div className="runModules">
+            {directorState && <div className={`directorBadge ${directorState.phase}`}>
+              <i>{directorState.icon}</i>
+              <span><small>{directorState.phase==="warning"?"导演预警":"导演行动"} · {Math.ceil(directorState.remaining)}s · 威胁 {directorState.threat}</small><b>{directorState.title}</b><em>{directorState.detail}</em></span>
+            </div>}
             {battleMission && <div className="missionBadge">
               <i>{battleMission.id==="hold"?"◆":battleMission.id==="elite"?"⌖":"✦"}</i>
               <span><small>{battleMission.title} · {Math.ceil(battleMission.remaining)}s</small><b>{battleMission.detail}</b><em>{Math.min(battleMission.target,battleMission.progress).toFixed(battleMission.id==="hold"?1:0)} / {battleMission.target}</em></span>
@@ -6937,6 +7258,22 @@ export default function Home() {
             <i>{selectedCorePaths[corePath===2?1:0].icon}</i>
             <span><small>核心改造已定型</small><b>{corePathName(selectedClass,corePath)}</b><em>{selectedCorePaths[corePath===2?1:0].desc}</em></span>
           </div>}
+          <section className={`battleTacticalPanel ${tacticalState.active?"active":""} ${tacticalState.charge>=100?"ready":""}`} aria-label="双人战术指令">
+            <header>
+              <span><small>CO-OP COMMAND · 共享战术槽</small><b>{tacticalState.active?`${TACTICAL_COMMANDS[tacticalState.active].title}执行中`:tacticalCoopReady?"协同击杀积累指令充能":"联机后启用双人战术指令"}</b></span>
+              <strong>{tacticalState.active?`${Math.ceil(tacticalState.remaining)}s`:tacticalCoopReady?`${Math.floor(tacticalState.charge)}%`:"离线"}</strong>
+            </header>
+            <i className="tacticalCharge"><em style={{width:`${clamp(tacticalState.charge,0,100)}%`}}/></i>
+            <div className="tacticalCommandGrid">{(Object.keys(TACTICAL_COMMANDS) as TacticalCommandId[]).map((command)=>{
+              const info=TACTICAL_COMMANDS[command];
+              return <button key={command} className={selectedTacticalCommand===command?"selected":""} onClick={()=>chooseTacticalCommand(command)} disabled={Boolean(tacticalState.active)}>
+                <i>{info.icon}</i><span><b>{info.title}</b><small>{info.detail}</small></span>
+              </button>;
+            })}</div>
+            <button className="issueTacticalCommand" onClick={issueSelectedTacticalCommand} disabled={!tacticalCoopReady||tacticalState.charge<100||Boolean(tacticalState.active)}>
+              {tacticalState.active?"指令执行中":tacticalState.charge>=100?`F · 下达${TACTICAL_COMMANDS[selectedTacticalCommand].title}`:`还需 ${Math.ceil(100-tacticalState.charge)}% 充能`}
+            </button>
+          </section>
         </section>
         {relicPickupReport && <div key={`${relicPickupReport.relicTitle}-${relicPickupReport.pieces}`} className="relicPickupReport externalRelicReport">
           <small>遗物拾取确认 · {RARITY_LABELS[relicPickupReport.relicRarity]}</small>
