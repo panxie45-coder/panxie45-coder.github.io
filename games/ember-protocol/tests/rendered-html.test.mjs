@@ -45,7 +45,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.20\.0 · 战场导演与双人战术/);
+  assert.match(html, /版本 0\.21\.0 · 五种全新战斗系统/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -54,7 +54,7 @@ test("server-renders the Ember Protocol game menu", async () => {
   assert.match(html, /<kbd>F<\/kbd> 双人战术/);
 });
 
-test("ships sixteen independent classes, evolutions, missions, bosses, and generated sprites", async () => {
+test("ships twenty-one independent classes, evolutions, missions, bosses, and generated sprites", async () => {
   const page = await readFile(new URL("../Game.tsx", import.meta.url), "utf8");
   const audio = await readFile(new URL("../audio.ts", import.meta.url), "utf8");
   const css = await readFile(new URL("../game.css", import.meta.url), "utf8");
@@ -64,6 +64,9 @@ test("ships sixteen independent classes, evolutions, missions, bosses, and gener
   assert.doesNotMatch(rootEntry, /ember-protocol-v9/);
   assert.match(page, /ember-protocol-v9/);
   assert.match(page, /type ClassId = "assault" \| "guardian" \| "engineer" \| "phantom" \| "laser" \| "frost" \| "blade" \| "gravity" \| "thunder" \| "sky" \| "cinder" \| "aegis" \| "venom" \| "chrono" \| "magnet" \| "portal"/);
+  assert.match(page, /"weaver" \| "echo" \| "falcon" \| "symbiote" \| "prism"/);
+  assert.match(page, /createNewMechRuntime/);
+  assert.match(page, /mechanisms: mechanisms\.snapshot\(\)/);
   assert.match(page, /t: "upgrade-done"; build: BuildFrame; hp: number/);
   assert.match(page, /t: "upgrade-resume"/);
   assert.match(page, /t: "skill2"; classId: ClassId/);

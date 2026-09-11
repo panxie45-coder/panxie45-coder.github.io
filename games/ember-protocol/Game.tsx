@@ -14,9 +14,12 @@ import {
   skillCooldownFor,
 } from "./combat-balance.mjs";
 import { reconcileMovementSequence, reconcilePausedPeerHp, teamRunDefeated } from "./team-state.mjs";
+import { NEW_CLASSES, NEW_BUILDS, NEW_UPGRADES, NEW_SECONDARY, NEW_ULTIMATES, NEW_CORES, NEW_SETS, NEW_ULT_NAMES, NEW_CHARGE, NEW_EVOLUTIONS, isNewMech, newAsset } from "./new-mechs";
+import { createNewMechRuntime, type MechanismFrame } from "./new-mech-runtime";
+import './new-mechs.css';
 
 type View = "menu" | "loadout" | "game" | "coop";
-type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity" | "thunder" | "sky" | "cinder" | "aegis" | "venom" | "chrono" | "magnet" | "portal";
+export type ClassId = "assault" | "guardian" | "engineer" | "phantom" | "laser" | "frost" | "blade" | "gravity" | "thunder" | "sky" | "cinder" | "aegis" | "venom" | "chrono" | "magnet" | "portal" | "weaver" | "echo" | "falcon" | "symbiote" | "prism";
 type EnemyKind =
   | "runner"
   | "crawler"
@@ -49,11 +52,11 @@ type BossVariant =
   | "eclipse"
   | "hydra"
   | "carrier";
-type PlayerSide = "host" | "guest";
+export type PlayerSide = "host" | "guest";
 type BossRelicId = "titan-core" | "overdrive-core" | "chrono-core";
 type WarzoneId = "forge" | "bastion" | "storm" | "scrapyard" | "void" | "archive";
 type UpgradeRarity = "common" | "rare" | "epic" | "legendary";
-type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId; secondary?: boolean; ultimate?: boolean; core?: boolean; rarity?: UpgradeRarity };
+export type Upgrade = { id: string; title: string; desc: string; icon: string; classId?: ClassId; secondary?: boolean; ultimate?: boolean; core?: boolean; rarity?: UpgradeRarity };
 type ShopCategory = "补给" | "武装" | "防御" | "核心";
 type ShopItem = { id: string; title: string; desc: string; icon: string; cost: number; category: ShopCategory; rarity: UpgradeRarity; unlockWave?: number; priceRate?: number };
 type BossRelic = { id: BossRelicId; title: string; desc: string; icon: string; rarity: UpgradeRarity };
@@ -67,7 +70,7 @@ type WarzoneRoute = {
   reward: string;
 };
 type ActiveWarzone = { id: WarzoneId; expiresAtWave: number };
-type SignatureSet = {
+export type SignatureSet = {
   name: string;
   icon: string;
   tiers: [string, string, string];
@@ -82,7 +85,11 @@ type RelicPickupReport = {
   activated: string[];
   next: string;
 };
-type CombatStats = {
+export type CombatStats = {
+  systemPower: number;
+  systemTuning: number;
+  secondaryTech: number;
+  ultimateTech: number;
   speed: number;
   damage: number;
   interval: number;
@@ -137,8 +144,8 @@ type CombatStats = {
   signaturePieces: number;
   corePath: number;
 };
-type BuildFrame = CombatStats & { classId: ClassId; maxHp: number };
-type ClassSpec = {
+export type BuildFrame = CombatStats & { classId: ClassId; maxHp: number };
+export type ClassSpec = {
   id: ClassId;
   name: string;
   role: string;
@@ -150,11 +157,11 @@ type ClassSpec = {
   secondaryCooldown: number;
   color: string;
   sprite: number;
-  sheet: "core" | "specialist" | "vanguard" | "expedition" | "frontier" | "quantum";
+  sheet: "core" | "specialist" | "vanguard" | "expedition" | "frontier" | "quantum" | "innovator";
   radius: number;
   renderSize: number;
 };
-type Actor = { x: number; y: number; r: number; hp: number; maxHp: number; color: string; name?: string; classId?: ClassId };
+export type Actor = { x: number; y: number; r: number; hp: number; maxHp: number; color: string; name?: string; classId?: ClassId };
 type BossPart = {
   id: string;
   name: string;
@@ -166,7 +173,7 @@ type BossPart = {
   maxHp: number;
   destroyed?: boolean;
 };
-type Enemy = Actor & {
+export type Enemy = Actor & {
   id: number;
   speed: number;
   hit: number;
@@ -202,7 +209,9 @@ type Enemy = Actor & {
   lastGuestHitAt?: number;
   crossfireReadyAt?: number;
 };
-type Shot = {
+export type Shot = {
+  refracted?: boolean;
+  replay?: boolean;
   x: number;
   y: number;
   vx: number;
@@ -234,7 +243,7 @@ type Shot = {
   hitIds?: number[];
   hitPartIds?: string[];
 };
-type Beam = { x1: number; y1: number; x2: number; y2: number; life: number; width: number; color: string };
+export type Beam = { x1: number; y1: number; x2: number; y2: number; life: number; width: number; color: string };
 type CombatEffect = {
   kind: "skill" | "impact" | "dash" | "revive" | "ultimate" | "slash" | "boss-phase";
   variant?: "secondary";
@@ -281,6 +290,7 @@ type TacticalFrame = {
 };
 type PlayerFrame = Pick<Actor, "x" | "y" | "hp" | "maxHp" | "classId">;
 type WorldFrame = {
+  mechanisms?: MechanismFrame;
   elapsed: number;
   level: number;
   xp: number;
@@ -303,6 +313,7 @@ type WorldFrame = {
   tactical: TacticalFrame;
 };
 type NetPayload =
+  | { t: 'mechanism-refund'; seconds: number }
   | { t: "hello" }
   | { t: "start" }
   | { t: "player"; x: number; y: number; seq?: number }
@@ -346,6 +357,7 @@ const TACTICAL_COMMANDS: Record<TacticalCommandId, { title: string; detail: stri
 };
 
 const GAME_ASSETS = {
+  weaverKit: newAsset('weaver'), echoKit: newAsset('echo'), falconKit: newAsset('falcon'), symbioteKit: newAsset('symbiote'), prismKit: newAsset('prism'),
   aegisMech: "/game/aegis-mech.webp",
   assassinProjectile: "/game/assassin-projectile.webp",
   bladeMech: "/game/blade-mech.webp",
@@ -433,6 +445,7 @@ const UPGRADES: Upgrade[] = [
 ];
 
 const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
+  ...NEW_UPGRADES,
   assault: [
     { id: "assault-double-storm", classId: "assault", title: "双重风暴", desc: "导弹风暴追加一轮齐射", icon: "✹" },
     { id: "assault-saturation", classId: "assault", title: "饱和弹舱", desc: "每轮导弹数量 +6", icon: "✦" },
@@ -526,6 +539,7 @@ const CLASS_UPGRADES: Record<ClassId, Upgrade[]> = {
 };
 
 const SECONDARY_UPGRADES: Record<ClassId, Upgrade[]> = {
+  ...NEW_SECONDARY,
   assault: [
     { id: "assault-secondary-power", classId: "assault", secondary: true, title: "标枪增压", desc: "爆破标枪伤害 +28%，可无限叠加", icon: "➤", rarity: "rare" },
     { id: "assault-secondary-salvo", classId: "assault", secondary: true, title: "分裂标枪", desc: "爆破标枪额外发射 1 枚，最多 3 枚", icon: "✹", rarity: "epic" },
@@ -594,6 +608,7 @@ const SECONDARY_UPGRADES: Record<ClassId, Upgrade[]> = {
 
 const ASSAULT_ULTIMATE_TARGET_CAP = 20;
 const ULTIMATE_UPGRADES: Record<ClassId, Upgrade[]> = {
+  ...NEW_ULTIMATES,
   assault: [
     { id: "assault-ultimate-power", classId: "assault", ultimate: true, title: "天穹增压", desc: "天穹火雨伤害 +25%，可无限叠加", icon: "✹" },
     { id: "assault-ultimate-locks", classId: "assault", ultimate: true, title: "多重锁定", desc: "天穹火雨锁定目标 +2，最多锁定 20 个", icon: "⌖" },
@@ -662,6 +677,7 @@ const ULTIMATE_UPGRADES: Record<ClassId, Upgrade[]> = {
 
 const CORE_UNLOCK_LEVEL = 5;
 const CORE_PATHS: Record<ClassId, [Upgrade, Upgrade]> = {
+  ...NEW_CORES,
   assault: [
     { id: "core-assault-saturation", classId: "assault", core: true, rarity: "legendary", icon: "✹", title: "蜂群弹舱", desc: "主技能追加一轮齐射并增加 6 枚导弹；走持续清场路线。" },
     { id: "core-assault-hunter", classId: "assault", core: true, rarity: "legendary", icon: "⌖", title: "猎王火控", desc: "全部导弹获得制导，攻击 BOSS 与可破坏部位时造成额外伤害。" },
@@ -826,6 +842,7 @@ const WARZONE_ROUTES: WarzoneRoute[] = [
 const WARZONE_BY_ID = Object.fromEntries(WARZONE_ROUTES.map((route) => [route.id, route])) as Record<WarzoneId, WarzoneRoute>;
 
 const SIGNATURE_SETS: Record<ClassId, SignatureSet> = {
+  ...NEW_SETS,
   assault: { name: "烈阳军械", icon: "✦", tiers: ["弹头校准：伤害 +6%", "饱和挂架：导弹风暴额外发射 3 枚", "天穹协议：导弹自动制导并追加一整轮轰炸"] },
   guardian: { name: "不坠壁垒", icon: "⬢", tiers: ["泰坦骨架：生命上限 +12", "回响装甲：屏障时间延长并解锁八向反击", "移动堡垒：减伤 +3%，屏障反击升级为双环炮火"] },
   engineer: { name: "蜂群母巢", icon: "✣", tiers: ["协同芯片：无人机伤害 +12%", "医疗链路：修复脉冲强化并让蜂群同步齐射", "自律工厂：永久增加 1 架无人机"] },
@@ -845,6 +862,7 @@ const SIGNATURE_SETS: Record<ClassId, SignatureSet> = {
 };
 
 const ULTIMATE_NAMES: Record<ClassId, string> = {
+  ...NEW_ULT_NAMES,
   assault: "天穹火雨",
   guardian: "不灭要塞",
   engineer: "蜂群超载",
@@ -864,6 +882,7 @@ const ULTIMATE_NAMES: Record<ClassId, string> = {
 };
 
 const ULTIMATE_CHARGE_SCALE: Record<ClassId, number> = {
+  ...NEW_CHARGE,
   assault: .62,
   guardian: .55,
   engineer: .6,
@@ -972,6 +991,7 @@ const MAX_HP_UPGRADE_IDS = new Set([
   "magnet-armor", "portal-shell",
 ]);
 const WEAPON_EVOLUTION_NAMES: Record<ClassId, [string, string]> = {
+  ...NEW_EVOLUTIONS,
   assault: ["蜂群弹仓", "泰坦战斗部"],
   guardian: ["连发震轨", "破城磁轨"],
   engineer: ["蜂巢脉冲", "母巢重炮"],
@@ -1070,6 +1090,7 @@ const shopRerollPrice = (wave: number, used: number, wallet: number) => {
 const upgradeRerollPrice = (wave: number, used: number) => 4 + Math.floor(Math.max(0, wave - 1) / 4) + used * 3;
 const shuffled = <T,>(items: T[]) => [...items].sort(() => Math.random() - .5);
 const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
+  if (isNewMech(currentBuild.classId) && upgrade.id === `${currentBuild.classId}-ultimate-tech`) return currentBuild.ultimateTech < 3;
   if (upgrade.id === "assault-ultimate-locks") return currentBuild.ultimateTargets < ASSAULT_ULTIMATE_TARGET_CAP;
   if (upgrade.id === "guardian-ultimate-duration") return currentBuild.ultimateDuration < 5.4;
   if (upgrade.id === "engineer-ultimate-locks") return currentBuild.ultimateTargets < 20;
@@ -1089,6 +1110,7 @@ const ultimateUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) =>
   return true;
 };
 const secondaryUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
+  if (isNewMech(currentBuild.classId) && upgrade.id === `${currentBuild.classId}-secondary-tech`) return currentBuild.secondaryTech < 2;
   if (upgrade.id === "assault-secondary-salvo") return currentBuild.secondaryProjectiles < 2;
   if (upgrade.id === "guardian-secondary-radius") return currentBuild.secondaryArea < 1.5;
   if (upgrade.id === "engineer-secondary-swarm") return currentBuild.secondaryProjectiles < 6;
@@ -1108,6 +1130,7 @@ const secondaryUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) =
   return true;
 };
 const classUpgradeAvailable = (upgrade: Upgrade, currentBuild: BuildFrame) => {
+  if (isNewMech(currentBuild.classId) && upgrade.id === `${currentBuild.classId}-system-tuning`) return currentBuild.systemTuning < 3;
   if (upgrade.id === "phantom-reserve") return currentBuild.dashCharges < 3;
   if (upgrade.id === "assault-guidance") return (currentBuild.assaultGuidance || 0) < 1;
   if (upgrade.id === "guardian-retaliation") return (currentBuild.guardianRetaliation || 0) < 1;
@@ -1262,6 +1285,7 @@ const CLASSES: ClassSpec[] = [
   { id: "chrono", name: "时轮型", role: "时间控制", active: "时停领域：锁死敌人朝向并静止范围内全部弹幕", secondary: "回溯飞轮：发射贯穿时序刃，短暂停止命中目标", passive: "延迟回响：主炮造成时间迟滞，不产生冰冻", ultimate: "零时刻：展开大型时停穹顶，使敌人与弹幕完全静止", cooldown: 14, secondaryCooldown: 10, color: "#f0ad4e", sprite: 2, sheet: "frontier", radius: 20, renderSize: 94 },
   { id: "magnet", name: "磁暴型", role: "弹幕回收反击", active: "磁暴回收：吞噬附近敌方弹幕并转化为反击电浆", secondary: "极性坍缩：牵引敌人与弹幕后爆发", passive: "磁化弹：命中削弱并牵引目标", ultimate: "零极崩灭：建立巨型磁场，吞噬弹幕并持续压缩敌群", cooldown: 13, secondaryCooldown: 10, color: "#a878ff", sprite: 0, sheet: "quantum", radius: 22, renderSize: 98 },
   { id: "portal", name: "星门型", role: "空间折跃炮击", active: "双门跃迁：折跃至高威胁目标侧面并释放环形齐射", secondary: "折跃长枪：从双重星门复制空间长枪", passive: "门径回响：主炮穿过星门后产生延迟复制弹", ultimate: "万门归一：展开星门阵列，从多方向连续贯穿敌群", cooldown: 11, secondaryCooldown: 8, color: "#59baff", sprite: 1, sheet: "quantum", radius: 17, renderSize: 92 },
+  ...NEW_CLASSES,
 ];
 
 const BOSS_VARIANTS: Record<BossVariant, { name: string; sprite: number; sheet: "core" | "v2" | "expansion" | "modular"; color: string; hp: number; speed: number; hit: number; range: number }> = {
@@ -1376,6 +1400,7 @@ const ENEMY_ATTACK_MODE: Record<EnemyKind, "melee" | "ranged"> = {
 
 const makeBuild = (classId: ClassId): BuildFrame => {
   const base: BuildFrame = {
+    systemPower: 1, systemTuning: 0, secondaryTech: 0, ultimateTech: 0,
     classId,
     maxHp: 108,
     speed: 250,
@@ -1432,6 +1457,7 @@ const makeBuild = (classId: ClassId): BuildFrame => {
     signaturePieces: 0,
     corePath: 0,
   };
+  if (isNewMech(classId)) return { ...base, ...NEW_BUILDS[classId] };
   if (classId === "assault") return { ...base, maxHp: 120, damage: 50, interval: .58, projectileSpeed: 550, projectileSize: 7.5 };
   if (classId === "guardian") return { ...base, maxHp: 160, speed: 226, damage: 84, interval: .98, projectileSpeed: 470, projectileSize: 10, damageReduction: .25 };
   if (classId === "engineer") return { ...base, maxHp: 120, damage: 31, interval: .48, magnet: 120, projectileSpeed: 560, projectileSize: 6, drones: 3, repairPower: 1.18, dronePower: 1.12, ultimateTargets: 8 };
@@ -1451,6 +1477,7 @@ const makeBuild = (classId: ClassId): BuildFrame => {
 };
 
 const projectileTraits = (classId: ClassId, combatStats?: Pick<CombatStats, "bonusPierce" | "projectileSize" | "weaponEvolution">): Partial<Shot> => {
+  if (isNewMech(classId)) return { pierce: (combatStats?.bonusPierce || 0) + (classId === 'weaver' ? 1 : 0) };
   const traits: Partial<Shot> = classId === "assault" ? { splash: 54 }
     : classId === "guardian" ? { pierce: 2 }
       : classId === "engineer" ? { chain: true }
@@ -1473,6 +1500,7 @@ const projectileTraits = (classId: ClassId, combatStats?: Pick<CombatStats, "bon
 };
 
 const mechPreviewClass = (classInfo: ClassSpec) => {
+  if (isNewMech(classInfo.id)) return 'mechPreview innovatorPreview';
   if (classInfo.id === "laser") return "mechPreview laserPreview";
   if (classInfo.id === "frost") return "mechPreview frostPreview";
   if (classInfo.id === "blade") return "mechPreview bladePreview";
@@ -1487,7 +1515,7 @@ const mechPreviewClass = (classInfo: ClassSpec) => {
   if (classInfo.id === "portal") return "mechPreview portalPreview";
   return `mechPreview mech-${classInfo.sprite}`;
 };
-const mechPreviewAsset = (classInfo: ClassSpec) => classInfo.id === "laser"
+const mechPreviewAsset = (classInfo: ClassSpec) => isNewMech(classInfo.id) ? newAsset(classInfo.id) : classInfo.id === "laser"
   ? GAME_ASSETS.laserMech
   : classInfo.id === "frost"
     ? GAME_ASSETS.frostMech
@@ -1585,6 +1613,10 @@ const applySignatureRelicPieces = (source: BuildFrame, amount = 1): BuildFrame =
   const currentPieces = clamp(Math.round(source.signaturePieces || 0), 0, 3);
   const targetPieces = clamp(currentPieces + amount, 0, 3);
   for (let tier = currentPieces + 1; tier <= targetPieces; tier++) {
+    if (isNewMech(source.classId)) {
+      if (tier === 1) next.systemPower *= 1.12;
+      if (tier === 2) { next.damage *= 1.08; next.dronePower *= 1.12; }
+    }
     if (source.classId === "assault") {
       if (tier === 1) next.damage *= 1.06;
       if (tier === 2) next.missileCount += 3;
@@ -1757,6 +1789,7 @@ export default function Home() {
   const [corePath, setCorePath] = useState(0);
   const [selectedClass, setSelectedClass] = useState<ClassId>("assault");
   const [skillCooldown, setSkillCooldown] = useState(0);
+  const [mechanismStatus, setMechanismStatus] = useState('');
   const [skillCharges, setSkillCharges] = useState(1);
   const [skillChargeCap, setSkillChargeCap] = useState(1);
   const [secondarySkillCooldown, setSecondarySkillCooldown] = useState(0);
@@ -2033,6 +2066,9 @@ export default function Home() {
     let coOpRunEstablished = Boolean(network?.role === "host" && network.connected());
     let hostCoins = 0, guestCoins = 0, hostUltimate = 0, guestUltimate = 0;
     let hostBladeCombo = 0, guestBladeCombo = 0;
+    let mechanismUiClock = 0;
+    let nextMechanismImpactAt = 0;
+    const guestMechanismReady = { q: 0, e: 0 };
     let currentWave = 1, nextWaveAt = WAVE_INTERVAL_SECONDS, lastBossWave = 0;
     let currentWarzone: ActiveWarzone | null = null;
     let activeMission: BattleMissionFrame | null = null;
@@ -2108,7 +2144,31 @@ export default function Home() {
     const assassinProjectile = getGameImage(GAME_ASSETS.assassinProjectile);
     const v2SupportAssets = getGameImage(GAME_ASSETS.v2SupportAssets);
     const frontierSupportAssets = getGameImage(GAME_ASSETS.frontierSupportAssets);
+    const mechanisms = createNewMechRuntime({
+      actor: (side) => side === 'host' ? (isAuthority ? player : remote) : (isAuthority ? remote : player),
+      stats: (side) => (side === 'host') === isAuthority ? { ...stats, classId: build.classId, maxHp: player.maxHp } : (remoteBuildRef.current || makeBuild(remote?.classId || 'assault')),
+      enemies: () => enemies, shots: () => shots,
+      damage: (enemy, amount, owner) => {
+        applyEnemyDamage(enemy, amount, owner);
+        if (elapsed >= nextMechanismImpactAt) {
+          nextMechanismImpactAt = elapsed + .06;
+          const id = owner === 'host' ? build.classId : remoteBuildRef.current?.classId;
+          const color = CLASSES.find(c=>c.id===id)?.color || '#a7baff';
+          impactEffect(enemy.x,enemy.y,color,26);burst(enemy.x,enemy.y,color,4);audio?.play('hit');
+        }
+      },
+      beam: (beam) => { if (beams.length < 160) beams.push(beam); },
+      refund: (owner, seconds) => {
+        if (owner === 'host') skillReadyAt = Math.max(0, skillReadyAt - seconds * 1000);
+        else {
+          guestMechanismReady.q = Math.max(0, guestMechanismReady.q - seconds * 1000);
+          if (network?.connected()) void network.send({ t: 'mechanism-refund', seconds });
+        }
+      },
+      width: W, height: H,
+    });
     const unsubscribeNetwork = network?.subscribe((data) => {
+      if (data.t === 'mechanism-refund' && !isAuthority) skillReadyAt = Math.max(0, skillReadyAt - clamp(data.seconds, 0, 4) * 1000);
       if (data.t === "player" && isAuthority) {
         const movement = reconcileMovementSequence(remoteMoveSeq, data.seq);
         if (!movement.accepted) return;
@@ -2152,7 +2212,13 @@ export default function Home() {
         }
       }
       if (data.t === "skill" && isAuthority && remote) {
+        if (remote.hp <= 0 || localPaused || pausedRef.current) return;
         const remoteBuild = remoteBuildRef.current || makeBuild(data.classId);
+        if (isNewMech(remoteBuild.classId)) {
+          if (data.classId !== remoteBuild.classId || performance.now() < guestMechanismReady.q) return;
+          const spec=CLASSES.find(s=>s.id===remoteBuild.classId)!;
+          guestMechanismReady.q=performance.now()+skillCooldownFor(spec.cooldown,remoteBuild.skillHaste,4)*1000;
+        }
         const skillStart = {
           x: typeof data.fromX === "number" ? data.fromX : remote.x,
           y: typeof data.fromY === "number" ? data.fromY : remote.y,
@@ -2161,6 +2227,7 @@ export default function Home() {
         const syncedX = movement.accepted ? data.x : remote.x;
         const syncedY = movement.accepted ? data.y : remote.y;
         remoteMoveSeq = movement.sequence;
+        if (isNewMech(remoteBuild.classId)) mechanisms.cast('guest', 'q');
         if (data.classId === "assault") queueMissileStorm(remote, remoteBuild, "guest");
         if (data.classId === "guardian") guardianBulwark(
           remote,
@@ -2193,12 +2260,18 @@ export default function Home() {
       }
       if (data.t === "skill2" && isAuthority && remote) {
         const remoteBuild = remoteBuildRef.current || makeBuild(data.classId);
+        if (isNewMech(remoteBuild.classId)) {
+          if (remote.hp<=0 || localPaused || pausedRef.current || data.classId!==remoteBuild.classId || performance.now()<guestMechanismReady.e) return;
+          const spec=CLASSES.find(s=>s.id===remoteBuild.classId)!;
+          guestMechanismReady.e=performance.now()+skillCooldownFor(spec.secondaryCooldown,remoteBuild.skillHaste)*1000;
+        }
         executeSecondarySkill(remote, remoteBuild, data.classId, "guest");
         tryCoopCombo(remote, data.classId, "guest");
         audio?.play("skill");
       }
       if (data.t === "ultimate" && isAuthority && remote) {
         const remoteStats = remoteBuildRef.current || makeBuild(data.classId);
+        if (isNewMech(remoteStats.classId) && (remote.hp<=0 || localPaused || pausedRef.current || guestUltimate<ULTIMATE_MAX || data.classId!==remoteStats.classId)) return;
         guestUltimate = 0;
         executeUltimate(remote, remoteStats, data.classId, "guest");
       }
@@ -2217,6 +2290,7 @@ export default function Home() {
         gems = frame.gems;
         beams = frame.beams;
         effects = frame.effects;
+        mechanisms.load(frame.mechanisms);
         hostReviveProgress = frame.revive.host;
         guestReviveProgress = frame.revive.guest;
         hostCoins = frame.wallet.host;
@@ -2378,6 +2452,8 @@ export default function Home() {
     });
 
     const reset = () => {
+      mechanisms.reset(); setMechanismStatus('');
+      guestMechanismReady.q=0;guestMechanismReady.e=0;
       localPaused = false;
       elapsed = 0; spawnClock = 0; fireClock = 0; nextSurgeAt = 22; surgeRemaining = 0; surgeSpawnClock = 0; nextFormationAt = 105; nextFormationId = 1; currentXp = 0; currentLevel = 1; currentKills = 0;
       netClock = 0; worldClock = 0; remoteFireClock = 0; gameOverSent = false; simulationFrame = 0;
@@ -2444,6 +2520,14 @@ export default function Home() {
     };
     resetRef.current = reset;
     applyUpgradeRef.current = (id) => {
+      if (isNewMech(build.classId)) {
+        const prefix = build.classId;
+        if (id === `${prefix}-system-power`) stats.systemPower *= 1.24;
+        if (id === `${prefix}-system-tuning`) stats.systemTuning = Math.min(3, stats.systemTuning + 1);
+        if (id === `${prefix}-system-weapon`) { stats.damage *= 1.2; stats.projectileSize += 1.5; stats.weaponMastery++; }
+        if (id === `${prefix}-secondary-tech`) stats.secondaryTech = Math.min(2, stats.secondaryTech + 1);
+        if (id === `${prefix}-ultimate-tech`) stats.ultimateTech = Math.min(3, stats.ultimateTech + 1);
+      }
       if (BASIC_ATTACK_UPGRADE_IDS.has(id)) stats.weaponMastery += 1;
       if (id === "rapid") stats.interval *= .86;
       if (id === "damage") stats.damage *= 1.22;
@@ -2978,6 +3062,7 @@ export default function Home() {
         return;
       }
       if (build.classId === "assault") queueMissileStorm(player, stats, "host");
+      if (isNewMech(build.classId)) mechanisms.cast('host', 'q');
       if (build.classId === "guardian") guardianBulwark(player, stats, "host", Math.min(GUARDIAN_SHIELD_MAX, stats.shieldDuration, cooldownSeconds - 2));
       if (build.classId === "engineer") engineerRepairPulse(player, stats, "host");
       if (build.classId === "phantom") {
@@ -3514,7 +3599,9 @@ export default function Home() {
       }
     };
     const triggerSkillEffect = (actor: Actor, classId: ClassId, start: Pick<Actor, "x" | "y"> = actor) => {
+      if (isNewMech(classId)) return;
       const colors: Record<ClassId, string> = {
+        weaver: '#ffb358', echo: '#a7baff', falcon: '#ff697f', symbiote: '#c4e878', prism: '#8dd7ff',
         assault: "#f4c95d",
         guardian: "#75e6da",
         engineer: "#a9ef84",
@@ -3533,6 +3620,7 @@ export default function Home() {
         portal: "#59baff",
       };
       const radii: Record<ClassId, number> = {
+        weaver: 40, echo: 40, falcon: 40, symbiote: 40, prism: 40,
         assault: 190,
         guardian: 118,
         engineer: 165,
@@ -3722,6 +3810,7 @@ export default function Home() {
       audio?.play("ultimate");
     };
     const applyEnemyDamage = (enemy: Enemy, amount: number, owner?: PlayerSide) => {
+      if (owner) mechanisms.markHit(enemy, owner);
       const phase = enemy.bossPhase || 1;
       const bossResilience = enemy.kind !== "boss" ? 1 : phase === 1 ? .82 : phase === 2 ? .74 : .68;
       const attackerClass = owner === "guest" ? remoteBuildRef.current?.classId : player.classId;
@@ -4225,6 +4314,7 @@ export default function Home() {
       classId: ClassId,
       owner: PlayerSide,
     ) => {
+      if (isNewMech(classId)) { mechanisms.cast(owner, 'e'); return; }
       const threats = prioritizeUltimateTargets(enemies.filter((enemy) => enemy.hp > 0), actor, 8);
       const target = threats[0];
       const aimAngle = target ? Math.atan2(target.y - actor.y, target.x - actor.x) : -Math.PI / 2;
@@ -4460,6 +4550,7 @@ export default function Home() {
       tryCoopCombo(actor, classId, owner);
     };
     const executeUltimate = (actor: Actor, combatStats: BuildFrame | CombatStats, classId: ClassId, owner: PlayerSide) => {
+      if (isNewMech(classId)) { mechanisms.cast(owner, 'r'); audio?.play('ultimate'); return; }
       const power = combatStats.ultimatePower;
       const color = CLASSES.find((entry) => entry.id === classId)?.color || "#f4c95d";
       const aimTarget = prioritizeUltimateTargets(enemies, actor, 1)[0];
@@ -4862,6 +4953,7 @@ export default function Home() {
           mission: activeMission || undefined,
           director: directorFrame || undefined,
           tactical: tacticalSnapshot(),
+          mechanisms: mechanisms.snapshot(),
         },
       });
     };
@@ -4891,6 +4983,11 @@ export default function Home() {
       for (const effect of effects) effect.life -= dt;
       effects = effects.filter((effect) => effect.life > 0);
       const cooldownNow = performance.now();
+      mechanismUiClock -= dt;
+      if (mechanismUiClock <= 0 && isNewMech(build.classId)) {
+        mechanismUiClock = .2;
+        setMechanismStatus(mechanisms.status(isAuthority ? 'host' : 'guest'));
+      }
       if (build.classId === "phantom" && phantomDashCharges < stats.dashCharges && skillReadyAt > 0) {
         const rechargeSeconds = skillCooldownFor(classSpec().cooldown, stats.skillHaste, 4);
         let chargeRestored = false;
@@ -4917,6 +5014,7 @@ export default function Home() {
       if (!isAuthority) return;
 
       elapsed += dt;
+      mechanisms.update(dt);
       const elapsedSecond = Math.floor(elapsed);
       if (elapsedSecond !== shownSecond) {
         shownSecond = elapsedSecond;
@@ -5071,7 +5169,9 @@ export default function Home() {
         const target = selectCombatTarget(enemies, player) || enemies[0];
         const targetPoint = combatAimPoint(target, player);
         const a0 = Math.atan2(targetPoint.y-player.y,targetPoint.x-player.x);
-        if (build.classId === "blade") {
+        if (isNewMech(build.classId)) {
+          mechanisms.primary('host');
+        } else if (build.classId === "blade") {
           fireBlade(player, stats, "host");
         } else {
           for(let i=0;i<stats.multi;i++){
@@ -5096,7 +5196,9 @@ export default function Home() {
         const target = selectCombatTarget(enemies, remote) || enemies[0];
         const targetPoint = combatAimPoint(target, remote);
         const a = Math.atan2(targetPoint.y-remote.y,targetPoint.x-remote.x);
-        if (remoteStats.classId === "blade") {
+        if (isNewMech(remoteStats.classId)) {
+          mechanisms.primary('guest');
+        } else if (remoteStats.classId === "blade") {
           fireBlade(remote, remoteStats, "guest");
         } else {
           for(let i=0;i<remoteStats.multi;i++){
@@ -5290,7 +5392,7 @@ export default function Home() {
         const applyMeleeStrike = (rawDamage: number, color: string, radius: number) => {
           const targetShield = target === player ? selfShieldUntil : remoteShieldUntil;
           const reduction = Math.min(.72, (target === player ? stats.damageReduction : (remoteBuildRef.current?.damageReduction || 0)) + teamGuardReduction(target));
-          if (now >= targetShield) target.hp = Math.max(0, target.hp - rawDamage * (commandActive ? 1.12 : 1) * (1 - reduction));
+          if (now >= targetShield) target.hp = Math.max(0, target.hp - mechanisms.absorb(target === player ? 'host' : 'guest', rawDamage * (commandActive ? 1.12 : 1) * (1 - reduction)));
           impactEffect(target.x, target.y, color, radius);
           burst(target.x, target.y, color, Math.ceil(radius / 4));
           if (target === player) {
@@ -5639,7 +5741,7 @@ export default function Home() {
         if (canAct && targetDistance < enemy.r + target.r) {
           const targetShield = target === player ? selfShieldUntil : remoteShieldUntil;
           const reduction = Math.min(.72, (target === player ? stats.damageReduction : (remoteBuildRef.current?.damageReduction || 0)) + teamGuardReduction(target));
-          if (now >= targetShield) target.hp = Math.max(0, target.hp - enemy.hit * (commandActive ? 1.12 : 1) * (1 - reduction) * aiDt);
+          if (now >= targetShield) target.hp = Math.max(0, target.hp - mechanisms.absorb(target === player ? 'host' : 'guest', enemy.hit * (commandActive ? 1.12 : 1) * (1 - reduction) * aiDt));
           if (target === player) {
             setHp(Math.ceil(player.hp));
             audio?.play("hurt");
@@ -5688,14 +5790,14 @@ export default function Home() {
                             : shot.enemyKind === "assassin" ? "#a36cff"
                               : shot.enemyKind === "commander" ? "#d99aff"
                                 : "#ff9a4d";
-            if (now >= targetShield) target.hp = Math.max(0, target.hp - shot.damage * (1 - reduction));
+            if (now >= targetShield) target.hp = Math.max(0, target.hp - mechanisms.absorb(target === player ? 'host' : 'guest', shot.damage * (1 - reduction)));
             if (shot.splash) {
               burst(target.x, target.y, hostileImpactColor, 14);
               for (const nearby of possibleTargets) {
                 if (nearby === target || dist(target, nearby) > shot.splash) continue;
                 const nearbyShield = nearby === player ? selfShieldUntil : remoteShieldUntil;
                 const nearbyReduction = Math.min(.72, (nearby === player ? stats.damageReduction : (remoteBuildRef.current?.damageReduction || 0)) + teamGuardReduction(nearby));
-                if (now >= nearbyShield) nearby.hp = Math.max(0, nearby.hp - shot.damage * .55 * (1 - nearbyReduction));
+                if (now >= nearbyShield) nearby.hp = Math.max(0, nearby.hp - mechanisms.absorb(nearby === player ? 'host' : 'guest', shot.damage * .55 * (1 - nearbyReduction)));
                 if (nearby === player) setHp(Math.ceil(player.hp));
               }
             } else {
@@ -5806,6 +5908,7 @@ export default function Home() {
       }
       for (const enemy of enemies) {
         if (enemy.hp <= 0) {
+          mechanisms.onKill(enemy);
           if (enemy.kind === "commander" && enemy.formationId) {
             let brokenMembers = 0;
             for (const member of enemies) {
@@ -6490,8 +6593,10 @@ export default function Home() {
         }
         ctx.restore();
       }
-      const projectileSpriteIndex: Record<ClassId, number> = { assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1, blade: 0, gravity: 1, thunder: 0, sky: 1, cinder: 2, aegis: 0, venom: 1, chrono: 2, magnet: 0, portal: 1 };
+      mechanisms.draw(ctx, getGameImage);
+      const projectileSpriteIndex: Record<ClassId, number> = { weaver:0, echo:0, falcon:0, symbiote:0, prism:0, assault: 0, guardian: 1, engineer: 2, phantom: 3, laser: 0, frost: 1, blade: 0, gravity: 1, thunder: 0, sky: 1, cinder: 2, aegis: 0, venom: 1, chrono: 2, magnet: 0, portal: 1 };
       const projectileDimensions: Record<ClassId, [number, number]> = {
+        weaver:[34,20], echo:[40,18], falcon:[40,30], symbiote:[36,24], prism:[42,20],
         assault: [34, 18],
         guardian: [38, 22],
         engineer: [31, 18],
@@ -6510,6 +6615,15 @@ export default function Home() {
         portal: [58, 22],
       };
       for(const s of shots){
+        if (!s.hostile && isNewMech(s.classId)) {
+          const im = getGameImage(newAsset(s.classId));
+          if (im.complete && im.naturalWidth) {
+            const cw=im.naturalWidth/2,ch=im.naturalHeight/2,size=Math.min(64,24+s.r*2);
+            ctx.save();ctx.translate(s.x,s.y);ctx.rotate(Math.atan2(s.vy,s.vx));ctx.globalAlpha=s.replay?.6:1;
+            ctx.drawImage(im,0,ch,cw,ch,-size/2,-size/2,size,size);ctx.restore();
+          }
+          continue;
+        }
         if(s.hostile){
           if(s.enemyKind==="boss"){
             const variant=s.bossVariant||"rift",bossInfo=BOSS_VARIANTS[variant],sprite=bossInfo.sprite;
@@ -6796,6 +6910,15 @@ export default function Home() {
       }
       const drawMech = (actor: Actor, ally: boolean) => {
         const classInfo = CLASSES.find((item) => item.id === actor.classId) || CLASSES[0];
+        if (isNewMech(classInfo.id)) {
+          const im=getGameImage(newAsset(classInfo.id));
+          if(im.complete&&im.naturalWidth){
+            const size=classInfo.renderSize;ctx.save();
+            if(actor.hp<=0){ctx.globalAlpha=.34;ctx.filter='grayscale(1)';}
+            ctx.drawImage(im,0,0,im.naturalWidth/2,im.naturalHeight/2,actor.x-size/2,actor.y-size/2,size,size);ctx.restore();
+          }
+          return;
+        }
         const bladeSwing = classInfo.id === "blade"
           ? effects.find((effect) => effect.kind === "slash" && effect.classId === "blade" && dist(effect, actor) < 90)
           : undefined;
@@ -6869,6 +6992,16 @@ export default function Home() {
       const drawDrones = (actor: Actor, count: number) => {
         if(count<=0)return;
         const classInfo=CLASSES.find((item)=>item.id===actor.classId)||CLASSES[0];
+        if(isNewMech(classInfo.id)){
+          const im=getGameImage(newAsset(classInfo.id));if(!im.complete||!im.naturalWidth)return;
+          const cw=im.naturalWidth/2,ch=im.naturalHeight/2;
+          for(let i=0;i<count;i++){
+            const p=dronePosition(actor,i,count),target=selectCombatTarget(enemies,p);
+            const a=target?Math.atan2(target.y-p.y,target.x-p.x):p.angle;
+            ctx.save();ctx.translate(p.x,p.y);ctx.rotate(a);ctx.drawImage(im,cw,0,cw,ch,-20,-20,40,40);ctx.restore();
+          }
+          return;
+        }
         const droneImage=classInfo.sheet==="quantum"?quantumSupport:classInfo.sheet==="specialist"?specialistDrones:classInfo.sheet==="vanguard"?vanguardDrones:classInfo.sheet==="expedition"?v2SupportAssets:classInfo.sheet==="frontier"?frontierSupportAssets:droneSprites;
         if(!droneImage.complete||!droneImage.naturalWidth)return;
         const packedSupportSheet=classInfo.sheet==="expedition"||classInfo.sheet==="frontier";
@@ -7099,7 +7232,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.20.0 · 战场导演与双人战术</div>
+        <div className="status"><i /> 版本 0.21.0 · 五种全新战斗系统</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -7191,6 +7324,7 @@ export default function Home() {
       </section>}
 
       {view==="game" && <section className="gameWrap">
+        {isNewMech(selectedClass) && <div className="mechanismStatus" role="status">{selectedClassSpec.name} · {mechanismStatus || '系统就绪'}</div>}
         <div className="hud">
           <div className="stat"><span>存活时间</span><b>{formatTime(seconds)}</b></div>
           <div className="levelBadge"><small>WAVE {wave} · ◈ {coins}</small><b>LV.{level}</b></div>
