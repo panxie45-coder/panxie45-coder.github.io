@@ -5,11 +5,11 @@ import { createNewMechRuntime } from '../new-mech-runtime.ts';
 function fixture(host='weaver',guest='symbiote'){
   const actors={host:{x:400,y:400,r:18,hp:120,maxHp:120,classId:host},guest:{x:600,y:400,r:18,hp:120,maxHp:120,classId:guest}};
   const build=id=>({classId:id,maxHp:120,damage:40,systemPower:1,systemTuning:0,secondaryTech:0,ultimateTech:0,secondaryPower:1,ultimatePower:1,corePath:0,signaturePieces:0,multi:1,projectileSize:7,projectileSpeed:600,bonusPierce:0,critChance:0,interval:.6,drones:1,weaponEvolution:0});
-  const stats={host:build(host),guest:build(guest)},enemies=[],shots=[],hits=[],beams=[],refunds=[];
-  const ctx={actor:s=>actors[s],stats:s=>stats[s],enemies:()=>enemies,shots:()=>shots,damage:(e,n,s)=>{hits.push({id:e.id,n,s});e.hp-=n;},beam:b=>beams.push(b),refund:(s,n)=>refunds.push({s,n}),width:1600,height:900};
+  const stats={host:build(host),guest:build(guest)},enemies=[],shots=[],hits=[],beams=[],refunds=[],sounds=[];
+  const ctx={actor:s=>actors[s],stats:s=>stats[s],enemies:()=>enemies,shots:()=>shots,damage:(e,n,s)=>{hits.push({id:e.id,n,s});e.hp-=n;},beam:b=>beams.push(b),refund:(s,n)=>refunds.push({s,n}),sound:value=>sounds.push(value),width:1600,height:900};
   const r=createNewMechRuntime(ctx);
   const enemy=(id,x,y,kind='runner')=>{const e={id,x,y,r:22,hp:100000,maxHp:100000,kind,elite:false,hit:20,slow:0};enemies.push(e);return e;};
-  return {actors,stats,enemies,shots,hits,beams,refunds,r,enemy,step:(seconds)=>{for(let t=0;t<seconds;t+=.02)r.update(.02);}};
+  return {actors,stats,enemies,shots,hits,beams,refunds,sounds,r,enemy,step:(seconds)=>{for(let t=0;t<seconds;t+=.02)r.update(.02);}};
 }
 test('weaver enforces three anchors, connects and recalls them, reset removes all devices',()=>{
   const f=fixture();f.enemy(1,800,400);
@@ -56,4 +56,21 @@ test('world snapshot roundtrip keeps both owners, dead owner devices are removed
   const mirror=fixture('weaver','prism');mirror.r.load(JSON.parse(JSON.stringify(f.r.snapshot())));
   assert.deepEqual(mirror.r.snapshot(),f.r.snapshot());
   f.actors.host.hp=0;f.step(.1);assert.equal(f.r.snapshot().devices.filter(d=>d.owner==='host').length,0);assert.ok(f.r.snapshot().devices.some(d=>d.owner==='guest'));
+});
+test('all five new mechs publish distinct cast, impact visuals and sound identities',()=>{
+  for(const id of ['weaver','echo','falcon','symbiote','prism']){
+    const f=fixture(id);f.enemy(1,700,400);
+    f.r.cast('host','q');f.r.projectileImpact(id,'host',{x:700,y:400},0,false,id==='prism');
+    const frame=f.r.snapshot();
+    assert.ok(frame.visuals.some(value=>value.mech===id&&value.kind!=='impact'));
+    assert.ok(frame.visuals.some(value=>value.mech===id&&(value.kind==='impact'||value.kind==='refract')));
+    assert.ok(frame.sounds.some(value=>value.mech===id&&value.event==='skill'));
+    assert.ok(frame.sounds.some(value=>value.mech===id&&value.event==='impact'||value.event==='special'));
+  }
+});
+test('network snapshot delivers mechanism sounds only once',()=>{
+  const source=fixture('echo');source.enemy(1,700,400);source.r.cast('host','q');const frame=source.r.snapshot();
+  const mirror=fixture('echo');mirror.r.load(JSON.parse(JSON.stringify(frame)));const first=mirror.sounds.length;
+  mirror.r.load(JSON.parse(JSON.stringify(frame)));
+  assert.ok(first>0);assert.equal(mirror.sounds.length,first);
 });

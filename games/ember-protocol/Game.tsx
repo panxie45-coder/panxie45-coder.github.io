@@ -2067,7 +2067,6 @@ export default function Home() {
     let hostCoins = 0, guestCoins = 0, hostUltimate = 0, guestUltimate = 0;
     let hostBladeCombo = 0, guestBladeCombo = 0;
     let mechanismUiClock = 0;
-    let nextMechanismImpactAt = 0;
     const guestMechanismReady = { q: 0, e: 0 };
     let currentWave = 1, nextWaveAt = WAVE_INTERVAL_SECONDS, lastBossWave = 0;
     let currentWarzone: ActiveWarzone | null = null;
@@ -2150,14 +2149,9 @@ export default function Home() {
       enemies: () => enemies, shots: () => shots,
       damage: (enemy, amount, owner) => {
         applyEnemyDamage(enemy, amount, owner);
-        if (elapsed >= nextMechanismImpactAt) {
-          nextMechanismImpactAt = elapsed + .06;
-          const id = owner === 'host' ? build.classId : remoteBuildRef.current?.classId;
-          const color = CLASSES.find(c=>c.id===id)?.color || '#a7baff';
-          impactEffect(enemy.x,enemy.y,color,26);burst(enemy.x,enemy.y,color,4);audio?.play('hit');
-        }
       },
       beam: (beam) => { if (beams.length < 160) beams.push(beam); },
+      sound: (value) => audio?.playMech(value.mech, value.event),
       refund: (owner, seconds) => {
         if (owner === 'host') skillReadyAt = Math.max(0, skillReadyAt - seconds * 1000);
         else {
@@ -2255,8 +2249,10 @@ export default function Home() {
         if (data.classId === "magnet") magnetHarvest(remote, remoteBuild, "guest");
         if (data.classId === "portal") portalShift(remote, remoteBuild, "guest", syncedX, syncedY, skillStart.x, skillStart.y);
         tryCoopCombo(remote, data.classId, "guest");
-        triggerSkillEffect(remote, data.classId, skillStart);
-        audio?.play("skill");
+        if (!isNewMech(remoteBuild.classId)) {
+          triggerSkillEffect(remote, data.classId, skillStart);
+          audio?.play("skill");
+        }
       }
       if (data.t === "skill2" && isAuthority && remote) {
         const remoteBuild = remoteBuildRef.current || makeBuild(data.classId);
@@ -2267,7 +2263,7 @@ export default function Home() {
         }
         executeSecondarySkill(remote, remoteBuild, data.classId, "guest");
         tryCoopCombo(remote, data.classId, "guest");
-        audio?.play("skill");
+        if (!isNewMech(remoteBuild.classId)) audio?.play("skill");
       }
       if (data.t === "ultimate" && isAuthority && remote) {
         const remoteStats = remoteBuildRef.current || makeBuild(data.classId);
@@ -3047,7 +3043,7 @@ export default function Home() {
         }
         if (build.classId === "blade") bladeRush(player, stats, "guest");
         if (build.classId === "portal") portalShift(player, stats, "guest");
-        triggerSkillEffect(player, build.classId, skillStart);
+        if (!isNewMech(build.classId)) triggerSkillEffect(player, build.classId, skillStart);
         const skillSequence = ++outgoingMoveSeq;
         if (network.connected()) void network.send({
           t: "skill",
@@ -3058,7 +3054,8 @@ export default function Home() {
           fromY: skillStart.y,
           seq: skillSequence,
         });
-        audio?.play("skill");
+        if (isNewMech(build.classId)) audio?.playMech(build.classId, "skill");
+        else audio?.play("skill");
         return;
       }
       if (build.classId === "assault") queueMissileStorm(player, stats, "host");
@@ -3088,8 +3085,8 @@ export default function Home() {
       if (build.classId === "magnet") magnetHarvest(player, stats, "host");
       if (build.classId === "portal") portalShift(player, stats, "host");
       tryCoopCombo(player, build.classId, "host");
-      triggerSkillEffect(player, build.classId, skillStart);
-      audio?.play("skill");
+      if (!isNewMech(build.classId)) triggerSkillEffect(player, build.classId, skillStart);
+      if (!isNewMech(build.classId)) audio?.play("skill");
     };
 
     secondarySkillRef.current = () => {
@@ -3100,14 +3097,15 @@ export default function Home() {
       secondarySkillReadyAt = now + cooldownSeconds * 1000;
       setSecondarySkillCooldown(Math.ceil((secondarySkillReadyAt - now) / 1000));
       if (network?.role === "join") {
-        triggerSecondarySkillEffect(player, build.classId);
+        if (!isNewMech(build.classId)) triggerSecondarySkillEffect(player, build.classId);
         if (network.connected()) void network.send({ t: "skill2", classId: build.classId, x: player.x, y: player.y });
-        audio?.play("skill");
+        if (isNewMech(build.classId)) audio?.playMech(build.classId, "secondary");
+        else audio?.play("skill");
         return;
       }
       executeSecondarySkill(player, stats, build.classId, "host");
       tryCoopCombo(player, build.classId, "host");
-      audio?.play("skill");
+      if (!isNewMech(build.classId)) audio?.play("skill");
     };
 
     const down = (e: KeyboardEvent) => {
@@ -4550,7 +4548,7 @@ export default function Home() {
       tryCoopCombo(actor, classId, owner);
     };
     const executeUltimate = (actor: Actor, combatStats: BuildFrame | CombatStats, classId: ClassId, owner: PlayerSide) => {
-      if (isNewMech(classId)) { mechanisms.cast(owner, 'r'); audio?.play('ultimate'); return; }
+      if (isNewMech(classId)) { mechanisms.cast(owner, 'r'); return; }
       const power = combatStats.ultimatePower;
       const color = CLASSES.find((entry) => entry.id === classId)?.color || "#f4c95d";
       const aimTarget = prioritizeUltimateTargets(enemies, actor, 1)[0];
@@ -4890,8 +4888,11 @@ export default function Home() {
       setLocalUltimate(0);
       if (network?.role === "join") {
         if (network.connected()) void network.send({ t: "ultimate", classId: build.classId, x: player.x, y: player.y });
-        addEffect({ kind: "ultimate", classId: build.classId, x: player.x, y: player.y, color: classSpec().color, radius: 420 }, 1.2);
-        audio?.play("ultimate");
+        if (isNewMech(build.classId)) audio?.playMech(build.classId, "ultimate");
+        else {
+          addEffect({ kind: "ultimate", classId: build.classId, x: player.x, y: player.y, color: classSpec().color, radius: 420 }, 1.2);
+          audio?.play("ultimate");
+        }
         return;
       }
       executeUltimate(player, stats, build.classId, "host");
@@ -5186,7 +5187,7 @@ export default function Home() {
           const origin = dronePosition(player, i, stats.drones);
           shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*stats.projectileSpeed*.92,vy:Math.sin(droneAngle)*stats.projectileSpeed*.92,r:4,damage:stats.damage*droneDamageScaleFor(build.classId)*stats.dronePower,life:1.6,owner:"host",classId:build.classId,evolution:stats.weaponEvolution,...projectileTraits(build.classId,stats)});
         }
-        audio?.play("shot");
+        if (!isNewMech(build.classId)) audio?.play("shot");
         burst(player.x+Math.cos(a0)*18,player.y+Math.sin(a0)*18,"#f4c95d",3);
       }
       remoteFireClock -= dt;
@@ -5213,7 +5214,7 @@ export default function Home() {
           const origin = dronePosition(remote, i, remoteStats.drones);
           shots.push({x:origin.x+Math.cos(droneAngle)*12,y:origin.y+Math.sin(droneAngle)*12,vx:Math.cos(droneAngle)*remoteStats.projectileSpeed*.92,vy:Math.sin(droneAngle)*remoteStats.projectileSpeed*.92,r:4,damage:remoteStats.damage*droneDamageScaleFor(remoteStats.classId)*remoteStats.dronePower,life:1.6,owner:"guest",classId:remoteStats.classId,evolution:remoteStats.weaponEvolution,...projectileTraits(remoteStats.classId,remoteStats)});
         }
-        audio?.play("ally-shot");
+        if (!isNewMech(remoteStats.classId)) audio?.play("ally-shot");
       }
 
       const activeTimeFields = effects.filter(
@@ -5887,7 +5888,9 @@ export default function Home() {
             burst(enemy.x, enemy.y, "#f4c95d", 12);
           }
           const impactColor = shot.corrosion ? "#b5e536" : shot.temporal ? "#f0ad4e" : shot.slow ? "#8bdcff" : (CLASSES.find((item) => item.id === shot.classId)?.color || "#fff2ba");
-          impactEffect(shot.x, shot.y, impactColor, shot.splash ? 54 : Math.min(38, 18 + shot.damage * .16));
+          const customMechanismImpact = isNewMech(shot.classId)
+            && mechanisms.projectileImpact(shot.classId, shot.owner || "host", shot, Math.atan2(shot.vy, shot.vx), Boolean(shot.replay), Boolean(shot.refracted));
+          if (!customMechanismImpact) impactEffect(shot.x, shot.y, impactColor, shot.splash ? 54 : Math.min(38, 18 + shot.damage * .16));
           if (shot.chain) {
             const next = nearbyEnemies(enemy.x, enemy.y, 145)
               .filter((candidate) => candidate !== enemy && candidate.hp > 0 && !shot.hitIds?.includes(candidate.id) && dist(enemy, candidate) < 145)
@@ -5902,8 +5905,10 @@ export default function Home() {
           }
           if ((shot.pierce || 0) > 0) shot.pierce = (shot.pierce || 0) - 1;
           else shot.life = 0;
-          audio?.play("hit");
-          burst(shot.x,shot.y,shot.corrosion?"#b5e536":shot.temporal?"#f0ad4e":shot.slow?"#a8e9ff":"#fff2ba",4);
+          if (!customMechanismImpact) {
+            audio?.play("hit");
+            burst(shot.x,shot.y,shot.corrosion?"#b5e536":shot.temporal?"#f0ad4e":shot.slow?"#a8e9ff":"#fff2ba",4);
+          }
         }
       }
       for (const enemy of enemies) {
@@ -7232,7 +7237,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.21.0 · 五种全新战斗系统</div>
+        <div className="status"><i /> 版本 0.21.1 · 新机甲特效与音效升级</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>

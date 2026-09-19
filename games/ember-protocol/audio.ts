@@ -15,6 +15,9 @@ export type SoundCue =
   | "connected"
   | "game-over";
 
+export type MechSoundId = "weaver" | "echo" | "falcon" | "symbiote" | "prism";
+export type MechSoundEvent = "primary" | "skill" | "secondary" | "ultimate" | "impact" | "special";
+
 type AudioSettings = {
   enabled: boolean;
   musicVolume: number;
@@ -36,7 +39,7 @@ export class EmberAudioEngine {
   private enabled: boolean;
   private musicVolume: number;
   private sfxVolume: number;
-  private lastCue = new Map<SoundCue, number>();
+  private lastCue = new Map<string, number>();
 
   constructor(settings: AudioSettings) {
     this.enabled = settings.enabled;
@@ -152,6 +155,80 @@ export class EmberAudioEngine {
         });
         this.noise(now + 0.18, 0.5, 0.025, 280, "lowpass");
         break;
+    }
+  }
+
+  playMech(mech: MechSoundId, event: MechSoundEvent) {
+    const ctx = this.context;
+    if (!ctx || !this.enabled || ctx.state !== "running") return;
+    const key = `${mech}:${event}`;
+    const nowMs = performance.now();
+    const cooldown = event === "impact" ? 58 : event === "primary" ? 82 : event === "special" ? 105 : 120;
+    if (nowMs - (this.lastCue.get(key) ?? 0) < cooldown) return;
+    this.lastCue.set(key, nowMs);
+    const now = ctx.currentTime;
+
+    if (mech === "weaver") {
+      if (event === "primary" || event === "impact") {
+        this.tone(event === "impact" ? 105 : 185, now, .085, "square", .048, 72);
+        this.noise(now, .055, .032, event === "impact" ? 620 : 1450, "bandpass");
+      } else if (event === "skill") {
+        this.tone(82, now, .25, "sawtooth", .07, 145);
+        this.tone(620, now + .07, .12, "square", .035, 310);
+      } else if (event === "secondary") {
+        [0, .055, .11].forEach((delay, index) => this.tone(520 - index * 115, now + delay, .13, "square", .045, 120));
+      } else {
+        [0, .07, .14, .22].forEach((delay, index) => this.tone(note(73.42, [0, 7, 12, 19][index]), now + delay, .5, "sawtooth", .065));
+        this.noise(now + .08, .4, .05, 520, "lowpass");
+      }
+      return;
+    }
+    if (mech === "echo") {
+      const reversed = event === "secondary" || event === "special";
+      if (event === "impact" || event === "primary") {
+        this.tone(reversed ? 980 : 460, now, .11, "sine", .042, reversed ? 260 : 920);
+        this.tone(690, now + .055, .12, "triangle", .028, 410);
+      } else {
+        const count = event === "ultimate" ? 5 : 3;
+        for (let index = 0; index < count; index++) this.tone(330 * 2 ** (index / 12), now + index * .06, .24, index % 2 ? "sine" : "triangle", .045, 660);
+        this.noise(now, .22, .025, 2400, "bandpass");
+      }
+      return;
+    }
+    if (mech === "falcon") {
+      if (event === "impact") {
+        this.noise(now, .07, .055, 3000, "highpass");
+        this.tone(760, now, .075, "square", .04, 190);
+      } else if (event === "primary" || event === "special") {
+        this.noise(now, .095, .04, 1900, "bandpass");
+        this.tone(260, now, .1, "sawtooth", .04, 760);
+      } else {
+        const count = event === "ultimate" ? 6 : 3;
+        for (let index = 0; index < count; index++) this.tone(170 + index * 95, now + index * .035, .16, "sawtooth", .04, 880 - index * 40);
+      }
+      return;
+    }
+    if (mech === "symbiote") {
+      if (event === "impact" || event === "primary") {
+        this.tone(88, now, .14, "sine", .06, 52);
+        this.noise(now, .12, .04, 480, "lowpass");
+      } else if (event === "secondary" || event === "special") {
+        [0, .06, .12].forEach((delay, index) => this.tone(180 + index * 135, now + delay, .24, "sine", .05, 520 + index * 80));
+      } else {
+        this.tone(64, now, .48, "sawtooth", .065, 190);
+        this.tone(128, now + .08, .5, "triangle", .05, 510);
+        this.noise(now + .04, .32, .035, 370, "lowpass");
+      }
+      return;
+    }
+    if (event === "impact" || event === "primary") {
+      this.tone(event === "impact" ? 1120 : 620, now, .12, "sine", .045, event === "impact" ? 420 : 1380);
+      this.tone(1480, now + .035, .11, "triangle", .025, 740);
+    } else if (event === "secondary" || event === "special") {
+      [0, .045, .09].forEach((delay, index) => this.tone(note(523.25, [0, 4, 11][index]), now + delay, .28, "sine", .042));
+    } else {
+      [0, .055, .11, .17, .24].forEach((delay, index) => this.tone(note(261.63, [0, 7, 12, 16, 24][index]), now + delay, .48, "triangle", .05));
+      this.noise(now + .08, .25, .024, 3200, "highpass");
     }
   }
 

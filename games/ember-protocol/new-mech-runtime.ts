@@ -5,7 +5,11 @@ type Device = Point & {id:number;owner:PlayerSide;kind:'anchor'|'fort'|'blade'|'
 type Sample = Point & {t:number;angle?:number;power?:number;multi?:number};
 type Replay = {device:number;frames:Sample[];cursor:number;time:number;duration:number;offset:Point;fixed:boolean;scale:number};
 type Personal = {bio:number;shield:number;recording:number;buff:number;record:Sample[];recent:Sample[];sampleClock:number;mode:boolean};
-export type MechanismFrame = {devices:Device[];host:{bio:number;shield:number;recording:number;buff:number};guest:{bio:number;shield:number;recording:number;buff:number}};
+export type NewMechId = 'weaver'|'echo'|'falcon'|'symbiote'|'prism';
+export type MechanismSound = {id:number;owner:PlayerSide;mech:NewMechId;event:'primary'|'skill'|'secondary'|'ultimate'|'impact'|'special'};
+type VisualKind = 'cast'|'impact'|'recall'|'scan'|'slash'|'siphon'|'heal'|'refract'|'block'|'ultimate';
+type Visual = Point & {id:number;owner:PlayerSide;mech:NewMechId;kind:VisualKind;life:number;maxLife:number;size:number;angle:number;x2?:number;y2?:number};
+export type MechanismFrame = {devices:Device[];visuals:Visual[];sounds:MechanismSound[];host:{bio:number;shield:number;recording:number;buff:number};guest:{bio:number;shield:number;recording:number;buff:number}};
 type Context = {
   actor:(owner:PlayerSide)=>Actor|null;
   stats:(owner:PlayerSide)=>BuildFrame;
@@ -14,6 +18,7 @@ type Context = {
   damage:(enemy:Enemy,amount:number,owner:PlayerSide)=>void;
   beam:(beam:Beam)=>void;
   refund:(owner:PlayerSide,seconds:number)=>void;
+  sound?:(sound:MechanismSound)=>void;
   width:number;height:number;
 };
 const distance=(a:Point,b:Point)=>Math.hypot(a.x-b.x,a.y-b.y);
@@ -27,21 +32,29 @@ const colors={weaver:'#ffb358',echo:'#a7baff',falcon:'#ff697f',symbiote:'#c4e878
 
 /** All gameplay state here advances only on the authoritative simulation. Guests draw snapshots. */
 export function createNewMechRuntime(c:Context){
-  let devices:Device[]=[],replays:Replay[]=[],nextId=1,time=0;
+  let devices:Device[]=[],replays:Replay[]=[],visuals:Visual[]=[],sounds:MechanismSound[]=[],nextId=1,nextEventId=1,lastLoadedSoundId=0,time=0;
   let people:Record<PlayerSide,Personal>={host:fresh(),guest:fresh()};
   const marks=new Map<number,Set<PlayerSide>>();
   const sideDevices=(s:PlayerSide,kind:Device['kind'])=>devices.filter(d=>d.owner===s&&d.kind===kind&&d.life>0&&d.hp>0);
+  const mech=(s:PlayerSide)=>c.stats(s).classId as NewMechId;
+  const sound=(s:PlayerSide,event:MechanismSound['event'])=>{
+    const value={id:nextEventId++,owner:s,mech:mech(s),event};sounds.push(value);sounds=sounds.slice(-24);c.sound?.(value);
+  };
+  const fx=(s:PlayerSide,kind:VisualKind,p:Point,life=.45,size=64,angle=0,to?:Point)=>{
+    visuals.push({id:nextEventId++,owner:s,mech:mech(s),kind,x:p.x,y:p.y,life,maxLife:life,size,angle,...(to?{x2:to.x,y2:to.y}:{})});
+    if(visuals.length>120)visuals.splice(0,visuals.length-120);
+  };
   const target=(p:Point)=>{
     let best:Enemy|undefined,bestScore=Infinity;
     for(const e of c.enemies())if(e.hp>0){const score=Math.max(0,distance(p,e)-e.r)*(e.kind==='boss'?.8:1);if(score<bestScore){best=e;bestScore=score;}}
     return best;
   };
   const add=(s:PlayerSide,kind:Device['kind'],p:Point,life:number,power=1,angle=0)=>{
-    const d:Device={...p,id:nextId++,owner:s,kind,life,power,angle,hp:80,maxHp:80,vx:0,vy:0,age:0,hits:[],tick:0};devices.push(d);return d;
+    const d:Device={x:p.x,y:p.y,id:nextId++,owner:s,kind,life,power,angle,hp:80,maxHp:80,vx:0,vy:0,age:0,hits:[],tick:0};devices.push(d);return d;
   };
-  const ray=(a:Point,b:Point,s:PlayerSide,power:number,width:number,color:string)=>{
+  const ray=(a:Point,b:Point,s:PlayerSide,power:number,width:number,color:string,style?:NewMechId)=>{
     c.beam({x1:a.x,y1:a.y,x2:b.x,y2:b.y,life:.3,width,color});
-    for(const e of c.enemies())if(e.hp>0&&segmentDistance(e,a,b)<e.r+width)c.damage(e,power,s);
+    for(const e of c.enemies())if(e.hp>0&&segmentDistance(e,a,b)<e.r+width){c.damage(e,power,s);if(style)fx(s,'impact',e,.3,34,Math.atan2(b.y-a.y,b.x-a.x));}
   };
   const shoot=(s:PlayerSide,p:Point,angle:number,power:number,replay=false,multi=1)=>{
     const st=c.stats(s);
@@ -85,31 +98,35 @@ export function createNewMechRuntime(c:Context){
       if(slot==='q'){
         const old=sideDevices(s,'anchor');if(old.length>=3)old[0].life=0;
         const d=add(s,'anchor',front,20,dmg);d.hp=d.maxHp=100*(1+.15*st.systemTuning)*(st.corePath===1?1.4:1);
+        fx(s,'cast',front,.65,96,angle);sound(s,'skill');
       }else if(slot==='e'){
         const anchors=sideDevices(s,'anchor');
-        for(const d of anchors){ray(d,a,s,dmg*3.6*st.secondaryPower*(st.corePath===2?1.6:1),18,'#ffb358');d.life=0;
+        for(const d of anchors){ray(d,a,s,dmg*3.6*st.secondaryPower*(st.corePath===2?1.6:1),18,'#ffb358','weaver');fx(s,'recall',d,.58,52,Math.atan2(a.y-d.y,a.x-d.x),a);d.life=0;
           if(st.corePath===2)for(const enemy of c.enemies())if(distance(enemy,d)<85+enemy.r)c.damage(enemy,dmg*2,s);
         }
-        c.refund(s,Math.min(4,anchors.length*(.6+.5*st.secondaryTech)));
+        c.refund(s,Math.min(4,anchors.length*(.6+.5*st.secondaryTech)));sound(s,'secondary');
       }else{
         for(const d of sideDevices(s,'fort'))d.life=0;
         for(let i=0;i<3;i++){const d=add(s,'fort',a,8+st.ultimateTech,dmg*1.8*st.ultimatePower,i*Math.PI*2/3);d.hp=d.maxHp=180;d.ultimate=true;}
+        fx(s,'ultimate',a,.95,155,0);sound(s,'ultimate');
       }
     }else if(id==='echo'){
-      if(slot==='q'){p.record=[];p.recording=4+.5*st.systemTuning;p.sampleClock=0;for(const d of sideDevices(s,'recorder'))d.life=0;add(s,'recorder',a,p.recording);}
-      else if(slot==='e')endRecord(s,true);
-      else for(let i=0;i<3;i++)replay(s,false,1.35*st.ultimatePower*st.systemPower*(st.signaturePieces>=3?1.2:1),{x:Math.cos(i*Math.PI*2/3)*85,y:Math.sin(i*Math.PI*2/3)*85},5+st.ultimateTech);
+      if(slot==='q'){p.record=[];p.recording=4+.5*st.systemTuning;p.sampleClock=0;for(const d of sideDevices(s,'recorder'))d.life=0;add(s,'recorder',a,p.recording);fx(s,'scan',a,.8,118,angle);sound(s,'skill');}
+      else if(slot==='e'){endRecord(s,true);fx(s,'cast',a,.75,105,angle);sound(s,'secondary');}
+      else {for(let i=0;i<3;i++)replay(s,false,1.35*st.ultimatePower*st.systemPower*(st.signaturePieces>=3?1.2:1),{x:Math.cos(i*Math.PI*2/3)*85,y:Math.sin(i*Math.PI*2/3)*85},5+st.ultimateTech);fx(s,'ultimate',a,1.05,175,angle);sound(s,'ultimate');}
     }else if(id==='falcon'){
       if(slot==='q'){
         for(const d of sideDevices(s,'park'))d.life=0;
-        add(s,'park',front,5+(st.corePath===2?2:0),dmg*1.1*(st.corePath===2?1.4:1));
+        add(s,'park',front,5+(st.corePath===2?2:0),dmg*1.1*(st.corePath===2?1.4:1));fx(s,'slash',front,.58,112,angle);sound(s,'skill');
       }else if(slot==='e'){
         for(const d of [...sideDevices(s,'blade'),...sideDevices(s,'park')]){d.kind='blade';if(!d.back)d.hits=[];d.back=true;d.power*=1.3*st.secondaryPower*(1+.2*st.secondaryTech);d.life=Math.max(d.life,2);}
+        fx(s,'recall',a,.55,122,angle);sound(s,'secondary');
       }else{
         for(let i=0;i<8+2*st.ultimateTech;i++){
           const t=i*Math.PI*2/(8+2*st.ultimateTech),start={x:Math.max(20,Math.min(c.width-20,a.x+Math.cos(t)*580)),y:Math.max(20,Math.min(c.height-20,a.y+Math.sin(t)*580))};
           const d=launchBlade(s,start,t,dmg*4*st.ultimatePower,true);d.back=true;d.age=-i*.1;
         }
+        fx(s,'ultimate',a,1.1,220,angle);sound(s,'ultimate');
       }
     }else if(id==='symbiote'){
       if(slot==='q'){
@@ -119,6 +136,7 @@ export function createNewMechRuntime(c:Context){
         const power=dmg*(boost?7:4)*(st.corePath===2?1.45:1);
         shoot(s,a,angle,power,false,st.multi);
         const shot=c.shots().at(-1);if(shot){shot.r*=2;shot.pierce=4;shot.splash=72;}
+        fx(s,'cast',a,.55,92,angle);sound(s,'skill');
       }else if(slot==='e'){
         const spend=Math.min(30,p.bio);p.bio-=spend;
         const heal=a.maxHp*(spend/30)*(.2+.05*st.secondaryTech)*st.secondaryPower;
@@ -126,16 +144,19 @@ export function createNewMechRuntime(c:Context){
         p.shield=Math.min(a.maxHp*.35,p.shield+Math.max(0,heal-missing));
         if(heal>0)c.beam({x1:a.x-32,y1:a.y-35,x2:a.x,y2:a.y,life:.7,width:6,color:'#c4e878'});
         const ally=c.actor(s==='host'?'guest':'host');if(st.corePath===1&&ally&&ally.hp>0)ally.hp=Math.min(ally.maxHp,ally.hp+heal*.7);
-      }else{p.buff=9+st.ultimateTech;const d=add(s,'shell',a,p.buff,dmg);d.ultimate=true;}
+        fx(s,'heal',a,.9,120,0,ally&&ally.hp>0?ally:undefined);sound(s,'secondary');
+      }else{p.buff=9+st.ultimateTech;const d=add(s,'shell',a,p.buff,dmg);d.ultimate=true;fx(s,'ultimate',a,1.15,175,angle);sound(s,'ultimate');}
     }else if(id==='prism'){
       if(slot==='q'){
         const old=sideDevices(s,'mirror');if(old.length>=3)old[0].life=0;
-        const d=add(s,'mirror',front,15,1,angle);d.hp=d.maxHp=90*(1+.2*st.systemTuning);
+        const d=add(s,'mirror',front,15,1,angle);d.hp=d.maxHp=90*(1+.2*st.systemTuning);fx(s,'cast',front,.72,112,angle);sound(s,'skill');
       }else if(slot==='e'){
         p.mode=!p.mode;for(const d of [...sideDevices(s,'mirror'),...sideDevices(s,'lane')]){d.angle=angle;d.hp=Math.min(d.maxHp,d.hp+25+15*st.secondaryTech);}
+        fx(s,'refract',a,.65,135,angle);sound(s,'secondary');
       }else{
         for(const d of sideDevices(s,'lane'))d.life=0;
         for(let i=0;i<3;i++){const d=add(s,'lane',a,8+st.ultimateTech,1.2*st.ultimatePower,angle);d.vx=i;d.hp=d.maxHp=150;d.ultimate=true;}
+        fx(s,'ultimate',a,1.1,205,angle);sound(s,'ultimate');
       }
     }else return false;
     return true;
@@ -150,17 +171,29 @@ export function createNewMechRuntime(c:Context){
       for(let i=-1;i<=1;i++)shoot(s,a,angle+i*.055,damage,false,st.multi);
       const f={x:a.x,y:a.y,t:time,angle,power:damage*3,multi:st.multi};p.recent.push(f);if(p.recording>0)p.record.push({...f});
     }else shoot(s,a,angle,damage*(st.classId==='falcon'?.65:1)*(st.classId==='symbiote'&&p.buff>0?2.8*st.ultimatePower:1),false,st.multi);
+    sound(s,'primary');
   };
   const markHit=(enemy:Enemy,s:PlayerSide)=>{
     if(c.stats(s).classId!=='symbiote')return;
     let owners=marks.get(enemy.id);if(!owners){owners=new Set();marks.set(enemy.id,owners);}owners.add(s);
   };
   const onKill=(enemy:Enemy)=>{
-    for(const s of ['host','guest'] as const){const st=c.stats(s),a=c.actor(s);if(st.classId==='symbiote'&&a&&a.hp>0&&(marks.get(enemy.id)?.has(s)||people[s].buff>0))people[s].bio=Math.min(100,people[s].bio+(enemy.kind==='boss'?20:enemy.elite?6:2)+st.systemTuning);}
+    for(const s of ['host','guest'] as const){const st=c.stats(s),a=c.actor(s);if(st.classId==='symbiote'&&a&&a.hp>0&&(marks.get(enemy.id)?.has(s)||people[s].buff>0)){people[s].bio=Math.min(100,people[s].bio+(enemy.kind==='boss'?20:enemy.elite?6:2)+st.systemTuning);fx(s,'siphon',enemy,.65,enemy.kind==='boss'?96:58,0,a);sound(s,'special');}}
     marks.delete(enemy.id);
+  };
+  const impactReady:Record<PlayerSide,number>={host:0,guest:0};
+  const projectileImpact=(classId:string,s:PlayerSide,p:Point,angle=0,replayShot=false,refracted=false)=>{
+    if(!(classId in colors))return false;
+    if(time<impactReady[s])return true;
+    impactReady[s]=time+.055;
+    fx(s,refracted?'refract':'impact',p,replayShot ? .42 : .32,refracted?62:42,angle);
+    sound(s,refracted?'special':'impact');
+    return true;
   };
   const update=(dt:number)=>{
     time+=dt;
+    for(const visual of visuals)visual.life-=dt;
+    visuals=visuals.filter(visual=>visual.life>0);
     for(const s of ['host','guest'] as const){
       const a=c.actor(s),p=people[s],st=c.stats(s);
       if(!a||a.hp<=0){for(const d of devices)if(d.owner===s)d.life=0;p.recording=0;p.buff=0;p.shield=0;continue;}
@@ -192,13 +225,13 @@ export function createNewMechRuntime(c:Context){
         if(d.tick<=0){d.tick=.4;const list=sideDevices(d.owner,'anchor'),index=list.indexOf(d),next=list[index+1];
           if(next&&distance(d,next)<420*(1+.15*st.systemTuning)){
             c.beam({x1:d.x,y1:d.y,x2:next.x,y2:next.y,life:.42,width:4,color:'#ffb358'});
-            for(const e of c.enemies())if(e.hp>0&&segmentDistance(e,d,next)<e.r+12){e.slow=Math.max(e.slow,.7);c.damage(e,d.power*.75*(st.corePath===1?1.2:1),d.owner);}
-          }else if(list.length===1){const e=target(d);if(e&&distance(e,d)<150)ray(d,e,d.owner,d.power*.6,3,'#ffb358');}
+            let shown=false;for(const e of c.enemies())if(e.hp>0&&segmentDistance(e,d,next)<e.r+12){e.slow=Math.max(e.slow,.7);c.damage(e,d.power*.75*(st.corePath===1?1.2:1),d.owner);if(!shown){shown=true;fx(d.owner,'impact',e,.28,38,d.angle);sound(d.owner,'impact');}}
+          }else if(list.length===1){const e=target(d);if(e&&distance(e,d)<150){ray(d,e,d.owner,d.power*.6,3,'#ffb358','weaver');sound(d.owner,'impact');}}
         }
         for(const e of c.enemies())if(e.hp>0&&distance(e,d)<e.r+24)d.hp-=e.hit*dt*.65;
       }
       if(d.kind==='park'){
-        d.angle+=dt*8;if(d.tick<=0){d.tick=.3;for(const e of c.enemies())if(e.hp>0&&distance(e,d)<(68*(1+.12*st.systemTuning))+e.r)c.damage(e,d.power*.45,d.owner);}
+        d.angle+=dt*8;if(d.tick<=0){d.tick=.3;let shown=false;for(const e of c.enemies())if(e.hp>0&&distance(e,d)<(68*(1+.12*st.systemTuning))+e.r){c.damage(e,d.power*.45,d.owner);if(!shown){shown=true;fx(d.owner,'slash',e,.28,58,d.angle);sound(d.owner,'impact');}}}
       }
       if(d.kind==='blade'){
         if(d.age<0)continue;
@@ -207,7 +240,7 @@ export function createNewMechRuntime(c:Context){
         if(d.back){const len=distance(a,d)||1;d.vx=(a.x-d.x)/len*650;d.vy=(a.y-d.y)/len*650;}
         d.x+=d.vx*dt;d.y+=d.vy*dt;d.angle+=dt*14;
         for(const e of c.enemies())if(e.hp>0&&!d.hits.includes(e.id)&&segmentDistance(e,before,d)<e.r+(d.ultimate?24:12)*(1+.12*st.systemTuning)){
-          d.hits.push(e.id);c.damage(e,d.power*(d.back?(st.corePath===1?1.45:1)*(st.signaturePieces>=3?1.2:1):(st.corePath===1?.9:1)),d.owner);
+          d.hits.push(e.id);c.damage(e,d.power*(d.back?(st.corePath===1?1.45:1)*(st.signaturePieces>=3?1.2:1):(st.corePath===1?.9:1)),d.owner);fx(d.owner,'slash',e,.3,d.ultimate?82:52,d.angle);sound(d.owner,'impact');
         }
         if(d.back&&segmentDistance(a,before,d)<a.r+12)d.life=0;
       }
@@ -218,11 +251,11 @@ export function createNewMechRuntime(c:Context){
           if(shot.life<=0||d.hp<=0)continue;
           const prev={x:shot.x-shot.vx*dt,y:shot.y-shot.vy*dt},near=segmentDistance(shot,from,to)<shot.r+9||segmentDistance(d,prev,shot)<half;
           if(!near)continue;
-          if(shot.hostile){if(shot.bossVariant||shot.enemyKind==='boss'||(shot.splash||0)>80)continue;d.hp-=Math.max(8,shot.damage);shot.life=0;}
+          if(shot.hostile){if(shot.bossVariant||shot.enemyKind==='boss'||(shot.splash||0)>80)continue;d.hp-=Math.max(8,shot.damage);shot.life=0;fx(d.owner,'block',shot,.35,58,d.angle);sound(d.owner,'special');}
           else if(d.kind!=='fort'&&!shot.refracted){
             shot.refracted=true;const own=shot.owner===d.owner;
             const boost=(st.corePath===1&&!own?.55:st.corePath===2&&own?.5:.3)+(st.signaturePieces>=3?.1:0);
-            shot.damage*=1+boost*st.systemPower;const e=target(shot);if(e){const a0=Math.atan2(e.y-shot.y,e.x-shot.x),speed=Math.hypot(shot.vx,shot.vy);shot.vx=Math.cos(a0)*speed;shot.vy=Math.sin(a0)*speed;
+            shot.damage*=1+boost*st.systemPower;fx(d.owner,'refract',shot,.42,74,d.angle);sound(d.owner,'special');const e=target(shot);if(e){const a0=Math.atan2(e.y-shot.y,e.x-shot.x),speed=Math.hypot(shot.vx,shot.vy);shot.vx=Math.cos(a0)*speed;shot.vy=Math.sin(a0)*speed;
               if(p.mode&&c.shots().length<500){shot.damage*=.65;for(const spread of [-.22,.22])c.shots().push({...shot,vx:Math.cos(a0+spread)*speed,vy:Math.sin(a0+spread)*speed,damage:shot.damage*.3,hitIds:shot.hitIds?[...shot.hitIds]:undefined});}
             }
           }
@@ -246,9 +279,16 @@ export function createNewMechRuntime(c:Context){
     if(st.classId==='prism')return `折射板 ${sideDevices(s,'mirror').length}/3 · ${p.mode?'散射校准':'集束校准'}`;
     return '';
   };
-  const snapshot=():MechanismFrame=>({devices:devices.map(d=>({...d,hits:[]})),host:{bio:people.host.bio,shield:people.host.shield,recording:people.host.recording,buff:people.host.buff},guest:{bio:people.guest.bio,shield:people.guest.shield,recording:people.guest.recording,buff:people.guest.buff}});
-  const load=(f?:MechanismFrame)=>{if(!f)return;devices=f.devices.map(d=>({...d}));Object.assign(people.host,f.host);Object.assign(people.guest,f.guest);};
+  const snapshot=():MechanismFrame=>({devices:devices.map(d=>({...d,hits:[]})),visuals:visuals.map(v=>({...v})),sounds:sounds.map(value=>({...value})),host:{bio:people.host.bio,shield:people.host.shield,recording:people.host.recording,buff:people.host.buff},guest:{bio:people.guest.bio,shield:people.guest.shield,recording:people.guest.recording,buff:people.guest.buff}});
+  const load=(f?:MechanismFrame)=>{
+    if(!f)return;devices=f.devices.map(d=>({...d}));visuals=(f.visuals||[]).map(v=>({...v}));
+    const unseen=(f.sounds||[]).filter(value=>value.id>lastLoadedSoundId);for(const value of (lastLoadedSoundId===0?unseen.slice(-2):unseen))c.sound?.(value);
+    sounds=(f.sounds||[]).map(value=>({...value}));
+    if(f.sounds?.length)lastLoadedSoundId=Math.max(lastLoadedSoundId,...f.sounds.map(value=>value.id));
+    Object.assign(people.host,f.host);Object.assign(people.guest,f.guest);
+  };
   const draw=(ctx:CanvasRenderingContext2D,image:(src:string)=>HTMLImageElement|null)=>{
+    const polygon=(sides:number,radius:number,rotation=0)=>{ctx.beginPath();for(let i=0;i<sides;i++){const a=rotation+i*Math.PI*2/sides,x=Math.cos(a)*radius,y=Math.sin(a)*radius;i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.closePath();};
     for(const d of devices){
       const st=c.stats(d.owner),id=st.classId as keyof typeof colors,im=image(`/game/${id}-kit-v1.png`);if(!im||!im.complete||!im.naturalWidth)continue;
       const w=im.naturalWidth/2,h=im.naturalHeight/2;
@@ -259,8 +299,37 @@ export function createNewMechRuntime(c:Context){
       ctx.drawImage(im,isGhost||d.kind==='blade'?0:w,isGhost?0:h,w,h,-size/2,-size/2,size,size);
       if(isGhost){ctx.strokeStyle=colors.echo;ctx.lineWidth=1;for(let y=-26;y<28;y+=9){ctx.beginPath();ctx.moveTo(-24,y);ctx.lineTo(24,y);ctx.stroke();}}
       ctx.restore();
+      ctx.save();ctx.translate(d.x,d.y);ctx.globalCompositeOperation='lighter';ctx.strokeStyle=colors[id]||'#fff';ctx.shadowColor=colors[id]||'#fff';ctx.shadowBlur=12;
+      if(d.kind==='anchor'){ctx.setLineDash([8,6]);ctx.lineWidth=2;polygon(6,35+d.age%1*5,d.age*.45);ctx.stroke();ctx.setLineDash([]);for(let i=0;i<3;i++){ctx.rotate(Math.PI*2/3);ctx.fillStyle='#fff2ba';ctx.fillRect(34,-2,9,4);}}
+      if(d.kind==='fort'){ctx.lineWidth=3;for(let i=0;i<3;i++){ctx.rotate(Math.PI*2/3);ctx.beginPath();ctx.arc(0,0,42,d.age+i*.2,d.age+.68+i*.2);ctx.stroke();}}
+      if(d.kind==='park'){ctx.lineWidth=4;ctx.beginPath();ctx.arc(0,0,58,d.angle,d.angle+1.35);ctx.stroke();ctx.beginPath();ctx.arc(0,0,72,-d.angle,-d.angle+.8);ctx.stroke();}
+      if(d.kind==='recorder'){ctx.lineWidth=2;ctx.setLineDash([4,7]);ctx.beginPath();ctx.arc(0,0,48+Math.sin(d.age*7)*6,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);ctx.rotate(d.age*2.4);ctx.fillStyle=colors.echo;ctx.fillRect(0,-1,62,2);}
+      if(d.kind==='ghost'){ctx.globalAlpha=.36;ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,45+Math.sin(d.age*9)*7,0,Math.PI*2);ctx.stroke();}
+      if(d.kind==='shell'){ctx.lineWidth=3;for(let i=0;i<5;i++){const a=d.age*.9+i*Math.PI*2/5;ctx.beginPath();ctx.arc(Math.cos(a)*50,Math.sin(a)*34,12,0,Math.PI*1.5);ctx.stroke();}}
+      if(d.kind==='mirror'||d.kind==='lane'){ctx.rotate(d.angle);ctx.globalAlpha=.42;ctx.fillStyle=colors.prism;ctx.fillRect(-4,-58,8,116);ctx.globalAlpha=.9;ctx.lineWidth=2;for(const offset of [-9,9]){ctx.beginPath();ctx.moveTo(offset,-58);ctx.lineTo(offset,58);ctx.stroke();}}
+      ctx.restore();
       if(['anchor','mirror','lane','fort'].includes(d.kind)){ctx.fillStyle='#17222a';ctx.fillRect(d.x-21,d.y+30,42,4);ctx.fillStyle=colors[id]||'#fff';ctx.fillRect(d.x-21,d.y+30,42*Math.max(0,d.hp/d.maxHp),4);}
     }
+    for(const v of visuals){
+      const t=1-v.life/v.maxLife,fade=Math.max(0,1-t),color=colors[v.mech];ctx.save();ctx.translate(v.x,v.y);ctx.rotate(v.angle);ctx.globalAlpha=fade;ctx.globalCompositeOperation='lighter';ctx.strokeStyle=color;ctx.fillStyle=color;ctx.shadowColor=color;ctx.shadowBlur=18;ctx.lineWidth=3;
+      if(v.x2!==undefined&&v.y2!==undefined){const dx=v.x2-v.x,dy=v.y2-v.y;ctx.rotate(-v.angle);ctx.setLineDash(v.mech==='weaver'?[10,6]:[4,7]);ctx.lineDashOffset=-t*35;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(dx,dy);ctx.stroke();ctx.setLineDash([]);ctx.rotate(v.angle);}
+      if(v.mech==='weaver'){
+        const r=v.size*(.25+t*.7);polygon(6,r,Math.PI/6+t);ctx.stroke();polygon(6,r*.62,-t*1.4);ctx.stroke();
+        for(let i=0;i<6;i++){const a=i*Math.PI/3;ctx.fillRect(Math.cos(a)*r-5,Math.sin(a)*r-2,10,4);}
+      }else if(v.mech==='echo'){
+        for(let i=0;i<3;i++){ctx.globalAlpha=fade*(1-i*.22);ctx.setLineDash([12+i*3,7]);ctx.beginPath();ctx.arc((i-1)*8,0,v.size*(.22+t*.42)+i*9,t*4+i,Math.PI*1.55+t*4+i);ctx.stroke();}
+        ctx.setLineDash([]);for(let i=0;i<4;i++){ctx.globalAlpha=fade*.45;ctx.fillRect(-v.size*.45+i*11,(i-1.5)*8,v.size*.7,2);}
+      }else if(v.mech==='falcon'){
+        const r=v.size*(.35+t*.55);for(let i=0;i<(v.kind==='ultimate'?4:2);i++){ctx.rotate(Math.PI/(v.kind==='ultimate'?2:3));ctx.lineWidth=5-i*.6;ctx.beginPath();ctx.arc(0,0,r+i*8,-1.05,.82);ctx.stroke();ctx.beginPath();ctx.moveTo(r*.4,-r*.55);ctx.lineTo(r*1.05,0);ctx.stroke();}
+      }else if(v.mech==='symbiote'){
+        const r=v.size*(.22+t*.48);for(let i=0;i<7;i++){const a=i*Math.PI*2/7+t*.8;ctx.beginPath();ctx.moveTo(Math.cos(a)*r*.25,Math.sin(a)*r*.25);ctx.quadraticCurveTo(Math.cos(a+.55)*r*.8,Math.sin(a+.55)*r*.8,Math.cos(a)*r,Math.sin(a)*r);ctx.stroke();}
+        ctx.globalAlpha=fade*.28;ctx.beginPath();ctx.arc(0,0,r*.68,0,Math.PI*2);ctx.fill();if(v.kind==='heal'){ctx.globalAlpha=fade;ctx.fillStyle='#edffd2';ctx.fillRect(-4,-22,8,44);ctx.fillRect(-22,-4,44,8);}
+      }else{
+        const r=v.size*(.28+t*.55);for(let i=0;i<3;i++){ctx.rotate(Math.PI/6+i*.34);polygon(4,r-i*9,Math.PI/4);ctx.stroke();}
+        if(v.kind==='refract'||v.kind==='ultimate'){for(let i=-2;i<=2;i++){ctx.strokeStyle=['#ff6b91','#ffd86b','#8dffcb','#78c8ff','#c39bff'][i+2];ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.cos(i*.2)*r*1.25,Math.sin(i*.2)*r*1.25);ctx.stroke();}}
+      }
+      ctx.restore();
+    }
   };
-  return {cast,primary,update,markHit,onKill,absorb,snapshot,load,draw,status,reset:()=>{devices=[];replays=[];people={host:fresh(),guest:fresh()};marks.clear();time=0;nextId=1;}};
+  return {cast,primary,projectileImpact,update,markHit,onKill,absorb,snapshot,load,draw,status,reset:()=>{devices=[];replays=[];visuals=[];sounds=[];people={host:fresh(),guest:fresh()};marks.clear();time=0;nextId=1;nextEventId=1;lastLoadedSoundId=0;impactReady.host=0;impactReady.guest=0;}};
 }
