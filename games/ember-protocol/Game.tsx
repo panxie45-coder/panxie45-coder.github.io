@@ -2431,8 +2431,10 @@ export default function Home() {
         setWaitingRoute(false);
         setBossLootNotice(`${WARZONE_BY_ID[data.route.id].icon} 已进入 ${WARZONE_BY_ID[data.route.id].title} · 持续至第 ${data.route.expiresAtWave} 波`);
       }
-      if (data.t === "pause" && !isAuthority) {
+      if (data.t === "pause") {
+        pausedRef.current = data.paused;
         setPaused(data.paused);
+        if (isAuthority && network?.connected()) void network.send({ t: "pause", paused: data.paused });
       }
       if (
         data.t === "gameover" &&
@@ -3126,12 +3128,13 @@ export default function Home() {
         e.preventDefault();
         tacticalCommandRef.current(selectedTacticalCommandRef.current);
       }
-      if (e.key === "Escape" && network?.role !== "join") {
-        setPaused((wasPaused) => {
-          const nextPaused = !wasPaused;
-          if (network?.connected()) void network.send({ t: "pause", paused: nextPaused });
-          return nextPaused;
-        });
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (e.repeat) return;
+        const nextPaused = !pausedRef.current;
+        pausedRef.current = nextPaused;
+        setPaused(nextPaused);
+        if (network?.connected()) void network.send({ t: "pause", paused: nextPaused });
       }
     };
     const up = (e: KeyboardEvent) => keys.delete(e.key.toLowerCase());
@@ -7097,7 +7100,7 @@ export default function Home() {
   };
   const resumeRun = () => {
     const currentNetwork = netRef.current;
-    if (currentNetwork?.role === "join") return;
+    pausedRef.current = false;
     setPaused(false);
     if (currentNetwork?.connected()) void currentNetwork.send({ t: "pause", paused: false });
   };
@@ -7237,7 +7240,7 @@ export default function Home() {
     <main className="shell" onPointerDownCapture={()=>wakeAudio()} onKeyDownCapture={()=>wakeAudio()}>
       <header className="topbar">
         <button className="brand" onClick={()=>void returnToMenu()} aria-label="返回主菜单"><span>余烬</span><b>协议</b></button>
-        <div className="status"><i /> 版本 0.21.1 · 新机甲特效与音效升级</div>
+        <div className="status"><i /> 版本 0.21.2 · 联机暂停修复</div>
         <div className={`audioControl ${audioOpen ? "open" : ""}`}>
           <button className="iconBtn" onClick={toggleSound} aria-label={sound ? "关闭声音" : "开启声音"} title={sound ? "声音已开启" : "声音已关闭"}>
             <span aria-hidden="true">{sound ? "♫" : "×"}</span>
@@ -7473,9 +7476,9 @@ export default function Home() {
         {waitingRoute && !routeChoices && <div className="overlay">
           <div className="pausePanel waitingUpgrade"><div className="eyebrow">战区路线同步</div><h2>队长正在规划路线</h2><p>路线的风险与收益会同步作用于全队；你的遗物套装仍按自己驾驶的机甲独立成长。</p><i className="waitingPulse"/></div>
         </div>}
-        {paused && !choices && !shopItems && !waitingSupply && !routeChoices && !waitingRoute && <div className="overlay"><div className={`pausePanel ${hp>0?"tacticalPause":""}`}><div className="eyebrow">{hp<=0?"远征终止":"火焰暂歇"}</div><h2>{hp<=0?"火种熄灭了":"游戏已暂停"}</h2><p>{hp<=0?`队伍坚持了 ${formatTime(seconds)}，共同净化了 ${kills} 只荒兽。`:signalMode==="join"?"等待队长继续远征。":"休息一下，荒原会等你。"}</p>
+        {paused && !choices && !shopItems && !waitingSupply && !routeChoices && !waitingRoute && <div className="overlay"><div className={`pausePanel ${hp>0?"tacticalPause":""}`}><div className="eyebrow">{hp<=0?"远征终止":"火焰暂歇"}</div><h2>{hp<=0?"火种熄灭了":"游戏已暂停"}</h2><p>{hp<=0?`队伍坚持了 ${formatTime(seconds)}，共同净化了 ${kills} 只荒兽。`:signalMode?"任意队员按 ESC 都可让全队继续。":"休息一下，荒原会等你。"}</p>
           {hp>0&&tacticalArchive}
-          {hp>0&&signalMode!=="join"&&<button className="primary compact" onClick={resumeRun}><span>全队继续</span></button>}
+          {hp>0&&<button className="primary compact" onClick={resumeRun}><span>全队继续</span></button>}
           {hp<=0&&signalMode!=="join"&&<button className="primary compact" onClick={restartRun}><span>全队再次点火</span></button>}
           <button className="textBtn" onClick={()=>void returnToMenu()}>返回主菜单</button></div></div>}
       </section>}

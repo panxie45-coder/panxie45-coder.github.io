@@ -45,7 +45,7 @@ test("server-renders the Ember Protocol game menu", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>余烬协议｜双人肉鸽生存游戏<\/title>/i);
-  assert.match(html, /版本 0\.21\.1 · 新机甲特效与音效升级/);
+  assert.match(html, /版本 0\.21\.2 · 联机暂停修复/);
   assert.match(html, /开始远征/);
   assert.match(html, /双人联机/);
   assert.match(html, /Q \/ 空格/);
@@ -165,6 +165,10 @@ test("ships twenty-one independent classes, evolutions, missions, bosses, and ge
   assert.match(page, /猎杀标记/);
   assert.match(page, /熔火地雷/);
   assert.match(page, /if \(e\.key\.toLowerCase\(\) === "e"\)/);
+  assert.match(page, /if \(e\.key === "Escape"\) \{\s+e\.preventDefault\(\);\s+if \(e\.repeat\) return;/);
+  assert.doesNotMatch(page, /e\.key === "Escape" && network\?\.role !== "join"/);
+  assert.match(page, /if \(data\.t === "pause"\) \{\s+pausedRef\.current = data\.paused;/);
+  assert.match(page, /任意队员按 ESC 都可让全队继续/);
   assert.match(page, /className="battleLoadoutPanel"/);
   assert.doesNotMatch(page, /className="combatSkillRack"/);
   assert.match(page, /const tacticalArchive = <section className="tacticalArchive"/);
